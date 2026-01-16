@@ -1,7 +1,7 @@
+use super::work_item::WorkItem;
+use crate::config::Config;
 use anyhow::{Context, Result};
 use reqwest::Client;
-use crate::config::Config;
-use super::work_item::WorkItem;
 
 pub struct AzureDevOpsClient {
     client: Client,
@@ -12,13 +12,17 @@ pub struct AzureDevOpsClient {
 impl AzureDevOpsClient {
     pub fn new(config: &Config) -> Result<Self> {
         let pat = Config::get_pat()?;
-        
+
         let client = Client::builder()
             .build()
             .context("Failed to create HTTP client")?;
 
         // Normalize the base URL (remove trailing slash)
-        let base_url = config.azure_devops.organization_url.trim_end_matches('/').to_string();
+        let base_url = config
+            .azure_devops
+            .organization_url
+            .trim_end_matches('/')
+            .to_string();
 
         Ok(Self {
             client,

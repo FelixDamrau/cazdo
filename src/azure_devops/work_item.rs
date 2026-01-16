@@ -1,8 +1,15 @@
 use anyhow::{Context, Result};
 use serde_json::Value;
 
+/// A rich text field from Azure DevOps (usually contains HTML)
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // Fields will be used in future features
+pub struct RichTextField {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct WorkItem {
     pub id: u32,
     pub title: String,
@@ -10,6 +17,9 @@ pub struct WorkItem {
     pub state: WorkItemState,
     pub assigned_to: Option<String>,
     pub url: Option<String>,
+    pub tags: Vec<String>,
+    /// Dynamic rich text fields (Description, Acceptance Criteria, Repro Steps, etc.)
+    pub rich_text_fields: Vec<RichTextField>,
 }
 
 #[derive(Debug, Clone)]
@@ -110,9 +120,25 @@ impl WorkItemState {
     }
 }
 
+/// Known rich text fields in Azure DevOps
+const RICH_TEXT_FIELDS: &[(&str, &str)] = &[
+    ("System.Description", "Description"),
+    (
+        "Microsoft.VSTS.Common.AcceptanceCriteria",
+        "Acceptance Criteria",
+    ),
+    ("Microsoft.VSTS.TCM.ReproSteps", "Repro Steps"),
+    ("Microsoft.VSTS.TCM.SystemInfo", "System Info"),
+    ("Microsoft.VSTS.Common.Resolution", "Resolution"),
+    ("Microsoft.VSTS.Build.FoundIn", "Found In"),
+    ("Microsoft.VSTS.Build.IntegrationBuild", "Integration Build"),
+];
+
 impl WorkItem {
     pub fn from_json(json: &Value, id: u32) -> Result<Self> {
-        let fields = json.get("fields").context("Missing 'fields' in work item response")?;
+        let fields = json
+            .get("fields")
+            .context("Missing 'fields' in work item response")?;
 
         let title = fields
             .get("System.Title")
@@ -143,6 +169,31 @@ impl WorkItem {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
+        // Parse tags (comma-separated string)
+        let tags: Vec<String> = fields
+            .get("System.Tags")
+            .and_then(|v| v.as_str())
+            .map(|s| {
+                s.split(';')
+                    .map(|t| t.trim().to_string())
+                    .filter(|t| !t.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // Parse all rich text fields that have values
+        let mut rich_text_fields = Vec::new();
+        for (field_name, display_name) in RICH_TEXT_FIELDS {
+            if let Some(value) = fields.get(*field_name).and_then(|v| v.as_str()) {
+                if !value.trim().is_empty() {
+                    rich_text_fields.push(RichTextField {
+                        name: display_name.to_string(),
+                        value: value.to_string(),
+                    });
+                }
+            }
+        }
+
         Ok(Self {
             id,
             title,
@@ -150,6 +201,8 @@ impl WorkItem {
             state: WorkItemState::from_str(state_str),
             assigned_to,
             url,
+            tags,
+            rich_text_fields,
         })
     }
 }

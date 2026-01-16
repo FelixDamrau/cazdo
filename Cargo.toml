@@ -27,6 +27,9 @@ git2 = "0.19"
 ratatui = "0.29"
 crossterm = "0.28"
 
+# Unicode width calculation for proper alignment
+unicode-width = "0.2"
+
 # Cross-platform config directories
 directories = "6"
 

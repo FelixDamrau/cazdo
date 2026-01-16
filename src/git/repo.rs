@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use git2::Repository;
+use git2::{BranchType, Repository};
 use regex::Regex;
 
 pub struct GitRepo {
@@ -17,7 +17,7 @@ impl GitRepo {
     /// Get the name of the current branch
     pub fn current_branch(&self) -> Result<String> {
         let head = self.repo.head().context("Failed to get HEAD reference")?;
-        
+
         if head.is_branch() {
             let branch_name = head
                 .shorthand()
@@ -30,6 +30,38 @@ impl GitRepo {
             let short_id = commit.id().to_string();
             Ok(format!("(detached HEAD at {})", &short_id[..7]))
         }
+    }
+
+    /// Get all local branches
+    pub fn list_branches(&self) -> Result<Vec<String>> {
+        let current = self.current_branch().ok();
+        let mut branches: Vec<String> = Vec::new();
+
+        let branch_iter = self
+            .repo
+            .branches(Some(BranchType::Local))
+            .context("Failed to list branches")?;
+
+        for branch_result in branch_iter {
+            let (branch, _) = branch_result.context("Failed to read branch")?;
+            if let Some(name) = branch.name().ok().flatten() {
+                branches.push(name.to_string());
+            }
+        }
+
+        // Sort branches, but put current branch first
+        branches.sort_by(|a, b| {
+            let a_current = current.as_ref().map(|c| c == a).unwrap_or(false);
+            let b_current = current.as_ref().map(|c| c == b).unwrap_or(false);
+
+            match (a_current, b_current) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => a.cmp(b),
+            }
+        });
+
+        Ok(branches)
     }
 
     /// Extract the first number from a branch name (work item number)
