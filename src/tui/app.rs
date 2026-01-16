@@ -99,4 +99,16 @@ impl App {
     pub fn set_work_item_error(&mut self, id: u32, error: String) {
         self.work_items.insert(id, WorkItemStatus::Error(error));
     }
+
+    /// Reset a work item status to allow refresh
+    pub fn reset_work_item(&mut self, id: u32) {
+        self.work_items.remove(&id);
+    }
+
+    /// Check if current branch has a work item (for showing refresh hint)
+    pub fn current_branch_has_work_item(&self) -> bool {
+        self.selected_branch()
+            .and_then(|b| b.work_item_id)
+            .is_some()
+    }
 }

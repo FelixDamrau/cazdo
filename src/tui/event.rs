@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::io;
 use std::time::Duration;
 
@@ -8,11 +9,18 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
+use tokio::sync::mpsc;
 
 use super::app::{App, WorkItemStatus};
 use super::ui;
-use crate::azure_devops::AzureDevOpsClient;
+use crate::azure_devops::{AzureDevOpsClient, WorkItem};
 use crate::config::Config;
+
+/// Message sent from background fetch tasks to the main loop
+enum FetchResult {
+    Success { id: u32, work_item: WorkItem },
+    Error { id: u32, error: String },
+}
 
 pub async fn run_app(mut app: App) -> Result<()> {
     // Setup terminal
@@ -26,8 +34,11 @@ pub async fn run_app(mut app: App) -> Result<()> {
     let config = Config::load()?;
     let client = AzureDevOpsClient::new(&config)?;
 
+    // Create channel for background fetch results
+    let (tx, rx) = mpsc::unbounded_channel::<FetchResult>();
+
     // Main loop
-    let result = run_loop(&mut terminal, &mut app, &client).await;
+    let result = run_loop(&mut terminal, &mut app, client, tx, rx).await;
 
     // Restore terminal
     disable_raw_mode()?;
@@ -44,22 +55,57 @@ pub async fn run_app(mut app: App) -> Result<()> {
 async fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
-    client: &AzureDevOpsClient,
+    client: AzureDevOpsClient,
+    tx: mpsc::UnboundedSender<FetchResult>,
+    mut rx: mpsc::UnboundedReceiver<FetchResult>,
 ) -> Result<()> {
     // Get terminal size for scroll calculations
-    let visible_height = terminal.size()?.height.saturating_sub(4); // Account for borders/footer
+    let visible_height = terminal.size()?.height.saturating_sub(4);
+
+    // Track which work items are currently being fetched to avoid duplicate requests
+    let mut pending_fetches: HashSet<u32> = HashSet::new();
 
     loop {
-        // Fetch work item for currently selected branch if needed
+        // Process any completed fetch results (non-blocking)
+        while let Ok(result) = rx.try_recv() {
+            match result {
+                FetchResult::Success { id, work_item } => {
+                    app.set_work_item_loaded(id, work_item);
+                    pending_fetches.remove(&id);
+                }
+                FetchResult::Error { id, error } => {
+                    app.set_work_item_error(id, error);
+                    pending_fetches.remove(&id);
+                }
+            }
+        }
+
+        // Check if we need to fetch work item for currently selected branch
         if let Some(branch) = app.selected_branch() {
             if let Some(wi_id) = branch.work_item_id {
-                if matches!(app.get_work_item_status(wi_id), WorkItemStatus::NotFetched) {
+                let status = app.get_work_item_status(wi_id);
+                if matches!(status, WorkItemStatus::NotFetched) && !pending_fetches.contains(&wi_id)
+                {
+                    // Mark as loading and spawn background fetch
                     app.set_work_item_loading(wi_id);
+                    pending_fetches.insert(wi_id);
 
-                    match client.get_work_item(wi_id).await {
-                        Ok(wi) => app.set_work_item_loaded(wi_id, wi),
-                        Err(e) => app.set_work_item_error(wi_id, e.to_string()),
-                    }
+                    let client = client.clone();
+                    let tx = tx.clone();
+
+                    tokio::spawn(async move {
+                        let result = match client.get_work_item(wi_id).await {
+                            Ok(work_item) => FetchResult::Success {
+                                id: wi_id,
+                                work_item,
+                            },
+                            Err(e) => FetchResult::Error {
+                                id: wi_id,
+                                error: e.to_string(),
+                            },
+                        };
+                        let _ = tx.send(result);
+                    });
                 }
             }
         }
@@ -67,15 +113,14 @@ async fn run_loop(
         // Draw UI
         terminal.draw(|frame| ui::render(frame, app))?;
 
-        // Handle input with timeout (to allow async operations)
-        if event::poll(Duration::from_millis(100))? {
+        // Handle input with timeout
+        if event::poll(Duration::from_millis(50))? {
             match event::read()? {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     match key.code {
                         KeyCode::Char('q') | KeyCode::Esc => app.quit(),
                         KeyCode::Down | KeyCode::Char('j') => {
                             if key.modifiers.contains(event::KeyModifiers::SHIFT) {
-                                // Shift+j = scroll down
                                 app.scroll_down(3, visible_height);
                             } else {
                                 app.next();
@@ -83,7 +128,6 @@ async fn run_loop(
                         }
                         KeyCode::Up | KeyCode::Char('k') => {
                             if key.modifiers.contains(event::KeyModifiers::SHIFT) {
-                                // Shift+k = scroll up
                                 app.scroll_up(3);
                             } else {
                                 app.previous();
@@ -94,17 +138,24 @@ async fn run_loop(
                         KeyCode::Char('d')
                             if key.modifiers.contains(event::KeyModifiers::CONTROL) =>
                         {
-                            // Ctrl+d = half page down (vim style)
                             app.scroll_down(visible_height / 2, visible_height);
                         }
                         KeyCode::Char('u')
                             if key.modifiers.contains(event::KeyModifiers::CONTROL) =>
                         {
-                            // Ctrl+u = half page up (vim style)
                             app.scroll_up(visible_height / 2);
                         }
                         KeyCode::Char('o') | KeyCode::Enter => {
                             open_current_work_item(app);
+                        }
+                        KeyCode::Char('r') => {
+                            // Refresh: reload current work item
+                            if let Some(branch) = app.selected_branch() {
+                                if let Some(wi_id) = branch.work_item_id {
+                                    pending_fetches.remove(&wi_id);
+                                    app.reset_work_item(wi_id);
+                                }
+                            }
                         }
                         KeyCode::Char('c')
                             if key.modifiers.contains(event::KeyModifiers::CONTROL) =>
@@ -138,7 +189,6 @@ fn open_current_work_item(app: &App) {
         if let Some(wi_id) = branch.work_item_id {
             if let WorkItemStatus::Loaded(wi) = app.get_work_item_status(wi_id) {
                 if let Some(ref url) = wi.url {
-                    // Use open crate or fallback to platform-specific commands
                     let _ = open_url(url);
                 }
             }

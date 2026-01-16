@@ -3,6 +3,7 @@ use crate::config::Config;
 use anyhow::{Context, Result};
 use reqwest::Client;
 
+#[derive(Clone)]
 pub struct AzureDevOpsClient {
     client: Client,
     base_url: String,

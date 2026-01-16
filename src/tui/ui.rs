@@ -41,18 +41,28 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
         String::new()
     };
 
-    let help_text = Line::from(vec![
-        Span::styled(" ↑/↓ ", Style::default().fg(Color::Cyan)),
+    let mut spans = vec![
+        Span::styled(" j/k ", Style::default().fg(Color::Cyan)),
         Span::raw("Navigate  "),
-        Span::styled(" o/Enter ", Style::default().fg(Color::Cyan)),
+        Span::styled(" o ", Style::default().fg(Color::Cyan)),
         Span::raw("Open  "),
         Span::styled(" PgUp/Dn ", Style::default().fg(Color::Cyan)),
         Span::raw("Scroll"),
         Span::styled(&scroll_info, Style::default().fg(Color::DarkGray)),
-        Span::raw("  "),
-        Span::styled(" q ", Style::default().fg(Color::Cyan)),
-        Span::raw("Quit"),
-    ]);
+    ];
+
+    // Show refresh hint if current branch has a work item
+    if app.current_branch_has_work_item() {
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(" r ", Style::default().fg(Color::Cyan)));
+        spans.push(Span::raw("Refresh"));
+    }
+
+    spans.push(Span::raw("  "));
+    spans.push(Span::styled(" q ", Style::default().fg(Color::Cyan)));
+    spans.push(Span::raw("Quit"));
+
+    let help_text = Line::from(spans);
 
     let paragraph = Paragraph::new(help_text).style(Style::default().fg(Color::DarkGray));
     frame.render_widget(paragraph, area);
