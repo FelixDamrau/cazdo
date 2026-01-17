@@ -207,11 +207,12 @@ fn render_work_item_details(frame: &mut Frame, app: &mut App, area: Rect, wi_id:
             let type_name = wi.work_item_type.display_name();
             let state_icon = wi.state.icon();
             let state_name = wi.state.display_name();
+            let state_color = wi.state.color();
             let max_width = area.width.saturating_sub(4) as usize;
 
+            // ID and Type
             let mut lines = vec![
                 Line::from(""),
-                // ID and Type
                 Line::from(vec![
                     Span::styled("  ", Style::default()),
                     Span::styled(
@@ -224,6 +225,36 @@ fn render_work_item_details(frame: &mut Frame, app: &mut App, area: Rect, wi_id:
                 ]),
             ];
 
+            // Metadata line: State • Assigned To • Tags (directly under ID/Type)
+            let mut meta_spans = vec![
+                Span::styled("  ", Style::default()),
+                Span::styled(
+                    format!("{} {}", state_icon, state_name),
+                    Style::default().fg(state_color),
+                ),
+            ];
+
+            // Add assigned to if present
+            if let Some(ref assigned) = wi.assigned_to {
+                meta_spans.push(Span::styled("  •  ", Style::default().fg(Color::DarkGray)));
+                meta_spans.push(Span::styled(
+                    assigned.clone(),
+                    Style::default().fg(Color::White),
+                ));
+            }
+
+            // Add tags if present
+            if !wi.tags.is_empty() {
+                meta_spans.push(Span::styled("  •  ", Style::default().fg(Color::DarkGray)));
+                meta_spans.push(Span::styled(
+                    wi.tags.join(", "),
+                    Style::default().fg(Color::Magenta),
+                ));
+            }
+
+            lines.push(Line::from(meta_spans));
+
+            // Blank line before title
             lines.push(Line::from(""));
 
             // Title (bold + underlined)
@@ -238,30 +269,6 @@ fn render_work_item_details(frame: &mut Frame, app: &mut App, area: Rect, wi_id:
                             .add_modifier(Modifier::BOLD)
                             .add_modifier(Modifier::UNDERLINED),
                     ),
-                ]));
-            }
-
-            // State
-            lines.push(Line::from(""));
-            lines.push(Line::from(vec![
-                Span::styled("  State: ", Style::default().fg(Color::DarkGray)),
-                Span::raw(format!("{} {}", state_icon, state_name)),
-            ]));
-
-            // Assigned To
-            if let Some(ref assigned) = wi.assigned_to {
-                lines.push(Line::from(vec![
-                    Span::styled("  Assigned To: ", Style::default().fg(Color::DarkGray)),
-                    Span::styled(assigned.clone(), Style::default().fg(Color::White)),
-                ]));
-            }
-
-            // Tags
-            if !wi.tags.is_empty() {
-                lines.push(Line::from(""));
-                lines.push(Line::from(vec![
-                    Span::styled("  Tags: ", Style::default().fg(Color::DarkGray)),
-                    Span::styled(wi.tags.join(", "), Style::default().fg(Color::Magenta)),
                 ]));
             }
 

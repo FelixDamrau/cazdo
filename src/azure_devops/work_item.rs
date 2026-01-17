@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use ratatui::style::Color;
 use serde_json::Value;
 
 /// A rich text field from Azure DevOps (usually contains HTML)
@@ -74,6 +75,8 @@ impl WorkItemType {
 #[derive(Debug, Clone)]
 pub enum WorkItemState {
     New,
+    Approved,
+    Committed,
     Active,
     Resolved,
     Closed,
@@ -86,6 +89,8 @@ impl WorkItemState {
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "new" => Self::New,
+            "approved" => Self::Approved,
+            "committed" => Self::Committed,
             "active" => Self::Active,
             "resolved" => Self::Resolved,
             "closed" => Self::Closed,
@@ -98,6 +103,8 @@ impl WorkItemState {
     pub fn icon(&self) -> &'static str {
         match self {
             Self::New => "🆕",
+            Self::Approved => "👍",
+            Self::Committed => "🎯",
             Self::Active => "🔵",
             Self::Resolved => "✅",
             Self::Closed => "✔️",
@@ -110,12 +117,26 @@ impl WorkItemState {
     pub fn display_name(&self) -> String {
         match self {
             Self::New => "New".to_string(),
+            Self::Approved => "Approved".to_string(),
+            Self::Committed => "Committed".to_string(),
             Self::Active => "Active".to_string(),
             Self::Resolved => "Resolved".to_string(),
             Self::Closed => "Closed".to_string(),
             Self::Removed => "Removed".to_string(),
             Self::Done => "Done".to_string(),
             Self::Other(s) => s.clone(),
+        }
+    }
+
+    pub fn color(&self) -> Color {
+        match self {
+            Self::New | Self::Approved => Color::Gray,
+            Self::Committed => Color::Blue,
+            Self::Active => Color::Cyan,
+            Self::Resolved => Color::Yellow,
+            Self::Closed | Self::Done => Color::Green,
+            Self::Removed => Color::DarkGray,
+            Self::Other(_) => Color::White,
         }
     }
 }
