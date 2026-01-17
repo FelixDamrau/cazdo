@@ -11,7 +11,7 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 use tokio::sync::mpsc;
 
-use super::app::{App, WorkItemStatus};
+use super::app::{App, AppMode, WorkItemStatus};
 use super::ui;
 use crate::azure_devops::{AzureDevOpsClient, WorkItem};
 use crate::config::Config;
@@ -51,6 +51,20 @@ pub async fn run_app(mut app: App, git_repo: GitRepo) -> Result<()> {
     )?;
     terminal.show_cursor()?;
 
+    // Print summary of deleted branches
+    if !app.deleted_branches.is_empty() {
+        println!("\nDeleted branches this session:");
+        for db in &app.deleted_branches {
+            println!(
+                "  • {} (was {}) - restore: git checkout -b {} {}",
+                db.name,
+                &db.commit_sha[..7],
+                db.name,
+                db.commit_sha
+            );
+        }
+    }
+
     result
 }
 
@@ -69,6 +83,9 @@ async fn run_loop(
     let mut pending_fetches: HashSet<u32> = HashSet::new();
 
     loop {
+        // Clear expired status messages
+        app.clear_expired_status();
+
         // Process any completed fetch results (non-blocking)
         while let Ok(result) = rx.try_recv() {
             match result {
@@ -130,60 +147,129 @@ async fn run_loop(
         if event::poll(Duration::from_millis(50))? {
             match event::read()? {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => app.quit(),
-                        KeyCode::Down | KeyCode::Char('j') => {
-                            if key.modifiers.contains(event::KeyModifiers::SHIFT) {
-                                app.scroll_down(3, visible_height);
-                            } else {
-                                app.next();
-                            }
-                        }
-                        KeyCode::Up | KeyCode::Char('k') => {
-                            if key.modifiers.contains(event::KeyModifiers::SHIFT) {
-                                app.scroll_up(3);
-                            } else {
-                                app.previous();
-                            }
-                        }
-                        KeyCode::PageDown => app.scroll_down(visible_height / 2, visible_height),
-                        KeyCode::PageUp => app.scroll_up(visible_height / 2),
-                        KeyCode::Char('d')
-                            if key.modifiers.contains(event::KeyModifiers::CONTROL) =>
-                        {
-                            app.scroll_down(visible_height / 2, visible_height);
-                        }
-                        KeyCode::Char('u')
-                            if key.modifiers.contains(event::KeyModifiers::CONTROL) =>
-                        {
-                            app.scroll_up(visible_height / 2);
-                        }
-                        KeyCode::Char('o') | KeyCode::Enter => {
-                            open_current_work_item(app);
-                        }
-                        KeyCode::Char('r') => {
-                            // Refresh: reload current work item
-                            if let Some(branch) = app.selected_branch() {
-                                if let Some(wi_id) = branch.work_item_id {
-                                    pending_fetches.remove(&wi_id);
-                                    app.reset_work_item(wi_id);
+                    match app.mode {
+                        AppMode::Normal => match key.code {
+                            KeyCode::Char('q') | KeyCode::Esc => app.quit(),
+                            KeyCode::Down | KeyCode::Char('j') => {
+                                if key.modifiers.contains(event::KeyModifiers::SHIFT) {
+                                    app.scroll_down(3, visible_height);
+                                } else {
+                                    app.next();
                                 }
                             }
+                            KeyCode::Up | KeyCode::Char('k') => {
+                                if key.modifiers.contains(event::KeyModifiers::SHIFT) {
+                                    app.scroll_up(3);
+                                } else {
+                                    app.previous();
+                                }
+                            }
+                            KeyCode::PageDown => {
+                                app.scroll_down(visible_height / 2, visible_height)
+                            }
+                            KeyCode::PageUp => app.scroll_up(visible_height / 2),
+                            KeyCode::Char('d')
+                                if key.modifiers.contains(event::KeyModifiers::CONTROL) =>
+                            {
+                                app.scroll_down(visible_height / 2, visible_height);
+                            }
+                            KeyCode::Char('u')
+                                if key.modifiers.contains(event::KeyModifiers::CONTROL) =>
+                            {
+                                app.scroll_up(visible_height / 2);
+                            }
+                            // Delete confirmation
+                            KeyCode::Char('d') => {
+                                if let Err(e) = app.can_delete_selected() {
+                                    app.set_status_message(e, true, 3);
+                                } else {
+                                    app.enter_delete_mode();
+                                }
+                            }
+                            // Immediate delete (Force/Shift)
+                            KeyCode::Char('D') => {
+                                if let Err(e) = app.can_delete_selected() {
+                                    app.set_status_message(e, true, 3);
+                                } else if let Some(branch) = app.selected_branch() {
+                                    let name = branch.name.clone();
+                                    match git_repo.delete_branch(&name) {
+                                        Ok(sha) => {
+                                            app.record_deleted_branch(name.clone(), sha.clone());
+                                            app.remove_branch(&name);
+                                            app.set_status_message(
+                                                format!("Deleted {} (was {})", name, &sha[..7]),
+                                                false,
+                                                4,
+                                            );
+                                        }
+                                        Err(e) => {
+                                            app.set_status_message(e.to_string(), true, 5);
+                                        }
+                                    }
+                                }
+                            }
+                            KeyCode::Char('o') | KeyCode::Enter => {
+                                open_current_work_item(app);
+                            }
+                            KeyCode::Char('r') => {
+                                // Refresh: reload current work item
+                                if let Some(branch) = app.selected_branch() {
+                                    if let Some(wi_id) = branch.work_item_id {
+                                        pending_fetches.remove(&wi_id);
+                                        app.reset_work_item(wi_id);
+                                    }
+                                }
+                            }
+                            KeyCode::Char('c')
+                                if key.modifiers.contains(event::KeyModifiers::CONTROL) =>
+                            {
+                                app.quit()
+                            }
+                            _ => {}
+                        },
+                        AppMode::ConfirmDelete(ref branch_name) => {
+                            let branch_name = branch_name.clone();
+                            match key.code {
+                                KeyCode::Char('y') | KeyCode::Enter => {
+                                    match git_repo.delete_branch(&branch_name) {
+                                        Ok(sha) => {
+                                            app.record_deleted_branch(
+                                                branch_name.clone(),
+                                                sha.clone(),
+                                            );
+                                            app.remove_branch(&branch_name);
+                                            app.set_status_message(
+                                                format!(
+                                                    "Deleted {} (was {})",
+                                                    branch_name,
+                                                    &sha[..7]
+                                                ),
+                                                false,
+                                                4,
+                                            );
+                                        }
+                                        Err(e) => {
+                                            app.set_status_message(e.to_string(), true, 5);
+                                        }
+                                    }
+                                    app.cancel_mode();
+                                }
+                                KeyCode::Char('n') | KeyCode::Esc | KeyCode::Char('q') => {
+                                    app.cancel_mode();
+                                }
+                                _ => {}
+                            }
                         }
-                        KeyCode::Char('c')
-                            if key.modifiers.contains(event::KeyModifiers::CONTROL) =>
-                        {
-                            app.quit()
-                        }
-                        _ => {}
                     }
                 }
                 Event::Mouse(mouse_event) => {
                     use crossterm::event::MouseEventKind;
-                    match mouse_event.kind {
-                        MouseEventKind::ScrollDown => app.scroll_down(3, visible_height),
-                        MouseEventKind::ScrollUp => app.scroll_up(3),
-                        _ => {}
+                    if app.is_normal_mode() {
+                        match mouse_event.kind {
+                            MouseEventKind::ScrollDown => app.scroll_down(3, visible_height),
+                            MouseEventKind::ScrollUp => app.scroll_up(3),
+                            _ => {}
+                        }
                     }
                 }
                 _ => {}

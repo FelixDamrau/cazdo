@@ -1,6 +1,29 @@
 use crate::azure_devops::WorkItem;
 use crate::git::BranchStatus;
 use std::collections::HashMap;
+use std::time::Instant;
+
+/// Application mode for modal dialogs
+#[derive(Debug, Clone)]
+pub enum AppMode {
+    Normal,
+    ConfirmDelete(String), // branch name to delete
+}
+
+/// Deleted branch info for summary on exit
+#[derive(Debug, Clone)]
+pub struct DeletedBranch {
+    pub name: String,
+    pub commit_sha: String,
+}
+
+/// Status message with expiration
+#[derive(Debug, Clone)]
+pub struct StatusMessage {
+    pub text: String,
+    pub is_error: bool,
+    pub expires_at: Instant,
+}
 
 /// Branch info with optional work item
 #[derive(Debug, Clone)]
@@ -30,6 +53,9 @@ pub struct App {
     pub should_quit: bool,
     pub scroll_offset: u16,
     pub content_height: u16, // Total height of content for scroll bounds
+    pub mode: AppMode,
+    pub status_message: Option<StatusMessage>,
+    pub deleted_branches: Vec<DeletedBranch>,
 }
 
 impl App {
@@ -42,6 +68,9 @@ impl App {
             should_quit: false,
             scroll_offset: 0,
             content_height: 0,
+            mode: AppMode::Normal,
+            status_message: None,
+            deleted_branches: Vec::new(),
         }
     }
 
@@ -128,5 +157,83 @@ impl App {
     /// Check if branch status needs to be fetched
     pub fn needs_branch_status(&self, name: &str) -> bool {
         !self.branch_statuses.contains_key(name)
+    }
+
+    /// Enter delete confirmation mode for the selected branch
+    pub fn enter_delete_mode(&mut self) {
+        if let Some(branch) = self.selected_branch() {
+            self.mode = AppMode::ConfirmDelete(branch.name.clone());
+        }
+    }
+
+    /// Cancel any modal and return to normal mode
+    pub fn cancel_mode(&mut self) {
+        self.mode = AppMode::Normal;
+    }
+
+    /// Check if we're in normal mode
+    pub fn is_normal_mode(&self) -> bool {
+        matches!(self.mode, AppMode::Normal)
+    }
+
+    /// Set a status message that expires after a duration
+    pub fn set_status_message(&mut self, text: String, is_error: bool, duration_secs: u64) {
+        self.status_message = Some(StatusMessage {
+            text,
+            is_error,
+            expires_at: Instant::now() + std::time::Duration::from_secs(duration_secs),
+        });
+    }
+
+    /// Get the current status message if not expired
+    pub fn get_status_message(&self) -> Option<&StatusMessage> {
+        self.status_message
+            .as_ref()
+            .filter(|m| m.expires_at > Instant::now())
+    }
+
+    /// Clear expired status message
+    pub fn clear_expired_status(&mut self) {
+        if let Some(ref msg) = self.status_message {
+            if msg.expires_at <= Instant::now() {
+                self.status_message = None;
+            }
+        }
+    }
+
+    /// Record a deleted branch for summary on exit
+    pub fn record_deleted_branch(&mut self, name: String, commit_sha: String) {
+        self.deleted_branches
+            .push(DeletedBranch { name, commit_sha });
+    }
+
+    /// Remove a branch from the list by name and adjust selected index
+    pub fn remove_branch(&mut self, name: &str) {
+        if let Some(pos) = self.branches.iter().position(|b| b.name == name) {
+            self.branches.remove(pos);
+            // Adjust selected index if needed
+            if self.selected_index >= self.branches.len() && !self.branches.is_empty() {
+                self.selected_index = self.branches.len() - 1;
+            }
+        }
+    }
+
+    /// Check if the selected branch can be deleted
+    /// Returns Ok(()) if deletable, Err(reason) if not
+    pub fn can_delete_selected(&self) -> Result<(), String> {
+        let Some(branch) = self.selected_branch() else {
+            return Err("No branch selected".to_string());
+        };
+
+        if branch.is_current {
+            return Err("Cannot delete the current branch".to_string());
+        }
+
+        let protected = ["main", "master"];
+        if protected.contains(&branch.name.as_str()) {
+            return Err(format!("Cannot delete protected branch '{}'", branch.name));
+        }
+
+        Ok(())
     }
 }

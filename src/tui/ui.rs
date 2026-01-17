@@ -11,7 +11,7 @@ use ratatui::{
     },
 };
 
-use super::app::{App, WorkItemStatus};
+use super::app::{App, AppMode, WorkItemStatus};
 use super::html_render::render_html;
 use crate::git::RemoteStatus;
 
@@ -38,42 +38,136 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     render_details(frame, app, right_chunks[0]);
     render_branch_info(frame, app, right_chunks[1]);
     render_footer(frame, app, main_chunks[1]);
+
+    // Render popup if needed
+    if let AppMode::ConfirmDelete(ref branch_name) = app.mode {
+        let area = centered_rect(frame.area(), 60, 20);
+        render_delete_popup(frame, branch_name, area);
+    }
+}
+
+fn centered_rect(r: Rect, percent_x: u16, percent_y: u16) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
+}
+
+fn render_delete_popup(frame: &mut Frame, branch_name: &str, area: Rect) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Red))
+        .title(Line::from(vec![Span::styled(
+            " Delete Branch ",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        )]));
+
+    let content = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("Are you sure you want to delete branch "),
+            Span::styled(
+                branch_name,
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("?"),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("Press "),
+            Span::styled(
+                "y",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" to confirm"),
+        ]),
+        Line::from(vec![
+            Span::raw("Press "),
+            Span::styled(
+                "n",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" or "),
+            Span::styled(
+                "Esc",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" to cancel"),
+        ]),
+    ];
+
+    let paragraph = Paragraph::new(content)
+        .block(block)
+        .alignment(ratatui::layout::Alignment::Center);
+
+    frame.render_widget(Clear, area); // Clear background
+    frame.render_widget(paragraph, area);
 }
 
 fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
-    let scroll_info = if app.content_height > area.height {
-        format!(
-            " [{}/{}]",
-            app.scroll_offset + 1,
-            app.content_height.saturating_sub(area.height) + 1
-        )
+    // Check for active status message
+    if let Some(msg) = app.get_status_message() {
+        let style = if msg.is_error {
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD)
+        };
+        let paragraph = Paragraph::new(Line::from(vec![Span::styled(&msg.text, style)]));
+        frame.render_widget(paragraph, area);
+        return;
+    }
+
+    let refresh_available = app.current_branch_has_work_item();
+    let refresh_style = if refresh_available {
+        Style::default().fg(Color::Cyan)
     } else {
-        String::new()
+        Style::default().fg(Color::DarkGray)
+    };
+    let refresh_text_style = if refresh_available {
+        Style::default().fg(Color::DarkGray)
+    } else {
+        Style::default()
+            .fg(Color::DarkGray)
+            .add_modifier(Modifier::DIM)
     };
 
-    let mut spans = vec![
+    let spans = vec![
         Span::styled(" j/k ", Style::default().fg(Color::Cyan)),
         Span::raw("Navigate  "),
         Span::styled(" o ", Style::default().fg(Color::Cyan)),
         Span::raw("Open  "),
         Span::styled(" PgUp/Dn ", Style::default().fg(Color::Cyan)),
-        Span::raw("Scroll"),
-        Span::styled(&scroll_info, Style::default().fg(Color::DarkGray)),
+        Span::raw("Scroll  "),
+        Span::styled(" d ", Style::default().fg(Color::Cyan)),
+        Span::raw("Delete  "),
+        Span::styled(" r ", refresh_style),
+        Span::styled("Refresh  ", refresh_text_style),
+        Span::styled(" q ", Style::default().fg(Color::Cyan)),
+        Span::raw("Quit"),
     ];
 
-    // Show refresh hint if current branch has a work item
-    if app.current_branch_has_work_item() {
-        spans.push(Span::raw("  "));
-        spans.push(Span::styled(" r ", Style::default().fg(Color::Cyan)));
-        spans.push(Span::raw("Refresh"));
-    }
-
-    spans.push(Span::raw("  "));
-    spans.push(Span::styled(" q ", Style::default().fg(Color::Cyan)));
-    spans.push(Span::raw("Quit"));
-
     let help_text = Line::from(spans);
-
     let paragraph = Paragraph::new(help_text).style(Style::default().fg(Color::DarkGray));
     frame.render_widget(paragraph, area);
 }
@@ -129,6 +223,27 @@ fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
 fn render_details(frame: &mut Frame, app: &mut App, area: Rect) {
     let selected = app.selected_branch().cloned();
 
+    // Calculate inner area first to determine visible height
+    let inner = Block::default().borders(Borders::ALL).inner(area);
+    let visible_height = inner.height;
+
+    // Build scroll info for bottom border (only if scrollable)
+    let scroll_title = if app.content_height > visible_height {
+        Line::from(vec![
+            Span::styled(
+                format!(
+                    " {}/{} ",
+                    app.scroll_offset + 1,
+                    app.content_height.saturating_sub(visible_height) + 1
+                ),
+                Style::default().fg(Color::DarkGray),
+            ),
+            Span::styled("─", Style::default().fg(Color::Cyan)),
+        ])
+    } else {
+        Line::default()
+    };
+
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan))
@@ -137,9 +252,9 @@ fn render_details(frame: &mut Frame, app: &mut App, area: Rect) {
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
-        )]));
+        )]))
+        .title_bottom(scroll_title.right_aligned());
 
-    let inner = block.inner(area);
     frame.render_widget(block, area);
 
     // Clear the inner area before rendering new content

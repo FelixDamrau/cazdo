@@ -168,4 +168,41 @@ impl GitRepo {
             Err(_) => RemoteStatus::LocalOnly,
         }
     }
+
+    /// Delete a local branch and return the commit SHA it was pointing to
+    /// Returns an error if trying to delete the current branch or main/master
+    pub fn delete_branch(&self, branch_name: &str) -> Result<String> {
+        // Check if trying to delete protected branches
+        let protected = ["main", "master"];
+        if protected.contains(&branch_name) {
+            anyhow::bail!("Cannot delete protected branch '{}'", branch_name);
+        }
+
+        // Check if trying to delete the current branch
+        let current = self.current_branch()?;
+        if current == branch_name {
+            anyhow::bail!("Cannot delete the current branch");
+        }
+
+        // Find the branch
+        let mut branch = self
+            .repo
+            .find_branch(branch_name, BranchType::Local)
+            .with_context(|| format!("Branch '{}' not found", branch_name))?;
+
+        // Get the commit SHA before deletion
+        let commit_sha = branch
+            .get()
+            .resolve()
+            .and_then(|r| r.peel_to_commit())
+            .map(|c| c.id().to_string())
+            .with_context(|| format!("Failed to get commit for branch '{}'", branch_name))?;
+
+        // Delete the branch
+        branch
+            .delete()
+            .with_context(|| format!("Failed to delete branch '{}'", branch_name))?;
+
+        Ok(commit_sha)
+    }
 }
