@@ -1,0 +1,77 @@
+# cazdo
+
+Azure DevOps work item viewer for git branches. A terminal UI that displays work item details based on branch naming conventions.
+
+## Configuration
+
+### Config File
+
+| Platform | Path |
+|----------|------|
+| Linux | `~/.config/cazdo/config.toml` |
+| macOS | `~/Library/Application Support/cazdo/config.toml` |
+| Windows | `%APPDATA%\cazdo\config.toml` |
+
+Example config:
+
+```toml
+[azure_devops]
+organization_url = "https://dev.azure.com/your-org"
+```
+
+Or run `cazdo config` to set up interactively.
+
+### Personal Access Token
+
+Set the `CAZDO_PAT` environment variable with your Azure DevOps PAT:
+
+```bash
+export CAZDO_PAT="your-pat-token"
+```
+
+The PAT needs **Work Items (Read)** scope.
+
+## Usage
+
+```bash
+# Interactive TUI - browse all branches and their work items
+cazdo
+
+# One-shot - show work item for current branch only
+cazdo wi-info
+
+# Configure interactively
+cazdo config
+
+# Show current configuration
+cazdo config --show
+```
+
+## Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` / `Arrow keys` | Navigate branches |
+| `o` / `Enter` | Open work item in browser |
+| `r` | Refresh current work item |
+| `PgUp` / `PgDn` | Scroll work item details |
+| `Ctrl+u` / `Ctrl+d` | Scroll half page (vim-style) |
+| `q` / `Esc` | Quit |
+
+## Branch Naming
+
+cazdo extracts work item IDs from branch names using these patterns:
+
+| Branch Name | Detected WI |
+|-------------|-------------|
+| `wi123` | #123 |
+| `WI-456` | #456 |
+| `feature/wi123-add-login` | #123 |
+| `user/john/WI-789` | #789 |
+| `bugfix/wi42` | #42 |
+
+Pattern: `wi` or `WI` followed by optional `-`, then digits.
+
+## License
+
+MIT
