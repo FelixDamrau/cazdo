@@ -24,16 +24,17 @@ enum FetchResult {
 }
 
 pub async fn run_app(mut app: App, git_repo: GitRepo) -> Result<()> {
-    // Setup terminal
+    // Load config and create client BEFORE terminal setup
+    // This ensures errors (like missing CAZDO_PAT) display cleanly
+    let config = Config::load()?;
+    let client = AzureDevOpsClient::new(&config)?;
+
+    // Setup terminal (only after config validation succeeds)
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-
-    // Load config and create client
-    let config = Config::load()?;
-    let client = AzureDevOpsClient::new(&config)?;
 
     // Create channel for background fetch results
     let (tx, rx) = mpsc::unbounded_channel::<FetchResult>();
