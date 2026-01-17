@@ -49,12 +49,12 @@ impl WorkItemType {
 
     pub fn icon(&self) -> &'static str {
         match self {
-            Self::Bug => "🐛",
-            Self::ProductBacklogItem => "📋",
+            Self::Bug => "🐞",
+            Self::ProductBacklogItem => "📘",
             Self::UserStory => "📖",
-            Self::Task => "📌",
-            Self::Feature => "🎯",
-            Self::Epic => "🏔️",
+            Self::Task => "📒",
+            Self::Feature => "🏆",
+            Self::Epic => "👑",
             Self::Other(_) => "📄",
         }
     }
@@ -106,7 +106,7 @@ impl WorkItemState {
             Self::Approved => "👍",
             Self::Committed => "🎯",
             Self::Active => "🔵",
-            Self::Resolved => "✅",
+            Self::Resolved => "☑️",
             Self::Closed => "✔️",
             Self::Removed => "🗑️",
             Self::Done => "✅",
