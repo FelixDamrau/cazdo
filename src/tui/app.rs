@@ -1,4 +1,5 @@
 use crate::azure_devops::WorkItem;
+use crate::git::BranchStatus;
 use std::collections::HashMap;
 
 /// Branch info with optional work item
@@ -25,6 +26,7 @@ pub struct App {
     pub branches: Vec<BranchInfo>,
     pub selected_index: usize,
     pub work_items: HashMap<u32, WorkItemStatus>,
+    pub branch_statuses: HashMap<String, BranchStatus>,
     pub should_quit: bool,
     pub scroll_offset: u16,
     pub content_height: u16, // Total height of content for scroll bounds
@@ -36,6 +38,7 @@ impl App {
             branches,
             selected_index: 0,
             work_items: HashMap::new(),
+            branch_statuses: HashMap::new(),
             should_quit: false,
             scroll_offset: 0,
             content_height: 0,
@@ -110,5 +113,20 @@ impl App {
         self.selected_branch()
             .and_then(|b| b.work_item_id)
             .is_some()
+    }
+
+    /// Get cached branch status
+    pub fn get_branch_status(&self, name: &str) -> Option<&BranchStatus> {
+        self.branch_statuses.get(name)
+    }
+
+    /// Cache branch status
+    pub fn set_branch_status(&mut self, name: String, status: BranchStatus) {
+        self.branch_statuses.insert(name, status);
+    }
+
+    /// Check if branch status needs to be fetched
+    pub fn needs_branch_status(&self, name: &str) -> bool {
+        !self.branch_statuses.contains_key(name)
     }
 }

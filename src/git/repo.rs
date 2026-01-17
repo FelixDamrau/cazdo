@@ -2,6 +2,31 @@ use anyhow::{Context, Result};
 use git2::{BranchType, Repository};
 use regex::Regex;
 
+/// Remote tracking status for a branch
+#[derive(Debug, Clone)]
+pub enum RemoteStatus {
+    /// No upstream configured
+    LocalOnly,
+    /// Synced with remote
+    UpToDate,
+    /// Local has commits not on remote
+    Ahead(usize),
+    /// Remote has commits not on local
+    Behind(usize),
+    /// Both local and remote have diverged
+    Diverged { ahead: usize, behind: usize },
+    /// Upstream configured but ref doesn't exist
+    Gone,
+}
+
+/// Branch status information
+#[derive(Debug, Clone)]
+pub struct BranchStatus {
+    pub remote_status: RemoteStatus,
+    pub last_commit_author: Option<String>,
+    pub last_commit_time: Option<i64>, // Unix timestamp
+}
+
 pub struct GitRepo {
     repo: Repository,
 }
@@ -69,5 +94,78 @@ impl GitRepo {
         let re = Regex::new(r"\d+").ok()?;
         let captures = re.find(branch_name)?;
         captures.as_str().parse().ok()
+    }
+
+    /// Get status information for a branch
+    pub fn get_branch_status(&self, branch_name: &str) -> Result<BranchStatus> {
+        let branch = self
+            .repo
+            .find_branch(branch_name, BranchType::Local)
+            .with_context(|| format!("Branch '{}' not found", branch_name))?;
+
+        // Get last commit info
+        let (last_commit_author, last_commit_time) = if let Ok(reference) = branch.get().resolve() {
+            if let Ok(commit) = reference.peel_to_commit() {
+                let author = commit.author();
+                let name = author.name().map(|s| s.to_string());
+                let time = commit.time().seconds();
+                (name, Some(time))
+            } else {
+                (None, None)
+            }
+        } else {
+            (None, None)
+        };
+
+        // Get remote tracking status
+        let remote_status = self.get_remote_status(&branch);
+
+        Ok(BranchStatus {
+            remote_status,
+            last_commit_author,
+            last_commit_time,
+        })
+    }
+
+    /// Determine the remote tracking status for a branch
+    fn get_remote_status(&self, branch: &git2::Branch) -> RemoteStatus {
+        // Try to get upstream branch
+        let upstream = match branch.upstream() {
+            Ok(upstream) => upstream,
+            Err(e) => {
+                // Check if upstream was configured but is now gone
+                if e.code() == git2::ErrorCode::NotFound {
+                    // Try to check if there's upstream config for this branch
+                    if let Some(ref_name) = branch.get().name() {
+                        if self.repo.branch_upstream_name(ref_name).is_ok() {
+                            return RemoteStatus::Gone;
+                        }
+                    }
+                }
+                return RemoteStatus::LocalOnly;
+            }
+        };
+
+        // Get OIDs for comparison
+        let local_oid = match branch.get().resolve().and_then(|r| r.peel_to_commit()) {
+            Ok(commit) => commit.id(),
+            Err(_) => return RemoteStatus::LocalOnly,
+        };
+
+        let remote_oid = match upstream.get().resolve().and_then(|r| r.peel_to_commit()) {
+            Ok(commit) => commit.id(),
+            Err(_) => return RemoteStatus::Gone,
+        };
+
+        // Calculate ahead/behind
+        match self.repo.graph_ahead_behind(local_oid, remote_oid) {
+            Ok((ahead, behind)) => match (ahead, behind) {
+                (0, 0) => RemoteStatus::UpToDate,
+                (ahead, 0) => RemoteStatus::Ahead(ahead),
+                (0, behind) => RemoteStatus::Behind(behind),
+                (ahead, behind) => RemoteStatus::Diverged { ahead, behind },
+            },
+            Err(_) => RemoteStatus::LocalOnly,
+        }
     }
 }

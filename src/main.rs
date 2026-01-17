@@ -68,7 +68,7 @@ mod commands {
         }
 
         let app = App::new(branch_infos);
-        run_app(app).await?;
+        run_app(app, repo).await?;
 
         Ok(())
     }

@@ -15,6 +15,7 @@ use super::app::{App, WorkItemStatus};
 use super::ui;
 use crate::azure_devops::{AzureDevOpsClient, WorkItem};
 use crate::config::Config;
+use crate::git::GitRepo;
 
 /// Message sent from background fetch tasks to the main loop
 enum FetchResult {
@@ -22,7 +23,7 @@ enum FetchResult {
     Error { id: u32, error: String },
 }
 
-pub async fn run_app(mut app: App) -> Result<()> {
+pub async fn run_app(mut app: App, git_repo: GitRepo) -> Result<()> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -38,7 +39,7 @@ pub async fn run_app(mut app: App) -> Result<()> {
     let (tx, rx) = mpsc::unbounded_channel::<FetchResult>();
 
     // Main loop
-    let result = run_loop(&mut terminal, &mut app, client, tx, rx).await;
+    let result = run_loop(&mut terminal, &mut app, client, tx, rx, &git_repo).await;
 
     // Restore terminal
     disable_raw_mode()?;
@@ -58,6 +59,7 @@ async fn run_loop(
     client: AzureDevOpsClient,
     tx: mpsc::UnboundedSender<FetchResult>,
     mut rx: mpsc::UnboundedReceiver<FetchResult>,
+    git_repo: &GitRepo,
 ) -> Result<()> {
     // Get terminal size for scroll calculations
     let visible_height = terminal.size()?.height.saturating_sub(4);
@@ -106,6 +108,16 @@ async fn run_loop(
                         };
                         let _ = tx.send(result);
                     });
+                }
+            }
+        }
+
+        // Fetch branch status for currently selected branch if needed (synchronous - git is fast)
+        if let Some(branch) = app.selected_branch() {
+            let branch_name = branch.name.clone();
+            if app.needs_branch_status(&branch_name) {
+                if let Ok(status) = git_repo.get_branch_status(&branch_name) {
+                    app.set_branch_status(branch_name, status);
                 }
             }
         }

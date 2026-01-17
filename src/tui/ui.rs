@@ -1,3 +1,5 @@
+use chrono::{TimeZone, Utc};
+use chrono_humanize::HumanTime;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -11,6 +13,7 @@ use ratatui::{
 
 use super::app::{App, WorkItemStatus};
 use super::html_render::render_html;
+use crate::git::RemoteStatus;
 
 pub fn render(frame: &mut Frame, app: &mut App) {
     // Split into main area and footer
@@ -19,14 +22,21 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         .constraints([Constraint::Min(0), Constraint::Length(1)])
         .split(frame.area());
 
-    // Split main area into left (branches) and right (details) panels
+    // Split main area into left (branches) and right panels
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
         .split(main_chunks[0]);
 
+    // Split right panel into work item details (top, scrollable) and branch info (bottom, fixed)
+    let right_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(5)])
+        .split(chunks[1]);
+
     render_branches(frame, app, chunks[0]);
-    render_details(frame, app, chunks[1]);
+    render_details(frame, app, right_chunks[0]);
+    render_branch_info(frame, app, right_chunks[1]);
     render_footer(frame, app, main_chunks[1]);
 }
 
@@ -141,7 +151,7 @@ fn render_details(frame: &mut Frame, app: &mut App, area: Rect) {
                 render_work_item_details(frame, app, inner, wi_id);
             }
             None => {
-                let text = Paragraph::new(vec![
+                let lines = vec![
                     Line::from(""),
                     Line::from(Span::styled(
                         "  No work item linked to this branch",
@@ -149,13 +159,10 @@ fn render_details(frame: &mut Frame, app: &mut App, area: Rect) {
                             .fg(Color::DarkGray)
                             .add_modifier(Modifier::ITALIC),
                     )),
-                    Line::from(""),
-                    Line::from(vec![
-                        Span::styled("  Branch: ", Style::default().fg(Color::DarkGray)),
-                        Span::styled(&branch.name, Style::default().fg(Color::Green)),
-                    ]),
-                ]);
-                app.set_content_height(4);
+                ];
+
+                app.set_content_height(lines.len() as u16);
+                let text = Paragraph::new(lines);
                 frame.render_widget(text, inner);
             }
         }
@@ -333,4 +340,90 @@ fn wrap_text(s: &str, max_width: usize) -> Vec<String> {
     }
 
     lines
+}
+
+/// Format relative time from Unix timestamp
+fn format_relative_time(timestamp: i64) -> String {
+    match Utc.timestamp_opt(timestamp, 0) {
+        chrono::LocalResult::Single(dt) => HumanTime::from(dt).to_string(),
+        _ => "unknown".to_string(),
+    }
+}
+
+/// Format remote status for display
+fn format_remote_status(status: &RemoteStatus) -> (String, Color) {
+    match status {
+        RemoteStatus::LocalOnly => ("local only".to_string(), Color::DarkGray),
+        RemoteStatus::UpToDate => ("up to date".to_string(), Color::Green),
+        RemoteStatus::Ahead(n) => (format!("↑{}", n), Color::Yellow),
+        RemoteStatus::Behind(n) => (format!("↓{}", n), Color::Yellow),
+        RemoteStatus::Diverged { ahead, behind } => {
+            (format!("↑{} ↓{}", ahead, behind), Color::Yellow)
+        }
+        RemoteStatus::Gone => ("remote gone".to_string(), Color::Red),
+    }
+}
+
+/// Render the branch info panel
+fn render_branch_info(frame: &mut Frame, app: &App, area: Rect) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(Line::from(vec![Span::styled(
+            " Branch Info ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )]));
+
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    if let Some(branch) = app.selected_branch() {
+        // Branch name
+        lines.push(Line::from(vec![
+            Span::styled("  ", Style::default()),
+            Span::styled(
+                &branch.name,
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+
+        // Remote status and last commit
+        if let Some(status) = app.get_branch_status(&branch.name) {
+            let (remote_text, remote_color) = format_remote_status(&status.remote_status);
+
+            // Last commit info on same line as remote if available
+            if let (Some(author), Some(time)) =
+                (&status.last_commit_author, status.last_commit_time)
+            {
+                let relative_time = format_relative_time(time);
+                lines.push(Line::from(vec![
+                    Span::styled("  Remote: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(remote_text, Style::default().fg(remote_color)),
+                    Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(author.clone(), Style::default().fg(Color::White)),
+                    Span::styled(", ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(relative_time, Style::default().fg(Color::DarkGray)),
+                ]));
+            } else {
+                lines.push(Line::from(vec![
+                    Span::styled("  Remote: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(remote_text, Style::default().fg(remote_color)),
+                ]));
+            }
+        } else {
+            lines.push(Line::from(vec![Span::styled(
+                "  Loading...",
+                Style::default().fg(Color::DarkGray),
+            )]));
+        }
+    }
+
+    let paragraph = Paragraph::new(lines);
+    frame.render_widget(paragraph, inner);
 }

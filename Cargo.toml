@@ -40,6 +40,10 @@ anyhow = "1"
 # Regex for WI number extraction
 regex = "1"
 
+# Date/time handling
+chrono = "0.4"
+chrono-humanize = "0.2"
+
 [profile.release]
 strip = true
 lto = true
