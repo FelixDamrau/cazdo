@@ -1,5 +1,7 @@
 # cazdo
 
+![CI](https://github.com/FelixDamrau/cazdo/actions/workflows/ci.yml/badge.svg)
+
 Azure DevOps work item viewer for git branches. A terminal UI that displays work item details based on branch naming conventions.
 
 ## Installation
