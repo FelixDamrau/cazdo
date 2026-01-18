@@ -56,9 +56,6 @@ The PAT needs **Work Items (Read)** scope.
 # Interactive TUI - browse all branches and their work items
 cazdo
 
-# One-shot - show work item for current branch only
-cazdo wi-info
-
 # Configure interactively
 cazdo config
 
