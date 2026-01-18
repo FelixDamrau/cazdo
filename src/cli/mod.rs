@@ -15,9 +15,6 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Show work item info for current branch (default command)
-    WiInfo,
-
     /// Configure cazdo settings
     Config {
         #[arg(long)]

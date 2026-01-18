@@ -1,8 +1,6 @@
-use crate::azure_devops::AzureDevOpsClient;
 use crate::config::Config;
 use crate::git::GitRepo;
 use crate::tui::{App, BranchInfo, run_app};
-use crate::ui;
 use anyhow::{Context, Result, bail};
 
 pub async fn interactive() -> Result<()> {
@@ -31,36 +29,6 @@ pub async fn interactive() -> Result<()> {
 
     let app = App::new(branch_infos);
     run_app(app, repo).await?;
-
-    Ok(())
-}
-
-pub async fn wi_info() -> Result<()> {
-    let config = Config::load().context("Failed to load configuration")?;
-
-    let repo = GitRepo::open_current_dir().context("Failed to open git repository")?;
-    let branch = repo
-        .current_branch()
-        .context("Failed to get current branch")?;
-
-    let wi_number = match repo.extract_work_item_number(&branch) {
-        Some(n) => n,
-        None => {
-            ui::render_branch_only(&branch)?;
-            return Ok(());
-        }
-    };
-
-    let client = AzureDevOpsClient::new(&config)?;
-    let work_item = match client.get_work_item(wi_number).await {
-        Ok(wi) => wi,
-        Err(e) => {
-            ui::render_error(&format!("Failed to fetch work item #{}: {}", wi_number, e))?;
-            return Ok(());
-        }
-    };
-
-    ui::render_work_item(&work_item, &branch)?;
 
     Ok(())
 }
