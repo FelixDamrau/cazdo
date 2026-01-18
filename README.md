@@ -2,6 +2,25 @@
 
 Azure DevOps work item viewer for git branches. A terminal UI that displays work item details based on branch naming conventions.
 
+## Installation
+
+### Linux & macOS
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/FelixDamrau/cazdo/releases/latest/download/cazdo-installer.sh | sh
+```
+
+### Windows (PowerShell)
+```powershell
+powershell -c "irm https://github.com/FelixDamrau/cazdo/releases/latest/download/cazdo-installer.ps1 | iex"
+```
+
+## Updating
+
+To update to the latest version, run the installation command again or use:
+```bash
+cazdo self-update
+```
+
 ## Configuration
 
 ### Config File
