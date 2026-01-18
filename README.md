@@ -26,7 +26,7 @@ powershell -c "irm https://github.com/FelixDamrau/cazdo/releases/latest/download
 
 To update to the latest version, run the installation command again or use:
 ```bash
-cazdo self-update
+cazdo-update
 ```
 
 ## Configuration
