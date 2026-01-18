@@ -3,6 +3,7 @@ name = "cazdo"
 version = "0.1.0"
 edition = "2024"
 description = "Azure DevOps CLI tool for work item and branch management"
+repository = "https://github.com/FelixDamrau/cazdo.git"
 authors = ["Felix Damrau"]
 
 [dependencies]
@@ -48,3 +49,8 @@ chrono-humanize = "0.2"
 strip = true
 lto = true
 codegen-units = 1
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
