@@ -1,3 +1,4 @@
+mod art;
 mod azure_devops;
 mod cli;
 mod commands;

@@ -115,5 +115,5 @@ pub fn config_interactive() -> Result<()> {
     println!("Don't forget to set your PAT:");
     println!("  export CAZDO_PAT=\"your-personal-access-token\"");
 
-    Ok(())  
+    Ok(())
 }

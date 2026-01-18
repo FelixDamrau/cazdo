@@ -193,9 +193,10 @@ impl App {
     /// Clear expired status message
     pub fn clear_expired_status(&mut self) {
         if let Some(ref msg) = self.status_message
-            && msg.expires_at <= Instant::now() {
-                self.status_message = None;
-            }
+            && msg.expires_at <= Instant::now()
+        {
+            self.status_message = None;
+        }
     }
 
     /// Record a deleted branch for summary on exit

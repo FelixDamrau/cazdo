@@ -215,12 +215,13 @@ impl WorkItem {
         let mut rich_text_fields = Vec::new();
         for (field_name, display_name) in RICH_TEXT_FIELDS {
             if let Some(value) = fields.get(*field_name).and_then(|v| v.as_str())
-                && !value.trim().is_empty() {
-                    rich_text_fields.push(RichTextField {
-                        name: display_name.to_string(),
-                        value: value.to_string(),
-                    });
-                }
+                && !value.trim().is_empty()
+            {
+                rich_text_fields.push(RichTextField {
+                    name: display_name.to_string(),
+                    value: value.to_string(),
+                });
+            }
         }
 
         Ok(Self {

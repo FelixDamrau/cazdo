@@ -102,40 +102,41 @@ async fn run_loop(
 
         // Check if we need to fetch work item for currently selected branch
         if let Some(branch) = app.selected_branch()
-            && let Some(wi_id) = branch.work_item_id {
-                let status = app.get_work_item_status(wi_id);
-                if matches!(status, WorkItemStatus::NotFetched) && !pending_fetches.contains(&wi_id)
-                {
-                    // Mark as loading and spawn background fetch
-                    app.set_work_item_loading(wi_id);
-                    pending_fetches.insert(wi_id);
+            && let Some(wi_id) = branch.work_item_id
+        {
+            let status = app.get_work_item_status(wi_id);
+            if matches!(status, WorkItemStatus::NotFetched) && !pending_fetches.contains(&wi_id) {
+                // Mark as loading and spawn background fetch
+                app.set_work_item_loading(wi_id);
+                pending_fetches.insert(wi_id);
 
-                    let client = client.clone();
-                    let tx = tx.clone();
+                let client = client.clone();
+                let tx = tx.clone();
 
-                    tokio::spawn(async move {
-                        let result = match client.get_work_item(wi_id).await {
-                            Ok(work_item) => FetchResult::Success {
-                                id: wi_id,
-                                work_item,
-                            },
-                            Err(e) => FetchResult::Error {
-                                id: wi_id,
-                                error: e.to_string(),
-                            },
-                        };
-                        let _ = tx.send(result);
-                    });
-                }
+                tokio::spawn(async move {
+                    let result = match client.get_work_item(wi_id).await {
+                        Ok(work_item) => FetchResult::Success {
+                            id: wi_id,
+                            work_item,
+                        },
+                        Err(e) => FetchResult::Error {
+                            id: wi_id,
+                            error: e.to_string(),
+                        },
+                    };
+                    let _ = tx.send(result);
+                });
             }
+        }
 
         // Fetch branch status for currently selected branch if needed (synchronous - git is fast)
         if let Some(branch) = app.selected_branch() {
             let branch_name = branch.name.clone();
             if app.needs_branch_status(&branch_name)
-                && let Ok(status) = git_repo.get_branch_status(&branch_name) {
-                    app.set_branch_status(branch_name, status);
-                }
+                && let Ok(status) = git_repo.get_branch_status(&branch_name)
+            {
+                app.set_branch_status(branch_name, status);
+            }
         }
 
         // Draw UI
@@ -212,10 +213,11 @@ async fn run_loop(
                             KeyCode::Char('r') => {
                                 // Refresh: reload current work item
                                 if let Some(branch) = app.selected_branch()
-                                    && let Some(wi_id) = branch.work_item_id {
-                                        pending_fetches.remove(&wi_id);
-                                        app.reset_work_item(wi_id);
-                                    }
+                                    && let Some(wi_id) = branch.work_item_id
+                                {
+                                    pending_fetches.remove(&wi_id);
+                                    app.reset_work_item(wi_id);
+                                }
                             }
                             KeyCode::Char('c')
                                 if key.modifiers.contains(event::KeyModifiers::CONTROL) =>
@@ -283,10 +285,11 @@ async fn run_loop(
 fn open_current_work_item(app: &App) {
     if let Some(branch) = app.selected_branch()
         && let Some(wi_id) = branch.work_item_id
-            && let WorkItemStatus::Loaded(wi) = app.get_work_item_status(wi_id)
-                && let Some(ref url) = wi.url {
-                    let _ = open_url(url);
-                }
+        && let WorkItemStatus::Loaded(wi) = app.get_work_item_status(wi_id)
+        && let Some(ref url) = wi.url
+    {
+        let _ = open_url(url);
+    }
 }
 
 /// Open a URL in the default browser

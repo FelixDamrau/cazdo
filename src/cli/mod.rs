@@ -5,7 +5,8 @@ use clap::{Parser, Subcommand};
 #[command(
     author,
     version,
-    about = "Azure DevOps CLI tool for work item and branch management"
+    about = "Azure DevOps CLI tool for work item and branch management",
+    before_help = crate::art::LOGO
 )]
 pub struct Cli {
     #[command(subcommand)]

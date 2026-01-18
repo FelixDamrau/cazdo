@@ -140,9 +140,10 @@ impl GitRepo {
                 if e.code() == git2::ErrorCode::NotFound {
                     // Try to check if there's upstream config for this branch
                     if let Some(ref_name) = branch.get().name()
-                        && self.repo.branch_upstream_name(ref_name).is_ok() {
-                            return RemoteStatus::Gone;
-                        }
+                        && self.repo.branch_upstream_name(ref_name).is_ok()
+                    {
+                        return RemoteStatus::Gone;
+                    }
                 }
                 return RemoteStatus::LocalOnly;
             }
