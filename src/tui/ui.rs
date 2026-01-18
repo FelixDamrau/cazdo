@@ -306,17 +306,6 @@ fn render_work_item_details(frame: &mut Frame, app: &mut App, area: Rect, wi_id:
                 )),
             ]
         }
-        WorkItemStatus::NoWorkItem => {
-            vec![
-                Line::from(""),
-                Line::from(Span::styled(
-                    "  Work item not found",
-                    Style::default()
-                        .fg(Color::DarkGray)
-                        .add_modifier(Modifier::ITALIC),
-                )),
-            ]
-        }
         WorkItemStatus::Loaded(wi) => {
             let type_icon = wi.work_item_type.icon();
             let type_name = wi.work_item_type.display_name();

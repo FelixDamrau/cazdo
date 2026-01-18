@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use ratatui::style::Color;
 use serde_json::Value;
+use std::str::FromStr;
 
 /// A rich text field from Azure DevOps (usually contains HTML)
 #[derive(Debug, Clone)]
@@ -34,9 +35,11 @@ pub enum WorkItemType {
     Other(String),
 }
 
-impl WorkItemType {
-    pub fn from_str(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
+impl FromStr for WorkItemType {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s.to_lowercase().as_str() {
             "bug" => Self::Bug,
             "product backlog item" => Self::ProductBacklogItem,
             "user story" => Self::UserStory,
@@ -44,9 +47,11 @@ impl WorkItemType {
             "feature" => Self::Feature,
             "epic" => Self::Epic,
             _ => Self::Other(s.to_string()),
-        }
+        })
     }
+}
 
+impl WorkItemType {
     pub fn icon(&self) -> &'static str {
         match self {
             Self::Bug => "🐞",
@@ -85,9 +90,11 @@ pub enum WorkItemState {
     Other(String),
 }
 
-impl WorkItemState {
-    pub fn from_str(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
+impl FromStr for WorkItemState {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s.to_lowercase().as_str() {
             "new" => Self::New,
             "approved" => Self::Approved,
             "committed" => Self::Committed,
@@ -97,9 +104,11 @@ impl WorkItemState {
             "removed" => Self::Removed,
             "done" => Self::Done,
             _ => Self::Other(s.to_string()),
-        }
+        })
     }
+}
 
+impl WorkItemState {
     pub fn icon(&self) -> &'static str {
         match self {
             Self::New => "🆕",
@@ -205,21 +214,20 @@ impl WorkItem {
         // Parse all rich text fields that have values
         let mut rich_text_fields = Vec::new();
         for (field_name, display_name) in RICH_TEXT_FIELDS {
-            if let Some(value) = fields.get(*field_name).and_then(|v| v.as_str()) {
-                if !value.trim().is_empty() {
+            if let Some(value) = fields.get(*field_name).and_then(|v| v.as_str())
+                && !value.trim().is_empty() {
                     rich_text_fields.push(RichTextField {
                         name: display_name.to_string(),
                         value: value.to_string(),
                     });
                 }
-            }
         }
 
         Ok(Self {
             id,
             title,
-            work_item_type: WorkItemType::from_str(work_item_type_str),
-            state: WorkItemState::from_str(state_str),
+            work_item_type: work_item_type_str.parse().unwrap(),
+            state: state_str.parse().unwrap(),
             assigned_to,
             url,
             tags,

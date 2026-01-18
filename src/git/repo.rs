@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use git2::{BranchType, Repository};
 use regex::Regex;
+use std::sync::OnceLock;
 
 /// Remote tracking status for a branch
 #[derive(Debug, Clone)]
@@ -91,7 +92,9 @@ impl GitRepo {
 
     /// Extract the first number from a branch name (work item number)
     pub fn extract_work_item_number(&self, branch_name: &str) -> Option<u32> {
-        let re = Regex::new(r"\d+").ok()?;
+        static RE: OnceLock<Regex> = OnceLock::new();
+        let re = RE.get_or_init(|| Regex::new(r"\d+").expect("Invalid regex"));
+
         let captures = re.find(branch_name)?;
         captures.as_str().parse().ok()
     }
@@ -136,11 +139,10 @@ impl GitRepo {
                 // Check if upstream was configured but is now gone
                 if e.code() == git2::ErrorCode::NotFound {
                     // Try to check if there's upstream config for this branch
-                    if let Some(ref_name) = branch.get().name() {
-                        if self.repo.branch_upstream_name(ref_name).is_ok() {
+                    if let Some(ref_name) = branch.get().name()
+                        && self.repo.branch_upstream_name(ref_name).is_ok() {
                             return RemoteStatus::Gone;
                         }
-                    }
                 }
                 return RemoteStatus::LocalOnly;
             }

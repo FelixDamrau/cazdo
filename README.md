@@ -60,17 +60,16 @@ cazdo config --show
 
 ## Branch Naming
 
-cazdo extracts work item IDs from branch names using these patterns:
+cazdo extracts the **first sequence of digits** found in the branch name to use as the Work Item ID.
 
 | Branch Name | Detected WI |
 |-------------|-------------|
 | `wi123` | #123 |
-| `WI-456` | #456 |
-| `feature/wi123-add-login` | #123 |
-| `user/john/WI-789` | #789 |
-| `bugfix/wi42` | #42 |
+| `feature/123-add-login` | #123 |
+| `bugfix/issue-42` | #42 |
+| `release/v2.1-fix-123` | #2 |
 
-Pattern: `wi` or `WI` followed by optional `-`, then digits.
+Pattern: First sequence of digits found in the string.
 
 ## License
 

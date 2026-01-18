@@ -19,7 +19,6 @@ pub enum Commands {
 
     /// Configure cazdo settings
     Config {
-        /// Show current configuration
         #[arg(long)]
         show: bool,
     },

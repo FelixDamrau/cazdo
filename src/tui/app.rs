@@ -35,13 +35,11 @@ pub struct BranchInfo {
 
 /// Work item fetch status
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // NoWorkItem will be used for future branch info display
 pub enum WorkItemStatus {
     NotFetched,
     Loading,
     Loaded(WorkItem),
     Error(String),
-    NoWorkItem,
 }
 
 /// Application state
@@ -194,11 +192,10 @@ impl App {
 
     /// Clear expired status message
     pub fn clear_expired_status(&mut self) {
-        if let Some(ref msg) = self.status_message {
-            if msg.expires_at <= Instant::now() {
+        if let Some(ref msg) = self.status_message
+            && msg.expires_at <= Instant::now() {
                 self.status_message = None;
             }
-        }
     }
 
     /// Record a deleted branch for summary on exit
