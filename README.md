@@ -1,8 +1,14 @@
 # cazdo
 
 ![CI](https://github.com/FelixDamrau/cazdo/actions/workflows/ci.yml/badge.svg)
+![Release](https://github.com/FelixDamrau/cazdo/actions/workflows/release.yml/badge.svg)
+![GitHub release](https://img.shields.io/github/v/release/FelixDamrau/cazdo)
 
-Azure DevOps work item viewer for git branches. A terminal UI that displays work item details based on branch naming conventions.
+*Cats Do Console Azure DevOps.*
+
+`cazdo` is a TUI for Azure DevOps that bridges the gap between your git workflow and issue tracking.
+
+It scans your local branches, extracts work item IDs from their names (e.g., `feature/123-login`), and fetches the corresponding details from Azure DevOps. This allows you to view acceptance criteria, descriptions, and status directly alongside your code.
 
 ## Installation
 
