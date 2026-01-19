@@ -192,7 +192,7 @@ fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_details(frame: &mut Frame, app: &mut App, area: Rect) {
-    let selected = app.selected_branch().cloned();
+    let work_item_id = app.selected_branch().and_then(|b| b.work_item_id);
 
     // Calculate inner area first to determine visible height
     let inner = Block::default().borders(Borders::ALL).inner(area);
@@ -229,30 +229,28 @@ fn render_details(frame: &mut Frame, app: &mut App, area: Rect) {
     // Clear the inner area before rendering new content
     frame.render_widget(Clear, inner);
 
-    if let Some(branch) = selected {
-        match branch.work_item_id {
-            Some(wi_id) => {
-                render_work_item_details(frame, app, inner, wi_id);
-            }
-            None => {
-                let lines = vec![
-                    Line::from(""),
-                    Line::from(Span::styled(
-                        "  No work item linked to this branch",
-                        theme::styles::MUTED.add_modifier(Modifier::ITALIC),
-                    )),
-                ];
+    match work_item_id {
+        Some(wi_id) => {
+            render_work_item_details(frame, app, inner, wi_id);
+        }
+        None => {
+            let lines = vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    "  No work item linked to this branch",
+                    theme::styles::MUTED.add_modifier(Modifier::ITALIC),
+                )),
+            ];
 
-                app.set_content_height(lines.len() as u16);
-                let text = Paragraph::new(lines);
-                frame.render_widget(text, inner);
-            }
+            app.set_content_height(lines.len() as u16);
+            let text = Paragraph::new(lines);
+            frame.render_widget(text, inner);
         }
     }
 }
 
 fn render_work_item_details(frame: &mut Frame, app: &mut App, area: Rect, wi_id: u32) {
-    let status = app.get_work_item_status(wi_id).clone();
+    let status = app.get_work_item_status(wi_id);
 
     let content: Vec<Line> = match status {
         WorkItemStatus::NotFetched | WorkItemStatus::Loading => {
