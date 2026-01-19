@@ -124,6 +124,7 @@ async fn run_loop(
                             error: e.to_string(),
                         },
                     };
+                    // Ignore send error - receiver dropped means app is shutting down
                     let _ = tx.send(result);
                 });
             }
