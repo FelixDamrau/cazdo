@@ -124,6 +124,7 @@ async fn run_loop(
                             error: e.to_string(),
                         },
                     };
+                    // Ignore send error - receiver dropped means app is shutting down
                     let _ = tx.send(result);
                 });
             }
@@ -191,20 +192,7 @@ async fn run_loop(
                                     app.set_status_message(e, true, 3);
                                 } else if let Some(branch) = app.selected_branch() {
                                     let name = branch.name.clone();
-                                    match git_repo.delete_branch(&name) {
-                                        Ok(sha) => {
-                                            app.record_deleted_branch(name.clone(), sha.clone());
-                                            app.remove_branch(&name);
-                                            app.set_status_message(
-                                                format!("Deleted {} (was {})", name, &sha[..7]),
-                                                false,
-                                                4,
-                                            );
-                                        }
-                                        Err(e) => {
-                                            app.set_status_message(e.to_string(), true, 5);
-                                        }
-                                    }
+                                    execute_delete_branch(app, git_repo, &name);
                                 }
                             }
                             KeyCode::Char('o') | KeyCode::Enter => {
@@ -230,27 +218,7 @@ async fn run_loop(
                             let branch_name = branch_name.clone();
                             match key.code {
                                 KeyCode::Char('y') | KeyCode::Enter => {
-                                    match git_repo.delete_branch(&branch_name) {
-                                        Ok(sha) => {
-                                            app.record_deleted_branch(
-                                                branch_name.clone(),
-                                                sha.clone(),
-                                            );
-                                            app.remove_branch(&branch_name);
-                                            app.set_status_message(
-                                                format!(
-                                                    "Deleted {} (was {})",
-                                                    branch_name,
-                                                    &sha[..7]
-                                                ),
-                                                false,
-                                                4,
-                                            );
-                                        }
-                                        Err(e) => {
-                                            app.set_status_message(e.to_string(), true, 5);
-                                        }
-                                    }
+                                    execute_delete_branch(app, git_repo, &branch_name);
                                     app.cancel_mode();
                                 }
                                 KeyCode::Char('n') | KeyCode::Esc | KeyCode::Char('q') => {
@@ -289,6 +257,24 @@ fn open_current_work_item(app: &App) {
         && let Some(ref url) = wi.url
     {
         let _ = open_url(url);
+    }
+}
+
+/// Execute branch deletion and update app state with result
+fn execute_delete_branch(app: &mut App, git_repo: &GitRepo, branch_name: &str) {
+    match git_repo.delete_branch(branch_name) {
+        Ok(sha) => {
+            app.record_deleted_branch(branch_name.to_string(), sha.clone());
+            app.remove_branch(branch_name);
+            app.set_status_message(
+                format!("Deleted {} (was {})", branch_name, &sha[..7]),
+                false,
+                4,
+            );
+        }
+        Err(e) => {
+            app.set_status_message(e.to_string(), true, 5);
+        }
     }
 }
 

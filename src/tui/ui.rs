@@ -13,6 +13,7 @@ use ratatui::{
 
 use super::app::{App, AppMode, WorkItemStatus};
 use super::html_render::render_html;
+use super::theme;
 use crate::git::RemoteStatus;
 
 pub fn render(frame: &mut Frame, app: &mut App) {
@@ -69,48 +70,30 @@ fn centered_rect(r: Rect, percent_x: u16, percent_y: u16) -> Rect {
 fn render_delete_popup(frame: &mut Frame, branch_name: &str, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Red))
+        .border_style(theme::ui::BORDER_ERROR)
         .title(Line::from(vec![Span::styled(
             " Delete Branch ",
-            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            theme::ui::TITLE_ERROR,
         )]));
 
     let content = vec![
         Line::from(""),
         Line::from(vec![
             Span::raw("Are you sure you want to delete branch "),
-            Span::styled(
-                branch_name,
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
-            ),
+            Span::styled(branch_name, theme::branch::CURRENT),
             Span::raw("?"),
         ]),
         Line::from(""),
         Line::from(vec![
             Span::raw("Press "),
-            Span::styled(
-                "y",
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-            ),
+            Span::styled("y", theme::styles::ERROR),
             Span::raw(" to confirm"),
         ]),
         Line::from(vec![
             Span::raw("Press "),
-            Span::styled(
-                "n",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
+            Span::styled("n", theme::ui::TITLE),
             Span::raw(" or "),
-            Span::styled(
-                "Esc",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
+            Span::styled("Esc", theme::ui::TITLE),
             Span::raw(" to cancel"),
         ]),
     ];
@@ -127,11 +110,9 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     // Check for active status message
     if let Some(msg) = app.get_status_message() {
         let style = if msg.is_error {
-            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+            theme::styles::ERROR
         } else {
-            Style::default()
-                .fg(Color::Green)
-                .add_modifier(Modifier::BOLD)
+            theme::styles::SUCCESS.add_modifier(Modifier::BOLD)
         };
         let paragraph = Paragraph::new(Line::from(vec![Span::styled(&msg.text, style)]));
         frame.render_widget(paragraph, area);
@@ -140,35 +121,33 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
 
     let refresh_available = app.current_branch_has_work_item();
     let refresh_style = if refresh_available {
-        Style::default().fg(Color::Cyan)
+        theme::styles::ACCENT
     } else {
-        Style::default().fg(Color::DarkGray)
+        theme::styles::MUTED
     };
     let refresh_text_style = if refresh_available {
-        Style::default().fg(Color::DarkGray)
+        theme::styles::MUTED
     } else {
-        Style::default()
-            .fg(Color::DarkGray)
-            .add_modifier(Modifier::DIM)
+        theme::styles::MUTED.add_modifier(Modifier::DIM)
     };
 
     let spans = vec![
-        Span::styled(" j/k ", Style::default().fg(Color::Cyan)),
+        Span::styled(" j/k ", theme::styles::ACCENT),
         Span::raw("Navigate  "),
-        Span::styled(" o ", Style::default().fg(Color::Cyan)),
+        Span::styled(" o ", theme::styles::ACCENT),
         Span::raw("Open  "),
-        Span::styled(" PgUp/Dn ", Style::default().fg(Color::Cyan)),
+        Span::styled(" PgUp/Dn ", theme::styles::ACCENT),
         Span::raw("Scroll  "),
-        Span::styled(" d ", Style::default().fg(Color::Cyan)),
+        Span::styled(" d ", theme::styles::ACCENT),
         Span::raw("Delete  "),
         Span::styled(" r ", refresh_style),
         Span::styled("Refresh  ", refresh_text_style),
-        Span::styled(" q ", Style::default().fg(Color::Cyan)),
+        Span::styled(" q ", theme::styles::ACCENT),
         Span::raw("Quit"),
     ];
 
     let help_text = Line::from(spans);
-    let paragraph = Paragraph::new(help_text).style(Style::default().fg(Color::DarkGray));
+    let paragraph = Paragraph::new(help_text).style(theme::styles::MUTED);
     frame.render_widget(paragraph, area);
 }
 
@@ -184,9 +163,7 @@ fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
             };
 
             let style = if branch.is_current {
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD)
+                theme::branch::CURRENT
             } else {
                 Style::default()
             };
@@ -199,19 +176,13 @@ fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan))
+                .border_style(theme::ui::BORDER)
                 .title(Line::from(vec![Span::styled(
                     " Branches ",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
+                    theme::ui::TITLE,
                 )])),
         )
-        .highlight_style(
-            Style::default()
-                .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD),
-        )
+        .highlight_style(theme::ui::SELECTED.add_modifier(Modifier::BOLD))
         .highlight_symbol("► ");
 
     let mut state = ListState::default();
@@ -221,7 +192,7 @@ fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_details(frame: &mut Frame, app: &mut App, area: Rect) {
-    let selected = app.selected_branch().cloned();
+    let work_item_id = app.selected_branch().and_then(|b| b.work_item_id);
 
     // Calculate inner area first to determine visible height
     let inner = Block::default().borders(Borders::ALL).inner(area);
@@ -236,9 +207,9 @@ fn render_details(frame: &mut Frame, app: &mut App, area: Rect) {
                     app.scroll_offset + 1,
                     app.content_height.saturating_sub(visible_height) + 1
                 ),
-                Style::default().fg(Color::DarkGray),
+                theme::styles::MUTED,
             ),
-            Span::styled("─", Style::default().fg(Color::Cyan)),
+            Span::styled("─", theme::styles::ACCENT),
         ])
     } else {
         Line::default()
@@ -246,12 +217,10 @@ fn render_details(frame: &mut Frame, app: &mut App, area: Rect) {
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan))
+        .border_style(theme::ui::BORDER)
         .title(Line::from(vec![Span::styled(
             " Work Item Details ",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
+            theme::ui::TITLE,
         )]))
         .title_bottom(scroll_title.right_aligned());
 
@@ -260,32 +229,28 @@ fn render_details(frame: &mut Frame, app: &mut App, area: Rect) {
     // Clear the inner area before rendering new content
     frame.render_widget(Clear, inner);
 
-    if let Some(branch) = selected {
-        match branch.work_item_id {
-            Some(wi_id) => {
-                render_work_item_details(frame, app, inner, wi_id);
-            }
-            None => {
-                let lines = vec![
-                    Line::from(""),
-                    Line::from(Span::styled(
-                        "  No work item linked to this branch",
-                        Style::default()
-                            .fg(Color::DarkGray)
-                            .add_modifier(Modifier::ITALIC),
-                    )),
-                ];
+    match work_item_id {
+        Some(wi_id) => {
+            render_work_item_details(frame, app, inner, wi_id);
+        }
+        None => {
+            let lines = vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    "  No work item linked to this branch",
+                    theme::styles::MUTED.add_modifier(Modifier::ITALIC),
+                )),
+            ];
 
-                app.set_content_height(lines.len() as u16);
-                let text = Paragraph::new(lines);
-                frame.render_widget(text, inner);
-            }
+            app.set_content_height(lines.len() as u16);
+            let text = Paragraph::new(lines);
+            frame.render_widget(text, inner);
         }
     }
 }
 
 fn render_work_item_details(frame: &mut Frame, app: &mut App, area: Rect, wi_id: u32) {
-    let status = app.get_work_item_status(wi_id).clone();
+    let status = app.get_work_item_status(wi_id);
 
     let content: Vec<Line> = match status {
         WorkItemStatus::NotFetched | WorkItemStatus::Loading => {
@@ -293,7 +258,7 @@ fn render_work_item_details(frame: &mut Frame, app: &mut App, area: Rect, wi_id:
                 Line::from(""),
                 Line::from(Span::styled(
                     "  Loading work item...",
-                    Style::default().fg(Color::Yellow),
+                    theme::styles::WARNING,
                 )),
             ]
         }
@@ -321,9 +286,7 @@ fn render_work_item_details(frame: &mut Frame, app: &mut App, area: Rect, wi_id:
                     Span::styled("  ", Style::default()),
                     Span::styled(
                         format!("#{} ", wi.id),
-                        Style::default()
-                            .fg(Color::Cyan)
-                            .add_modifier(Modifier::BOLD),
+                        theme::styles::ACCENT.add_modifier(Modifier::BOLD),
                     ),
                     Span::raw(format!("{} {}", type_icon, type_name)),
                 ]),
@@ -340,16 +303,13 @@ fn render_work_item_details(frame: &mut Frame, app: &mut App, area: Rect, wi_id:
 
             // Add assigned to if present
             if let Some(ref assigned) = wi.assigned_to {
-                meta_spans.push(Span::styled("  •  ", Style::default().fg(Color::DarkGray)));
-                meta_spans.push(Span::styled(
-                    assigned.clone(),
-                    Style::default().fg(Color::White),
-                ));
+                meta_spans.push(Span::styled("  •  ", theme::styles::MUTED));
+                meta_spans.push(Span::styled(assigned.clone(), theme::styles::TEXT));
             }
 
             // Add tags if present
             if !wi.tags.is_empty() {
-                meta_spans.push(Span::styled("  •  ", Style::default().fg(Color::DarkGray)));
+                meta_spans.push(Span::styled("  •  ", theme::styles::MUTED));
                 meta_spans.push(Span::styled(
                     wi.tags.join(", "),
                     Style::default().fg(Color::Magenta),
@@ -368,8 +328,7 @@ fn render_work_item_details(frame: &mut Frame, app: &mut App, area: Rect, wi_id:
                     Span::styled("  ", Style::default()),
                     Span::styled(
                         line.clone(),
-                        Style::default()
-                            .fg(Color::White)
+                        theme::styles::TEXT
                             .add_modifier(Modifier::BOLD)
                             .add_modifier(Modifier::UNDERLINED),
                     ),
@@ -381,7 +340,7 @@ fn render_work_item_details(frame: &mut Frame, app: &mut App, area: Rect, wi_id:
                 lines.push(Line::from(""));
                 lines.push(Line::from(vec![Span::styled(
                     format!("  {}:", field.name),
-                    Style::default().fg(Color::DarkGray),
+                    theme::styles::MUTED,
                 )]));
 
                 // Render HTML with formatting preserved
@@ -479,12 +438,10 @@ fn format_remote_status(status: &RemoteStatus) -> (String, Color) {
 fn render_branch_info(frame: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan))
+        .border_style(theme::ui::BORDER)
         .title(Line::from(vec![Span::styled(
             " Branch Info ",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
+            theme::ui::TITLE,
         )]));
 
     let inner = block.inner(area);
@@ -496,12 +453,7 @@ fn render_branch_info(frame: &mut Frame, app: &App, area: Rect) {
         // Branch name
         lines.push(Line::from(vec![
             Span::styled("  ", Style::default()),
-            Span::styled(
-                &branch.name,
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
-            ),
+            Span::styled(&branch.name, theme::branch::CURRENT),
         ]));
 
         // Remote status and last commit
@@ -514,23 +466,23 @@ fn render_branch_info(frame: &mut Frame, app: &App, area: Rect) {
             {
                 let relative_time = format_relative_time(time);
                 lines.push(Line::from(vec![
-                    Span::styled("  Remote: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled("  Remote: ", theme::styles::MUTED),
                     Span::styled(remote_text, Style::default().fg(remote_color)),
-                    Span::styled("  │  ", Style::default().fg(Color::DarkGray)),
-                    Span::styled(author.clone(), Style::default().fg(Color::White)),
-                    Span::styled(", ", Style::default().fg(Color::DarkGray)),
-                    Span::styled(relative_time, Style::default().fg(Color::DarkGray)),
+                    Span::styled("  │  ", theme::styles::MUTED),
+                    Span::styled(author.clone(), theme::styles::TEXT),
+                    Span::styled(", ", theme::styles::MUTED),
+                    Span::styled(relative_time, theme::styles::MUTED),
                 ]));
             } else {
                 lines.push(Line::from(vec![
-                    Span::styled("  Remote: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled("  Remote: ", theme::styles::MUTED),
                     Span::styled(remote_text, Style::default().fg(remote_color)),
                 ]));
             }
         } else {
             lines.push(Line::from(vec![Span::styled(
                 "  Loading...",
-                Style::default().fg(Color::DarkGray),
+                theme::styles::MUTED,
             )]));
         }
     }

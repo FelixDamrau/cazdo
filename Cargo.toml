@@ -1,6 +1,6 @@
 [package]
 name = "cazdo"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "Azure DevOps CLI tool for work item and branch management"
 repository = "https://github.com/FelixDamrau/cazdo.git"
@@ -11,7 +11,7 @@ authors = ["Felix Damrau"]
 clap = { version = "4", features = ["derive"] }
 
 # Async runtime
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
 
 # HTTP client for Azure DevOps API
 reqwest = { version = "0.12", features = ["json"] }
@@ -28,18 +28,11 @@ git2 = "0.19"
 ratatui = "0.29"
 crossterm = "0.28"
 
-# Unicode width calculation for proper alignment
-unicode-width = "0.2"
-
 # Cross-platform config directories
 directories = "6"
 
 # Error handling
-thiserror = "2"
 anyhow = "1"
-
-# Regex for WI number extraction
-regex = "1"
 
 # Date/time handling
 chrono = "0.4"

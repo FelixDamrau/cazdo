@@ -227,8 +227,7 @@ impl App {
             return Err("Cannot delete the current branch".to_string());
         }
 
-        let protected = ["main", "master"];
-        if protected.contains(&branch.name.as_str()) {
+        if crate::git::PROTECTED_BRANCHES.contains(&branch.name.as_str()) {
             return Err(format!("Cannot delete protected branch '{}'", branch.name));
         }
 

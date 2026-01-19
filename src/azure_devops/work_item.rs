@@ -64,15 +64,15 @@ impl WorkItemType {
         }
     }
 
-    pub fn display_name(&self) -> String {
+    pub fn display_name(&self) -> &str {
         match self {
-            Self::Bug => "Bug".to_string(),
-            Self::ProductBacklogItem => "Product Backlog Item".to_string(),
-            Self::UserStory => "User Story".to_string(),
-            Self::Task => "Task".to_string(),
-            Self::Feature => "Feature".to_string(),
-            Self::Epic => "Epic".to_string(),
-            Self::Other(s) => s.clone(),
+            Self::Bug => "Bug",
+            Self::ProductBacklogItem => "Product Backlog Item",
+            Self::UserStory => "User Story",
+            Self::Task => "Task",
+            Self::Feature => "Feature",
+            Self::Epic => "Epic",
+            Self::Other(s) => s,
         }
     }
 }
@@ -123,17 +123,17 @@ impl WorkItemState {
         }
     }
 
-    pub fn display_name(&self) -> String {
+    pub fn display_name(&self) -> &str {
         match self {
-            Self::New => "New".to_string(),
-            Self::Approved => "Approved".to_string(),
-            Self::Committed => "Committed".to_string(),
-            Self::Active => "Active".to_string(),
-            Self::Resolved => "Resolved".to_string(),
-            Self::Closed => "Closed".to_string(),
-            Self::Removed => "Removed".to_string(),
-            Self::Done => "Done".to_string(),
-            Self::Other(s) => s.clone(),
+            Self::New => "New",
+            Self::Approved => "Approved",
+            Self::Committed => "Committed",
+            Self::Active => "Active",
+            Self::Resolved => "Resolved",
+            Self::Closed => "Closed",
+            Self::Removed => "Removed",
+            Self::Done => "Done",
+            Self::Other(s) => s,
         }
     }
 

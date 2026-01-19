@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::git::GitRepo;
+use crate::git::{GitRepo, extract_work_item_number};
 use crate::tui::{App, BranchInfo, run_app};
 use anyhow::{Context, Result, bail};
 
@@ -13,7 +13,7 @@ pub async fn interactive() -> Result<()> {
     let branch_infos: Vec<BranchInfo> = branches
         .into_iter()
         .map(|name| {
-            let wi_id = repo.extract_work_item_number(&name);
+            let wi_id = extract_work_item_number(&name);
             let is_current = name == current_branch;
             BranchInfo {
                 name,

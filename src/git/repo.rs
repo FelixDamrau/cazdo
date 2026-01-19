@@ -1,7 +1,18 @@
 use anyhow::{Context, Result};
 use git2::{BranchType, Repository};
-use regex::Regex;
-use std::sync::OnceLock;
+
+/// Branches that cannot be deleted (main/master)
+pub const PROTECTED_BRANCHES: &[&str] = &["main", "master"];
+
+/// Extract the first number from a branch name (work item number)
+pub fn extract_work_item_number(branch_name: &str) -> Option<u32> {
+    let start = branch_name.find(|c: char| c.is_ascii_digit())?;
+    let num_str: String = branch_name[start..]
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    num_str.parse().ok()
+}
 
 /// Remote tracking status for a branch
 #[derive(Debug, Clone)]
@@ -90,15 +101,6 @@ impl GitRepo {
         Ok(branches)
     }
 
-    /// Extract the first number from a branch name (work item number)
-    pub fn extract_work_item_number(&self, branch_name: &str) -> Option<u32> {
-        static RE: OnceLock<Regex> = OnceLock::new();
-        let re = RE.get_or_init(|| Regex::new(r"\d+").expect("Invalid regex"));
-
-        let captures = re.find(branch_name)?;
-        captures.as_str().parse().ok()
-    }
-
     /// Get status information for a branch
     pub fn get_branch_status(&self, branch_name: &str) -> Result<BranchStatus> {
         let branch = self
@@ -175,9 +177,7 @@ impl GitRepo {
     /// Delete a local branch and return the commit SHA it was pointing to
     /// Returns an error if trying to delete the current branch or main/master
     pub fn delete_branch(&self, branch_name: &str) -> Result<String> {
-        // Check if trying to delete protected branches
-        let protected = ["main", "master"];
-        if protected.contains(&branch_name) {
+        if PROTECTED_BRANCHES.contains(&branch_name) {
             anyhow::bail!("Cannot delete protected branch '{}'", branch_name);
         }
 
