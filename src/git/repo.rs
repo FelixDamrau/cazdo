@@ -4,6 +4,16 @@ use git2::{BranchType, Repository};
 /// Branches that cannot be deleted (main/master)
 pub const PROTECTED_BRANCHES: &[&str] = &["main", "master"];
 
+/// Extract the first number from a branch name (work item number)
+pub fn extract_work_item_number(branch_name: &str) -> Option<u32> {
+    let start = branch_name.find(|c: char| c.is_ascii_digit())?;
+    let num_str: String = branch_name[start..]
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    num_str.parse().ok()
+}
+
 /// Remote tracking status for a branch
 #[derive(Debug, Clone)]
 pub enum RemoteStatus {
@@ -89,16 +99,6 @@ impl GitRepo {
         });
 
         Ok(branches)
-    }
-
-    /// Extract the first number from a branch name (work item number)
-    pub fn extract_work_item_number(&self, branch_name: &str) -> Option<u32> {
-        let start = branch_name.find(|c: char| c.is_ascii_digit())?;
-        let num_str: String = branch_name[start..]
-            .chars()
-            .take_while(|c| c.is_ascii_digit())
-            .collect();
-        num_str.parse().ok()
     }
 
     /// Get status information for a branch
