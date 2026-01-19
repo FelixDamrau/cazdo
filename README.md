@@ -19,7 +19,7 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/FelixDamrau/cazdo/relea
 
 ### Windows (PowerShell)
 ```powershell
-powershell -c "irm https://github.com/FelixDamrau/cazdo/releases/latest/download/cazdo-installer.ps1 | iex"
+irm https://github.com/FelixDamrau/cazdo/releases/latest/download/cazdo-installer.ps1 | iex
 ```
 
 ## Updating
