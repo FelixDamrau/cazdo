@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
 use git2::{BranchType, Repository};
 
+/// Branches that cannot be deleted (main/master)
+pub const PROTECTED_BRANCHES: &[&str] = &["main", "master"];
+
 /// Remote tracking status for a branch
 #[derive(Debug, Clone)]
 pub enum RemoteStatus {
@@ -174,9 +177,7 @@ impl GitRepo {
     /// Delete a local branch and return the commit SHA it was pointing to
     /// Returns an error if trying to delete the current branch or main/master
     pub fn delete_branch(&self, branch_name: &str) -> Result<String> {
-        // Check if trying to delete protected branches
-        let protected = ["main", "master"];
-        if protected.contains(&branch_name) {
+        if PROTECTED_BRANCHES.contains(&branch_name) {
             anyhow::bail!("Cannot delete protected branch '{}'", branch_name);
         }
 

@@ -1,3 +1,3 @@
 mod repo;
 
-pub use repo::{BranchStatus, GitRepo, RemoteStatus};
+pub use repo::{BranchStatus, GitRepo, PROTECTED_BRANCHES, RemoteStatus};
