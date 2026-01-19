@@ -1,7 +1,5 @@
 use anyhow::{Context, Result};
 use git2::{BranchType, Repository};
-use regex::Regex;
-use std::sync::OnceLock;
 
 /// Remote tracking status for a branch
 #[derive(Debug, Clone)]
@@ -92,11 +90,12 @@ impl GitRepo {
 
     /// Extract the first number from a branch name (work item number)
     pub fn extract_work_item_number(&self, branch_name: &str) -> Option<u32> {
-        static RE: OnceLock<Regex> = OnceLock::new();
-        let re = RE.get_or_init(|| Regex::new(r"\d+").expect("Invalid regex"));
-
-        let captures = re.find(branch_name)?;
-        captures.as_str().parse().ok()
+        let start = branch_name.find(|c: char| c.is_ascii_digit())?;
+        let num_str: String = branch_name[start..]
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        num_str.parse().ok()
     }
 
     /// Get status information for a branch
