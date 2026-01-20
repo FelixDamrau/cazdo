@@ -4,9 +4,14 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+/// Default protected branch patterns (main/master)
+pub const DEFAULT_PROTECTED_PATTERNS: &[&str] = &["main", "master"];
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     pub azure_devops: AzureDevOpsConfig,
+    #[serde(default)]
+    pub branches: BranchConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -14,10 +19,34 @@ pub struct AzureDevOpsConfig {
     pub organization_url: String,
 }
 
+/// Branch-related configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BranchConfig {
+    /// Patterns for protected branches (supports * wildcard)
+    /// Default: ["main", "master"]
+    #[serde(default)]
+    pub protected: Vec<String>,
+}
+
+impl BranchConfig {
+    /// Get protected patterns, falling back to defaults if not configured
+    pub fn protected_patterns(&self) -> Vec<String> {
+        if self.protected.is_empty() {
+            DEFAULT_PROTECTED_PATTERNS
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        } else {
+            self.protected.clone()
+        }
+    }
+}
+
 impl Config {
     pub fn new(organization_url: String) -> Self {
         Self {
             azure_devops: AzureDevOpsConfig { organization_url },
+            branches: BranchConfig::default(),
         }
     }
 

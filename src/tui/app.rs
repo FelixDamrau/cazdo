@@ -31,6 +31,7 @@ pub struct BranchInfo {
     pub name: String,
     pub work_item_id: Option<u32>,
     pub is_current: bool,
+    pub is_protected: bool,
 }
 
 /// Work item fetch status
@@ -54,10 +55,12 @@ pub struct App {
     pub mode: AppMode,
     pub status_message: Option<StatusMessage>,
     pub deleted_branches: Vec<DeletedBranch>,
+    pub protected_patterns: Vec<String>,
+    pub show_protected: bool,
 }
 
 impl App {
-    pub fn new(branches: Vec<BranchInfo>) -> Self {
+    pub fn new(branches: Vec<BranchInfo>, protected_patterns: Vec<String>) -> Self {
         Self {
             branches,
             selected_index: 0,
@@ -69,28 +72,57 @@ impl App {
             mode: AppMode::Normal,
             status_message: None,
             deleted_branches: Vec::new(),
+            protected_patterns,
+            show_protected: false,
         }
     }
 
     pub fn selected_branch(&self) -> Option<&BranchInfo> {
-        self.branches.get(self.selected_index)
+        let visible = self.visible_branches();
+        visible.get(self.selected_index).copied()
+    }
+
+    /// Get branches that should be displayed based on show_protected toggle
+    /// Current branch is always visible even if protected
+    pub fn visible_branches(&self) -> Vec<&BranchInfo> {
+        self.branches
+            .iter()
+            .filter(|b| self.show_protected || b.is_current || !b.is_protected)
+            .collect()
+    }
+
+    /// Get count of visible branches
+    pub fn visible_count(&self) -> usize {
+        self.visible_branches().len()
     }
 
     pub fn next(&mut self) {
-        if !self.branches.is_empty() {
-            self.selected_index = (self.selected_index + 1) % self.branches.len();
+        let count = self.visible_count();
+        if count > 0 {
+            self.selected_index = (self.selected_index + 1) % count;
             self.scroll_offset = 0; // Reset scroll when changing branch
         }
     }
 
     pub fn previous(&mut self) {
-        if !self.branches.is_empty() {
+        let count = self.visible_count();
+        if count > 0 {
             self.selected_index = if self.selected_index == 0 {
-                self.branches.len() - 1
+                count - 1
             } else {
                 self.selected_index - 1
             };
             self.scroll_offset = 0; // Reset scroll when changing branch
+        }
+    }
+
+    /// Toggle visibility of protected branches
+    pub fn toggle_show_protected(&mut self) {
+        self.show_protected = !self.show_protected;
+        // Clamp selected index to new visible range
+        let count = self.visible_count();
+        if self.selected_index >= count && count > 0 {
+            self.selected_index = count - 1;
         }
     }
 
@@ -227,7 +259,7 @@ impl App {
             return Err("Cannot delete the current branch".to_string());
         }
 
-        if crate::git::PROTECTED_BRANCHES.contains(&branch.name.as_str()) {
+        if branch.is_protected {
             return Err(format!("Cannot delete protected branch '{}'", branch.name));
         }
 

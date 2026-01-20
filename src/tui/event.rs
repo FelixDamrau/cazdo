@@ -207,6 +207,10 @@ async fn run_loop(
                                     app.reset_work_item(wi_id);
                                 }
                             }
+                            KeyCode::Char('p') => {
+                                // Toggle showing protected branches
+                                app.toggle_show_protected();
+                            }
                             KeyCode::Char('c')
                                 if key.modifiers.contains(event::KeyModifiers::CONTROL) =>
                             {
@@ -262,7 +266,7 @@ fn open_current_work_item(app: &App) {
 
 /// Execute branch deletion and update app state with result
 fn execute_delete_branch(app: &mut App, git_repo: &GitRepo, branch_name: &str) {
-    match git_repo.delete_branch(branch_name) {
+    match git_repo.delete_branch(branch_name, &app.protected_patterns) {
         Ok(sha) => {
             app.record_deleted_branch(branch_name.to_string(), sha.clone());
             app.remove_branch(branch_name);

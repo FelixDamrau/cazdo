@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::git::{GitRepo, extract_work_item_number};
+use crate::pattern::is_protected;
 use crate::tui::{App, BranchInfo, run_app};
 use anyhow::{Context, Result, bail};
 
@@ -10,15 +11,32 @@ pub async fn interactive() -> Result<()> {
         .context("Failed to get current branch")?;
     let branches = repo.list_branches().context("Failed to list branches")?;
 
+    // Load protected patterns from config (with fallback to defaults)
+    let protected_patterns = Config::load()
+        .map(|c| c.branches.protected_patterns())
+        .unwrap_or_else(|_| {
+            crate::config::DEFAULT_PROTECTED_PATTERNS
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        });
+
     let branch_infos: Vec<BranchInfo> = branches
         .into_iter()
         .map(|name| {
-            let wi_id = extract_work_item_number(&name);
             let is_current = name == current_branch;
+            let is_protected_branch = is_protected(&name, &protected_patterns);
+            // Don't extract work item from protected branches (they're version names, not work items)
+            let wi_id = if is_protected_branch {
+                None
+            } else {
+                extract_work_item_number(&name)
+            };
             BranchInfo {
                 name,
                 work_item_id: wi_id,
                 is_current,
+                is_protected: is_protected_branch,
             }
         })
         .collect();
@@ -27,7 +45,7 @@ pub async fn interactive() -> Result<()> {
         bail!("No branches found in repository");
     }
 
-    let app = App::new(branch_infos);
+    let app = App::new(branch_infos, protected_patterns);
     run_app(app, repo).await?;
 
     Ok(())

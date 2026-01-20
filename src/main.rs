@@ -4,6 +4,7 @@ mod cli;
 mod commands;
 mod config;
 mod git;
+mod pattern;
 mod tui;
 
 use anyhow::Result;
