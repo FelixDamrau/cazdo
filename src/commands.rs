@@ -113,9 +113,9 @@ pub fn config_init() -> Result<()> {
     println!("  - Azure DevOps organization URL");
     println!("  - Protected branch patterns");
     if !std::env::var("CAZDO_PAT").is_ok() {
-    println!();
-    println!("Don't forget to set your PAT:");
-    println!("  export CAZDO_PAT=\"your-personal-access-token\"");
+        println!();
+        println!("Don't forget to set your PAT:");
+        println!("  export CAZDO_PAT=\"your-personal-access-token\"");
     }
 
     Ok(())
