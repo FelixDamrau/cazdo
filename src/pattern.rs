@@ -1,13 +1,13 @@
-/// Simple wildcard pattern matching for branch names
-///
-/// Supports:
-/// - `*` matches any sequence of characters (including empty)
-/// - Literal characters match themselves
-///
-/// Examples:
-/// - `main` matches only "main"
-/// - `releases/*` matches "releases/v1.0", "releases/v12.x"
-/// - `feature-*-test` matches "feature-123-test", "feature-abc-test"
+//! Simple wildcard pattern matching for branch names
+//!
+//! Supports:
+//! - `*` matches any sequence of characters (including empty)
+//! - Literal characters match themselves
+//!
+//! Examples:
+//! - `main` matches only "main"
+//! - `releases/*` matches "releases/v1.0", "releases/v12.x"
+//! - `feature-*-test` matches "feature-123-test", "feature-abc-test"
 
 /// Check if a branch name matches a single pattern
 pub fn matches_pattern(text: &str, pattern: &str) -> bool {

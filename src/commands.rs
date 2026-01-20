@@ -112,7 +112,7 @@ pub fn config_init() -> Result<()> {
     println!("Edit the config file to set:");
     println!("  - Azure DevOps organization URL");
     println!("  - Protected branch patterns");
-    if !std::env::var("CAZDO_PAT").is_ok() {
+    if std::env::var("CAZDO_PAT").is_err() {
         println!();
         println!("Don't forget to set your PAT:");
         println!("  export CAZDO_PAT=\"your-personal-access-token\"");
