@@ -4,7 +4,7 @@
 ![Release](https://github.com/FelixDamrau/cazdo/actions/workflows/release.yml/badge.svg)
 ![GitHub release](https://img.shields.io/github/v/release/FelixDamrau/cazdo)
 
-*Cats Do Console Azure DevOps.*
+_Cats Do Console Azure DevOps._
 
 `cazdo` is a TUI for Azure DevOps that bridges the gap between your git workflow and issue tracking.
 
@@ -13,11 +13,13 @@ It scans your local branches, extracts work item IDs from their names (e.g., `fe
 ## Installation
 
 ### Linux & macOS
+
 ```bash
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/FelixDamrau/cazdo/releases/latest/download/cazdo-installer.sh | sh
 ```
 
 ### Windows (PowerShell)
+
 ```powershell
 irm https://github.com/FelixDamrau/cazdo/releases/latest/download/cazdo-installer.ps1 | iex
 ```
@@ -25,6 +27,7 @@ irm https://github.com/FelixDamrau/cazdo/releases/latest/download/cazdo-installe
 ## Updating
 
 To update to the latest version, run the installation command again or use:
+
 ```bash
 cazdo-update
 ```
@@ -33,22 +36,31 @@ cazdo-update
 
 ### Config File
 
-| Platform | Path |
-|----------|------|
-| Linux | `~/.config/cazdo/config.toml` |
-| macOS | `~/Library/Application Support/cazdo/config.toml` |
-| Windows | `%APPDATA%\cazdo\config.toml` |
+| Platform | Path                                              |
+| -------- | ------------------------------------------------- |
+| Linux    | `~/.config/cazdo/config.toml`                     |
+| macOS    | `~/Library/Application Support/cazdo/config.toml` |
+| Windows  | `%APPDATA%\cazdo\config.toml`                     |
 
 Example config:
 
 ```toml
 [azure_devops]
 organization_url = "https://dev.azure.com/your-org"
+
+[branches]
+protected = ["main", "master", "releases/*"]
 ```
 
-Or run `cazdo config` to set up interactively.
+Run `cazdo config init` to create a default config file.
 
 ### Personal Access Token
+
+- fmt
+
+- version++
+
+- fix fmt and try to use jj
 
 Set the `CAZDO_PAT` environment variable with your Azure DevOps PAT:
 
@@ -64,34 +76,52 @@ The PAT needs **Work Items (Read)** scope.
 # Interactive TUI - browse all branches and their work items
 cazdo
 
-# Configure interactively
-cazdo config
+# Initialize config with defaults
+cazdo config init
 
 # Show current configuration
-cazdo config --show
+cazdo config show
 ```
 
 ## Keyboard Shortcuts
 
-| Key | Action |
-|-----|--------|
-| `j` / `k` / `Arrow keys` | Navigate branches |
-| `o` / `Enter` | Open work item in browser |
-| `r` | Refresh current work item |
-| `PgUp` / `PgDn` | Scroll work item details |
-| `Ctrl+u` / `Ctrl+d` | Scroll half page (vim-style) |
-| `q` / `Esc` | Quit |
+| Key                      | Action                                |
+| ------------------------ | ------------------------------------- |
+| `j` / `k` / `Arrow keys` | Navigate branches                     |
+| `o` / `Enter`            | Open work item in browser             |
+| `d`                      | Delete branch (with confirmation)     |
+| `D`                      | Force delete branch (no confirmation) |
+| `r`                      | Refresh current work item             |
+| `p`                      | Toggle protected branches visibility  |
+| `PgUp` / `PgDn`          | Scroll work item details              |
+| `Ctrl+u` / `Ctrl+d`      | Scroll half page (vim-style)          |
+| `q` / `Esc`              | Quit                                  |
+
+## Protected Branches
+
+Branches matching protected patterns are hidden by default and cannot be deleted. The default patterns are `main` and `master`.
+
+Configure custom patterns in `config.toml`:
+
+```toml
+[branches]
+protected = ["main", "master", "releases/*"]
+```
+
+Patterns support `*` wildcards (e.g., `releases/*` matches `releases/v1.0`).
+
+Press `p` in the TUI to toggle visibility of protected branches.
 
 ## Branch Naming
 
 cazdo extracts the **first sequence of digits** found in the branch name to use as the Work Item ID.
 
-| Branch Name | Detected WI |
-|-------------|-------------|
-| `wi123` | #123 |
-| `feature/123-add-login` | #123 |
-| `bugfix/issue-42` | #42 |
-| `release/v2.1-fix-123` | #2 |
+| Branch Name             | Detected WI |
+| ----------------------- | ----------- |
+| `wi123`                 | #123        |
+| `feature/123-add-login` | #123        |
+| `bugfix/issue-42`       | #42         |
+| `release/v2.1-fix-123`  | #2          |
 
 Pattern: First sequence of digits found in the string.
 
