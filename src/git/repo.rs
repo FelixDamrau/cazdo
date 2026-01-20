@@ -1,8 +1,7 @@
 use anyhow::{Context, Result};
 use git2::{BranchType, Repository};
 
-/// Branches that cannot be deleted (main/master)
-pub const PROTECTED_BRANCHES: &[&str] = &["main", "master"];
+use crate::pattern::is_protected;
 
 /// Extract the first number from a branch name (work item number)
 pub fn extract_work_item_number(branch_name: &str) -> Option<u32> {
@@ -175,9 +174,13 @@ impl GitRepo {
     }
 
     /// Delete a local branch and return the commit SHA it was pointing to
-    /// Returns an error if trying to delete the current branch or main/master
-    pub fn delete_branch(&self, branch_name: &str) -> Result<String> {
-        if PROTECTED_BRANCHES.contains(&branch_name) {
+    /// Returns an error if trying to delete the current branch or a protected branch
+    pub fn delete_branch(
+        &self,
+        branch_name: &str,
+        protected_patterns: &[String],
+    ) -> Result<String> {
+        if is_protected(branch_name, protected_patterns) {
             anyhow::bail!("Cannot delete protected branch '{}'", branch_name);
         }
 

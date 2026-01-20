@@ -4,24 +4,22 @@ mod cli;
 mod commands;
 mod config;
 mod git;
+mod pattern;
 mod tui;
 
 use anyhow::Result;
 use clap::Parser;
-use cli::{Cli, Commands};
+use cli::{Cli, Commands, ConfigAction};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Config { show }) => {
-            if show {
-                commands::config_show()?;
-            } else {
-                commands::config_interactive()?;
-            }
-        }
+        Some(Commands::Config { action }) => match action {
+            ConfigAction::Init => commands::config_init()?,
+            ConfigAction::Show => commands::config_show()?,
+        },
         None => {
             // Default: launch interactive TUI
             commands::interactive().await?;

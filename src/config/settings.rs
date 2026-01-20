@@ -4,9 +4,14 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+/// Default protected branch patterns (main/master)
+pub const DEFAULT_PROTECTED_PATTERNS: &[&str] = &["main", "master"];
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     pub azure_devops: AzureDevOpsConfig,
+    #[serde(default)]
+    pub branches: BranchConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -14,13 +19,52 @@ pub struct AzureDevOpsConfig {
     pub organization_url: String,
 }
 
-impl Config {
-    pub fn new(organization_url: String) -> Self {
+impl Default for AzureDevOpsConfig {
+    fn default() -> Self {
         Self {
-            azure_devops: AzureDevOpsConfig { organization_url },
+            organization_url: "https://dev.azure.com/your-organization".to_string(),
         }
     }
+}
 
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            azure_devops: AzureDevOpsConfig::default(),
+            branches: BranchConfig {
+                protected: DEFAULT_PROTECTED_PATTERNS
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+            },
+        }
+    }
+}
+
+/// Branch-related configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BranchConfig {
+    /// Patterns for protected branches (supports * wildcard)
+    /// Default: ["main", "master"]
+    #[serde(default)]
+    pub protected: Vec<String>,
+}
+
+impl BranchConfig {
+    /// Get protected patterns, falling back to defaults if not configured
+    pub fn protected_patterns(&self) -> Vec<String> {
+        if self.protected.is_empty() {
+            DEFAULT_PROTECTED_PATTERNS
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        } else {
+            self.protected.clone()
+        }
+    }
+}
+
+impl Config {
     pub fn config_path() -> Result<PathBuf> {
         let proj_dirs =
             ProjectDirs::from("", "", "cazdo").context("Failed to determine config directory")?;
@@ -33,7 +77,7 @@ impl Config {
 
         if !config_path.exists() {
             bail!(
-                "Configuration file not found at {}\n\nRun 'cazdo config' to set up your configuration.",
+                "Configuration file not found at {}\n\nRun 'cazdo config init' to create a default configuration.",
                 config_path.display()
             );
         }

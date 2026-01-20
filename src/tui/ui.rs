@@ -131,19 +131,23 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
         theme::styles::MUTED.add_modifier(Modifier::DIM)
     };
 
+    let protected_prefix = if app.show_protected { "hide " } else { "show " };
     let spans = vec![
         Span::styled(" j/k ", theme::styles::ACCENT),
-        Span::raw("Navigate  "),
-        Span::styled(" o ", theme::styles::ACCENT),
-        Span::raw("Open  "),
-        Span::styled(" PgUp/Dn ", theme::styles::ACCENT),
-        Span::raw("Scroll  "),
-        Span::styled(" d ", theme::styles::ACCENT),
-        Span::raw("Delete  "),
-        Span::styled(" r ", refresh_style),
-        Span::styled("Refresh  ", refresh_text_style),
-        Span::styled(" q ", theme::styles::ACCENT),
-        Span::raw("Quit"),
+        Span::styled("navigate  ", theme::styles::MUTED),
+        Span::styled("o", theme::styles::ACCENT),
+        Span::styled("pen  ", theme::styles::MUTED),
+        Span::styled("pg\u{2191}\u{2193} ", theme::styles::ACCENT),
+        Span::styled("scroll  ", theme::styles::MUTED),
+        Span::styled("d", theme::styles::ACCENT),
+        Span::styled("elete  ", theme::styles::MUTED),
+        Span::styled("r", refresh_style),
+        Span::styled("efresh  ", refresh_text_style),
+        Span::styled(protected_prefix, theme::styles::MUTED),
+        Span::styled("p", theme::styles::ACCENT),
+        Span::styled("rotected  ", theme::styles::MUTED),
+        Span::styled("q", theme::styles::ACCENT),
+        Span::styled("uit", theme::styles::MUTED),
     ];
 
     let help_text = Line::from(spans);
@@ -152,11 +156,19 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
-    let items: Vec<ListItem> = app
-        .branches
+    let visible = app.visible_branches();
+    let items: Vec<ListItem> = visible
         .iter()
         .map(|branch| {
             let prefix = if branch.is_current { "* " } else { "  " };
+
+            // Show lock for protected branches (when visible)
+            let protected_indicator = if branch.is_protected {
+                " \u{1F512}"
+            } else {
+                ""
+            };
+
             let wi_suffix = match branch.work_item_id {
                 Some(id) => format!(" [#{}]", id),
                 None => String::new(),
@@ -164,11 +176,17 @@ fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
 
             let style = if branch.is_current {
                 theme::branch::CURRENT
+            } else if branch.is_protected {
+                theme::styles::MUTED
             } else {
                 Style::default()
             };
 
-            ListItem::new(format!("{}{}{}", prefix, branch.name, wi_suffix)).style(style)
+            ListItem::new(format!(
+                "{}{}{}{}",
+                prefix, branch.name, protected_indicator, wi_suffix
+            ))
+            .style(style)
         })
         .collect();
 
@@ -183,7 +201,7 @@ fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
                 )])),
         )
         .highlight_style(theme::ui::SELECTED.add_modifier(Modifier::BOLD))
-        .highlight_symbol("► ");
+        .highlight_symbol("\u{25BA} ");
 
     let mut state = ListState::default();
     state.select(Some(app.selected_index));
