@@ -131,11 +131,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
         theme::styles::MUTED.add_modifier(Modifier::DIM)
     };
 
-    let protected_prefix = if app.show_protected {
-        "hide "
-    } else {
-        "show "
-    };
+    let protected_prefix = if app.show_protected { "hide " } else { "show " };
     let spans = vec![
         Span::styled(" j/k ", theme::styles::ACCENT),
         Span::styled("navigate  ", theme::styles::MUTED),

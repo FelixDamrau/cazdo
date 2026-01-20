@@ -17,7 +17,15 @@ pub struct Cli {
 pub enum Commands {
     /// Configure cazdo settings
     Config {
-        #[arg(long)]
-        show: bool,
+        #[command(subcommand)]
+        action: ConfigAction,
     },
+}
+
+#[derive(Subcommand)]
+pub enum ConfigAction {
+    /// Initialize config with default values (overwrites existing)
+    Init,
+    /// Show current configuration
+    Show,
 }

@@ -52,15 +52,25 @@ pub async fn interactive() -> Result<()> {
 }
 
 pub fn config_show() -> Result<()> {
-    let config = Config::load().context("Failed to load configuration")?;
-    println!("Configuration file: {}", Config::config_path()?.display());
+    let config_path = Config::config_path()?;
+
+    if !config_path.exists() {
+        bail!(
+            "Configuration file not found at {}\n\nRun 'cazdo config init' to create a default configuration.",
+            config_path.display()
+        );
+    }
+
+    println!("# {}", config_path.display());
+    println!();
+
+    let content = std::fs::read_to_string(&config_path)
+        .with_context(|| format!("Failed to read config file: {}", config_path.display()))?;
+    print!("{}", content);
+
     println!();
     println!(
-        "Azure DevOps Organization URL: {}",
-        config.azure_devops.organization_url
-    );
-    println!(
-        "PAT: {}",
+        "# PAT: {}",
         if std::env::var("CAZDO_PAT").is_ok() {
             "(set via CAZDO_PAT)"
         } else {
@@ -70,36 +80,43 @@ pub fn config_show() -> Result<()> {
     Ok(())
 }
 
-pub fn config_interactive() -> Result<()> {
+pub fn config_init() -> Result<()> {
     use std::io::{self, Write};
 
     let config_path = Config::config_path()?;
 
-    println!("cazdo configuration");
-    println!("===================");
-    println!();
-    println!("Config file will be saved to: {}", config_path.display());
-    println!();
+    if config_path.exists() {
+        print!(
+            "Config already exists at {}. Overwrite? [y/N] ",
+            config_path.display()
+        );
+        io::stdout().flush()?;
 
-    print!("Azure DevOps Organization URL (e.g., https://dev.azure.com/myorg): ");
-    io::stdout().flush()?;
+        let mut response = String::new();
+        io::stdin().read_line(&mut response)?;
+        let response = response.trim().to_lowercase();
 
-    let mut org_url = String::new();
-    io::stdin().read_line(&mut org_url)?;
-    let org_url = org_url.trim();
-
-    if org_url.is_empty() {
-        bail!("Organization URL cannot be empty");
+        if response != "y" && response != "yes" {
+            println!("Aborted.");
+            return Ok(());
+        }
     }
 
-    let config = Config::new(org_url.to_string());
+    let config = Config::default();
     config.save()?;
 
+    println!("Configuration initialized with defaults!");
     println!();
-    println!("Configuration saved!");
+    println!("Config location: {}", config_path.display());
+    println!();
+    println!("Edit the config file to set:");
+    println!("  - Azure DevOps organization URL");
+    println!("  - Protected branch patterns");
+    if !std::env::var("CAZDO_PAT").is_ok() {
     println!();
     println!("Don't forget to set your PAT:");
     println!("  export CAZDO_PAT=\"your-personal-access-token\"");
+    }
 
     Ok(())
 }
