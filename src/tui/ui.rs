@@ -269,6 +269,7 @@ fn render_details(frame: &mut Frame, app: &mut App, area: Rect) {
 
 fn render_work_item_details(frame: &mut Frame, app: &mut App, area: Rect, wi_id: u32) {
     let status = app.get_work_item_status(wi_id);
+    let max_width = area.width.saturating_sub(4) as usize;
 
     let content: Vec<Line> = match status {
         WorkItemStatus::NotFetched | WorkItemStatus::Loading => {
@@ -281,13 +282,14 @@ fn render_work_item_details(frame: &mut Frame, app: &mut App, area: Rect, wi_id:
             ]
         }
         WorkItemStatus::Error(err) => {
-            vec![
-                Line::from(""),
-                Line::from(Span::styled(
-                    format!("  Error: {}", err),
-                    Style::default().fg(Color::Red),
-                )),
-            ]
+            let mut lines = vec![Line::from("")];
+            append_wrapped_text(
+                &mut lines,
+                &format!("Error: {}", err),
+                max_width,
+                Style::default().fg(Color::Red),
+            );
+            lines
         }
         WorkItemStatus::Loaded(wi) => {
             let type_icon = wi.work_item_type.icon();
@@ -295,7 +297,6 @@ fn render_work_item_details(frame: &mut Frame, app: &mut App, area: Rect, wi_id:
             let state_icon = wi.state.icon();
             let state_name = wi.state.display_name();
             let state_color = wi.state.color();
-            let max_width = area.width.saturating_sub(4) as usize;
 
             // ID and Type
             let mut lines = vec![
@@ -339,19 +340,14 @@ fn render_work_item_details(frame: &mut Frame, app: &mut App, area: Rect, wi_id:
             // Blank line before title
             lines.push(Line::from(""));
 
-            // Title (bold + underlined)
-            // Note: OSC 8 hyperlinks disabled - they break ratatui's width calculation
-            for line in wrap_text(&wi.title, max_width).iter() {
-                lines.push(Line::from(vec![
-                    Span::styled("  ", Style::default()),
-                    Span::styled(
-                        line.clone(),
-                        theme::styles::TEXT
-                            .add_modifier(Modifier::BOLD)
-                            .add_modifier(Modifier::UNDERLINED),
-                    ),
-                ]));
-            }
+            append_wrapped_text(
+                &mut lines,
+                &wi.title,
+                max_width,
+                theme::styles::TEXT
+                    .add_modifier(Modifier::BOLD)
+                    .add_modifier(Modifier::UNDERLINED),
+            );
 
             // All rich text fields (Description, Acceptance Criteria, etc.)
             for field in &wi.rich_text_fields {
@@ -395,6 +391,16 @@ fn render_work_item_details(frame: &mut Frame, app: &mut App, area: Rect, wi_id:
                 .position(app.scroll_offset as usize);
 
         frame.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
+    }
+}
+
+/// Helper to wrap text and append to lines with standard indentation
+fn append_wrapped_text(lines: &mut Vec<Line>, text: &str, max_width: usize, style: Style) {
+    for line in wrap_text(text, max_width) {
+        lines.push(Line::from(vec![
+            Span::styled("  ", Style::default()),
+            Span::styled(line, style),
+        ]));
     }
 }
 

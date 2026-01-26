@@ -33,9 +33,6 @@ impl AzureDevOpsClient {
     }
 
     pub async fn get_work_item(&self, id: u32) -> Result<WorkItem> {
-        // Azure DevOps REST API endpoint for work items
-        // For cloud: https://dev.azure.com/{org}/_apis/wit/workitems/{id}
-        // For server: https://server/tfs/{collection}/_apis/wit/workitems/{id}
         let url = format!(
             "{}/_apis/wit/workitems/{}?api-version=7.0",
             self.base_url, id
@@ -49,13 +46,9 @@ impl AzureDevOpsClient {
             .await
             .context("Failed to send request to Azure DevOps")?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response
-                .text()
-                .await
-                .unwrap_or_else(|e| format!("(failed to read body: {})", e));
-            anyhow::bail!("Azure DevOps API error ({}): {}", status, body);
+        let status = response.status();
+        if !status.is_success() || status == reqwest::StatusCode::NON_AUTHORITATIVE_INFORMATION {
+            return Err(self.extract_api_error(response, id).await);
         }
 
         let json: serde_json::Value = response
@@ -64,5 +57,42 @@ impl AzureDevOpsClient {
             .context("Failed to parse work item response")?;
 
         WorkItem::from_json(&json, id)
+    }
+
+    async fn extract_api_error(&self, response: reqwest::Response, id: u32) -> anyhow::Error {
+        let status = response.status();
+
+        if status == reqwest::StatusCode::NOT_FOUND {
+            return anyhow::anyhow!("Work Item #{} not found", id);
+        }
+
+        if status == reqwest::StatusCode::NON_AUTHORITATIVE_INFORMATION {
+            return anyhow::anyhow!(
+                "Authentication failed (Status 203). This is most likely due to an invalid PAT. Please check your PAT and Azure DevOps organization URL."
+            );
+        }
+
+        let body = match response.text().await {
+            Ok(t) => t,
+            Err(e) => {
+                return anyhow::anyhow!(
+                    "Azure DevOps API error ({}): failed to read body: {}",
+                    status,
+                    e
+                );
+            }
+        };
+
+        // Try to extract clean message from JSON error response
+        let error_msg = serde_json::from_str::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|json| {
+                json.get("message")
+                    .and_then(|m| m.as_str())
+                    .map(|s| s.to_string())
+            })
+            .unwrap_or_else(|| format!("Azure DevOps API error ({})", status));
+
+        anyhow::anyhow!("{}", error_msg)
     }
 }
