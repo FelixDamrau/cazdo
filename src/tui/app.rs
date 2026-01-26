@@ -82,6 +82,11 @@ impl App {
         visible.get(self.selected_index).copied()
     }
 
+    /// Get the work item ID of the currently selected branch (if any)
+    pub fn selected_work_item_id(&self) -> Option<u32> {
+        self.selected_branch().and_then(|b| b.work_item_id)
+    }
+
     /// Get branches that should be displayed based on show_protected toggle
     /// Current branch is always visible even if protected
     pub fn visible_branches(&self) -> Vec<&BranchInfo> {
