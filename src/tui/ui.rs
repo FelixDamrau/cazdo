@@ -281,13 +281,16 @@ fn render_work_item_details(frame: &mut Frame, app: &mut App, area: Rect, wi_id:
             ]
         }
         WorkItemStatus::Error(err) => {
-            vec![
-                Line::from(""),
-                Line::from(Span::styled(
-                    format!("  Error: {}", err),
+            let max_width = area.width.saturating_sub(4) as usize;
+            let mut lines = vec![Line::from("")];
+
+            for line in wrap_text(&format!("Error: {}", err), max_width) {
+                lines.push(Line::from(Span::styled(
+                    format!("  {}", line),
                     Style::default().fg(Color::Red),
-                )),
-            ]
+                )));
+            }
+            lines
         }
         WorkItemStatus::Loaded(wi) => {
             let type_icon = wi.work_item_type.icon();
