@@ -56,12 +56,6 @@ Run `cazdo config init` to create a default config file.
 
 ### Personal Access Token
 
-- fmt
-
-- version++
-
-- fix fmt and try to use jj
-
 Set the `CAZDO_PAT` environment variable with your Azure DevOps PAT:
 
 ```bash
