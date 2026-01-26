@@ -17,12 +17,15 @@ pub struct Config {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AzureDevOpsConfig {
     pub organization_url: String,
+    #[serde(default)]
+    pub pat: Option<String>,
 }
 
 impl Default for AzureDevOpsConfig {
     fn default() -> Self {
         Self {
             organization_url: "https://dev.azure.com/your-organization".to_string(),
+            pat: None,
         }
     }
 }
@@ -109,12 +112,83 @@ impl Config {
         Ok(())
     }
 
-    pub fn get_pat() -> Result<String> {
-        std::env::var("CAZDO_PAT").context(
-            "CAZDO_PAT environment variable not set.\n\n\
-            Set your Azure DevOps Personal Access Token:\n  \
-            export CAZDO_PAT=\"your-personal-access-token\"\n\n\
-            The PAT needs 'Work Items (Read)' permission.",
+    pub fn get_pat(&self) -> Result<String> {
+        // Read from actual environment or use fallback logic
+        self.resolve_pat(std::env::var("CAZDO_PAT").ok())
+    }
+    /// Helper for tests to abstract env::var("CAZDO_PAT")
+    fn resolve_pat(&self, env_pat: Option<String>) -> Result<String> {
+        // 1. Check environment variable (highest priority)
+        if let Some(pat) = env_pat.filter(|p| !p.is_empty()) {
+            return Ok(pat);
+        }
+
+        // 2. Check config file
+        if let Some(pat) = &self.azure_devops.pat {
+            return Ok(pat.clone());
+        }
+
+        anyhow::bail!(
+            "Azure DevOps PAT not found.\n\n\
+            You can set it in two ways (checked in order):\n\
+            1. Environment variable: export CAZDO_PAT=\"your-token\"\n\
+            2. Config file: Add 'pat = \"your-token\"' under [azure_devops] section in config.toml\n\n\
+            The PAT needs 'Work Items (Read)' permission."
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_pat_precedence() {
+        let config = Config {
+            azure_devops: AzureDevOpsConfig {
+                organization_url: "https://dev.azure.com/test".to_string(),
+                pat: Some("config-pat".to_string()),
+            },
+            branches: BranchConfig::default(),
+        };
+
+        // Case 1: Env var set (should override config)
+        let pat = config.resolve_pat(Some("env-pat".to_string())).unwrap();
+        assert_eq!(pat, "env-pat");
+
+        // Case 2: Env var empty (should fallback to config)
+        let pat = config.resolve_pat(None).unwrap();
+        assert_eq!(pat, "config-pat");
+
+        // Case 3: Env var empty string (should fallback to config)
+        let pat = config.resolve_pat(Some("".to_string())).unwrap();
+        assert_eq!(pat, "config-pat");
+    }
+
+    #[test]
+    fn test_get_pat_from_env_only() {
+        let config = Config {
+            azure_devops: AzureDevOpsConfig {
+                organization_url: "https://dev.azure.com/test".to_string(),
+                pat: None,
+            },
+            branches: BranchConfig::default(),
+        };
+
+        let pat = config.resolve_pat(Some("env-pat".to_string())).unwrap();
+        assert_eq!(pat, "env-pat");
+    }
+
+    #[test]
+    fn test_get_pat_missing() {
+        let config = Config {
+            azure_devops: AzureDevOpsConfig {
+                organization_url: "https://dev.azure.com/test".to_string(),
+                pat: None,
+            },
+            branches: BranchConfig::default(),
+        };
+
+        assert!(config.resolve_pat(None).is_err());
     }
 }
