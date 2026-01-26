@@ -8,8 +8,8 @@ mod helpers;
 mod popup;
 
 use ratatui::{
-    layout::{Constraint, Direction, Layout},
     Frame,
+    layout::{Constraint, Direction, Layout},
 };
 
 use super::app::{App, AppMode};
