@@ -12,7 +12,7 @@ pub struct AzureDevOpsClient {
 
 impl AzureDevOpsClient {
     pub fn new(config: &Config) -> Result<Self> {
-        let pat = Config::get_pat()?;
+        let pat = config.get_pat()?;
 
         let client = Client::builder()
             .build()

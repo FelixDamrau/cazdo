@@ -47,6 +47,8 @@ Example config:
 ```toml
 [azure_devops]
 organization_url = "https://dev.azure.com/your-org"
+# Optional: Set PAT here instead of env var
+# pat = "your-pat-token"
 
 [branches]
 protected = ["main", "master", "releases/*"]
@@ -56,17 +58,19 @@ Run `cazdo config init` to create a default config file.
 
 ### Personal Access Token
 
-- fmt
+You can set your Azure DevOps PAT in two ways (checked in order):
 
-- version++
+1. **Environment Variable** (Recommended for CI/CD or temporary overrides):
+   ```bash
+   export CAZDO_PAT="your-pat-token"
+   ```
 
-- fix fmt and try to use jj
-
-Set the `CAZDO_PAT` environment variable with your Azure DevOps PAT:
-
-```bash
-export CAZDO_PAT="your-pat-token"
-```
+2. **Config File** (Recommended for daily use):
+   Add it to `config.toml`:
+   ```toml
+   [azure_devops]
+   pat = "your-pat-token"
+   ```
 
 The PAT needs **Work Items (Read)** scope.
 
