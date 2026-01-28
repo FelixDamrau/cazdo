@@ -385,7 +385,7 @@ impl HtmlParser {
             self.handle_close_tag(tag_name);
         } else if let Some(rest) = tag_content.strip_suffix('/') {
             // Self-closing tag
-            let tag_name = rest.trim().split_whitespace().next().unwrap_or("");
+            let tag_name = rest.split_whitespace().next().unwrap_or("");
             self.handle_open_tag(tag_name);
         } else {
             // Opening tag
