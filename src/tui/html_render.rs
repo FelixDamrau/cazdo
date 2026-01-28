@@ -149,12 +149,12 @@ impl HtmlParser {
             "br" => {
                 self.flush_line();
             }
-            "p" | "div" => {
+            "p" | "div" | "h4" | "h5" | "h6" => {
                 if !self.current_spans.is_empty() || !self.current_text.is_empty() {
                     self.flush_line();
                 }
             }
-            "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+            "h1" | "h2" | "h3" => {
                 self.flush_line();
                 // Add blank line before header if we have content
                 if !self.lines.is_empty() && !self.last_was_blank {
@@ -170,11 +170,6 @@ impl HtmlParser {
             "b" | "strong" => {
                 self.flush_text();
                 self.style_stack.push(Modifier::BOLD);
-                self.current_style = self.compute_style();
-            }
-            "em" | "i" => {
-                self.flush_text();
-                self.style_stack.push(Modifier::ITALIC);
                 self.current_style = self.compute_style();
             }
             "u" => {
@@ -266,10 +261,10 @@ impl HtmlParser {
 
         match tag_lower.as_str() {
             // Block elements
-            "p" | "div" => {
+            "p" | "div" | "h4" | "h5" | "h6" => {
                 self.flush_line();
             }
-            "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+            "h1" | "h2" | "h3" => {
                 self.flush_text();
                 self.style_stack.pop();
                 self.current_style = self.compute_style();
@@ -277,7 +272,7 @@ impl HtmlParser {
             }
 
             // Inline formatting
-            "b" | "strong" | "em" | "i" | "u" | "s" | "strike" | "del" => {
+            "b" | "strong" | "u" | "s" | "strike" | "del" => {
                 self.flush_text();
                 self.style_stack.pop();
                 self.current_style = self.compute_style();
@@ -302,9 +297,6 @@ impl HtmlParser {
                 self.flush_line();
                 self.list_stack.pop();
                 self.update_indent();
-            }
-            "li" => {
-                self.flush_line();
             }
 
             // Table
@@ -553,5 +545,14 @@ mod tests {
         let html = "<ul><li>Outer<ul><li>Inner</li></ul></li></ul>";
         let lines = render_html(html, 80);
         assert!(lines.len() >= 2);
+    }
+
+    #[test]
+    fn test_list_spacing() {
+        let lines = render_html("<ul><li>Item 1</li><li>Item 2</li></ul>", 80);
+        // Should be exactly 2 lines if no blank lines are inserted
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].spans.iter().any(|s| s.content.contains("Item 1")));
+        assert!(lines[1].spans.iter().any(|s| s.content.contains("Item 2")));
     }
 }
