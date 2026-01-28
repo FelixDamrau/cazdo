@@ -32,8 +32,8 @@ struct HtmlParser {
     last_was_blank: bool,
     /// Whether we're inside an anchor tag
     in_anchor: bool,
-    /// Work item ID extracted from anchor href
-    anchor_work_item_id: Option<u32>,
+    /// Whether we're inside a preformatted text block
+    in_pre: bool,
     /// Maximum width for text wrapping
     max_width: usize,
     /// Current line width for wrapping
@@ -53,7 +53,7 @@ impl HtmlParser {
             lines: Vec::new(),
             last_was_blank: false,
             in_anchor: false,
-            anchor_work_item_id: None,
+            in_pre: false,
             max_width,
             current_line_width: 0,
             indent: String::new(),
@@ -141,7 +141,7 @@ impl HtmlParser {
     }
 
     /// Handle opening tag
-    fn handle_open_tag(&mut self, tag: &str, attrs: &str) {
+    fn handle_open_tag(&mut self, tag: &str) {
         let tag_lower = tag.to_lowercase();
 
         match tag_lower.as_str() {
@@ -149,12 +149,12 @@ impl HtmlParser {
             "br" => {
                 self.flush_line();
             }
-            "p" | "div" => {
+            "p" | "div" | "h4" | "h5" | "h6" => {
                 if !self.current_spans.is_empty() || !self.current_text.is_empty() {
                     self.flush_line();
                 }
             }
-            "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+            "h1" | "h2" | "h3" => {
                 self.flush_line();
                 // Add blank line before header if we have content
                 if !self.lines.is_empty() && !self.last_was_blank {
@@ -172,11 +172,6 @@ impl HtmlParser {
                 self.style_stack.push(Modifier::BOLD);
                 self.current_style = self.compute_style();
             }
-            "em" | "i" => {
-                self.flush_text();
-                self.style_stack.push(Modifier::ITALIC);
-                self.current_style = self.compute_style();
-            }
             "u" => {
                 self.flush_text();
                 self.style_stack.push(Modifier::UNDERLINED);
@@ -192,7 +187,6 @@ impl HtmlParser {
             "a" => {
                 self.flush_text();
                 self.in_anchor = true;
-                self.anchor_work_item_id = extract_work_item_id(attrs);
                 self.current_style = self.compute_style();
             }
 
@@ -253,6 +247,9 @@ impl HtmlParser {
             // Code
             "code" | "pre" => {
                 self.flush_text();
+                if tag_lower == "pre" {
+                    self.in_pre = true;
+                }
                 self.current_style = self.compute_style().fg(Color::Yellow);
             }
 
@@ -266,10 +263,10 @@ impl HtmlParser {
 
         match tag_lower.as_str() {
             // Block elements
-            "p" | "div" => {
+            "p" | "div" | "h4" | "h5" | "h6" => {
                 self.flush_line();
             }
-            "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+            "h1" | "h2" | "h3" => {
                 self.flush_text();
                 self.style_stack.pop();
                 self.current_style = self.compute_style();
@@ -277,7 +274,7 @@ impl HtmlParser {
             }
 
             // Inline formatting
-            "b" | "strong" | "em" | "i" | "u" | "s" | "strike" | "del" => {
+            "b" | "strong" | "u" | "s" | "strike" | "del" => {
                 self.flush_text();
                 self.style_stack.pop();
                 self.current_style = self.compute_style();
@@ -285,14 +282,6 @@ impl HtmlParser {
 
             // Links
             "a" => {
-                // If we found a work item ID, show it as a reference
-                if let Some(wi_id) = self.anchor_work_item_id.take() {
-                    self.flush_text();
-                    self.current_spans.push(Span::styled(
-                        format!("#{}", wi_id),
-                        Style::default().fg(Color::Cyan),
-                    ));
-                }
                 self.in_anchor = false;
                 self.current_style = self.compute_style();
             }
@@ -302,9 +291,6 @@ impl HtmlParser {
                 self.flush_line();
                 self.list_stack.pop();
                 self.update_indent();
-            }
-            "li" => {
-                self.flush_line();
             }
 
             // Table
@@ -318,6 +304,9 @@ impl HtmlParser {
             // Code
             "code" | "pre" => {
                 self.flush_text();
+                if tag_lower == "pre" {
+                    self.in_pre = false;
+                }
                 self.current_style = self.compute_style();
             }
 
@@ -357,8 +346,13 @@ impl HtmlParser {
                     text.push(chars.next().unwrap());
                 }
 
-                // Normalize whitespace
-                let normalized = normalize_whitespace(&text);
+                // Normalize whitespace unless in pre block
+                let normalized = if self.in_pre {
+                    text
+                } else {
+                    normalize_whitespace(&text)
+                };
+
                 if !normalized.is_empty() {
                     self.add_text(&normalized);
                 }
@@ -391,16 +385,12 @@ impl HtmlParser {
             self.handle_close_tag(tag_name);
         } else if let Some(rest) = tag_content.strip_suffix('/') {
             // Self-closing tag
-            let parts: Vec<&str> = rest.trim().splitn(2, char::is_whitespace).collect();
-            let tag_name = parts.first().unwrap_or(&"");
-            let attrs = parts.get(1).unwrap_or(&"");
-            self.handle_open_tag(tag_name, attrs);
+            let tag_name = rest.split_whitespace().next().unwrap_or("");
+            self.handle_open_tag(tag_name);
         } else {
             // Opening tag
-            let parts: Vec<&str> = tag_content.splitn(2, char::is_whitespace).collect();
-            let tag_name = parts.first().unwrap_or(&"");
-            let attrs = parts.get(1).unwrap_or(&"");
-            self.handle_open_tag(tag_name, attrs);
+            let tag_name = tag_content.split_whitespace().next().unwrap_or("");
+            self.handle_open_tag(tag_name);
         }
     }
 }
@@ -442,49 +432,6 @@ fn normalize_whitespace(s: &str) -> String {
     }
 
     result
-}
-
-/// Extract work item ID from anchor href attribute
-/// Looks for patterns like: href="...workitems/edit/123" or href="...workitems/123"
-fn extract_work_item_id(attrs: &str) -> Option<u32> {
-    // Find href attribute
-    let href_start = attrs.find("href=")?;
-    let rest = &attrs[href_start + 5..];
-
-    // Find the URL value (handle both single and double quotes)
-    let url = if let Some(stripped) = rest.strip_prefix('"') {
-        let end = stripped.find('"')?;
-        &stripped[..end]
-    } else if let Some(stripped) = rest.strip_prefix('\'') {
-        let end = stripped.find('\'')?;
-        &stripped[..end]
-    } else {
-        let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
-        &rest[..end]
-    };
-
-    // Look for work item patterns
-    // Pattern 1: workitems/edit/123
-    if let Some(pos) = url.find("workitems/edit/") {
-        let id_start = pos + "workitems/edit/".len();
-        let id_str: String = url[id_start..]
-            .chars()
-            .take_while(|c| c.is_ascii_digit())
-            .collect();
-        return id_str.parse().ok();
-    }
-
-    // Pattern 2: workitems/123
-    if let Some(pos) = url.find("workitems/") {
-        let id_start = pos + "workitems/".len();
-        let id_str: String = url[id_start..]
-            .chars()
-            .take_while(|c| c.is_ascii_digit())
-            .collect();
-        return id_str.parse().ok();
-    }
-
-    None
 }
 
 /// Render HTML content to styled ratatui Lines
@@ -536,13 +483,6 @@ mod tests {
     }
 
     #[test]
-    fn test_work_item_link() {
-        let id =
-            extract_work_item_id(r#"href="https://dev.azure.com/org/project/_workitems/edit/123""#);
-        assert_eq!(id, Some(123));
-    }
-
-    #[test]
     fn test_html_entities() {
         let decoded = decode_html_entities("Hello&nbsp;&amp;&nbsp;world");
         assert_eq!(decoded, "Hello & world");
@@ -553,5 +493,31 @@ mod tests {
         let html = "<ul><li>Outer<ul><li>Inner</li></ul></li></ul>";
         let lines = render_html(html, 80);
         assert!(lines.len() >= 2);
+    }
+
+    #[test]
+    fn test_list_spacing() {
+        let lines = render_html("<ul><li>Item 1</li><li>Item 2</li></ul>", 80);
+        // Should be exactly 2 lines if no blank lines are inserted
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].spans.iter().any(|s| s.content.contains("Item 1")));
+        assert!(lines[1].spans.iter().any(|s| s.content.contains("Item 2")));
+    }
+
+    #[test]
+    fn test_pre_whitespace() {
+        let html = "<pre>  code\n    indent</pre>";
+        let lines = render_html(html, 80);
+
+        // Find the line containing the code
+        let content = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .map(|s| s.content.to_string())
+            .collect::<Vec<_>>()
+            .join("");
+
+        assert!(content.contains("  code"));
+        assert!(content.contains("    indent"));
     }
 }
