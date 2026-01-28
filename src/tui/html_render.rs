@@ -34,8 +34,6 @@ struct HtmlParser {
     in_anchor: bool,
     /// Whether we're inside a preformatted text block
     in_pre: bool,
-    /// Work item ID extracted from anchor href
-    anchor_work_item_id: Option<u32>,
     /// Maximum width for text wrapping
     max_width: usize,
     /// Current line width for wrapping
@@ -56,7 +54,6 @@ impl HtmlParser {
             last_was_blank: false,
             in_anchor: false,
             in_pre: false,
-            anchor_work_item_id: None,
             max_width,
             current_line_width: 0,
             indent: String::new(),
@@ -144,7 +141,7 @@ impl HtmlParser {
     }
 
     /// Handle opening tag
-    fn handle_open_tag(&mut self, tag: &str, attrs: &str) {
+    fn handle_open_tag(&mut self, tag: &str, _attrs: &str) {
         let tag_lower = tag.to_lowercase();
 
         match tag_lower.as_str() {
@@ -190,7 +187,6 @@ impl HtmlParser {
             "a" => {
                 self.flush_text();
                 self.in_anchor = true;
-                self.anchor_work_item_id = extract_work_item_id(attrs);
                 self.current_style = self.compute_style();
             }
 
@@ -286,14 +282,6 @@ impl HtmlParser {
 
             // Links
             "a" => {
-                // If we found a work item ID, show it as a reference
-                if let Some(wi_id) = self.anchor_work_item_id.take() {
-                    self.flush_text();
-                    self.current_spans.push(Span::styled(
-                        format!("#{}", wi_id),
-                        Style::default().fg(Color::Cyan),
-                    ));
-                }
                 self.in_anchor = false;
                 self.current_style = self.compute_style();
             }
@@ -450,49 +438,6 @@ fn normalize_whitespace(s: &str) -> String {
     result
 }
 
-/// Extract work item ID from anchor href attribute
-/// Looks for patterns like: href="...workitems/edit/123" or href="...workitems/123"
-fn extract_work_item_id(attrs: &str) -> Option<u32> {
-    // Find href attribute
-    let href_start = attrs.find("href=")?;
-    let rest = &attrs[href_start + 5..];
-
-    // Find the URL value (handle both single and double quotes)
-    let url = if let Some(stripped) = rest.strip_prefix('"') {
-        let end = stripped.find('"')?;
-        &stripped[..end]
-    } else if let Some(stripped) = rest.strip_prefix('\'') {
-        let end = stripped.find('\'')?;
-        &stripped[..end]
-    } else {
-        let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
-        &rest[..end]
-    };
-
-    // Look for work item patterns
-    // Pattern 1: workitems/edit/123
-    if let Some(pos) = url.find("workitems/edit/") {
-        let id_start = pos + "workitems/edit/".len();
-        let id_str: String = url[id_start..]
-            .chars()
-            .take_while(|c| c.is_ascii_digit())
-            .collect();
-        return id_str.parse().ok();
-    }
-
-    // Pattern 2: workitems/123
-    if let Some(pos) = url.find("workitems/") {
-        let id_start = pos + "workitems/".len();
-        let id_str: String = url[id_start..]
-            .chars()
-            .take_while(|c| c.is_ascii_digit())
-            .collect();
-        return id_str.parse().ok();
-    }
-
-    None
-}
-
 /// Render HTML content to styled ratatui Lines
 ///
 /// # Arguments
@@ -539,13 +484,6 @@ mod tests {
     fn test_ordered_list() {
         let lines = render_html("<ol><li>First</li><li>Second</li></ol>", 80);
         assert!(lines.len() >= 2);
-    }
-
-    #[test]
-    fn test_work_item_link() {
-        let id =
-            extract_work_item_id(r#"href="https://dev.azure.com/org/project/_workitems/edit/123""#);
-        assert_eq!(id, Some(123));
     }
 
     #[test]
