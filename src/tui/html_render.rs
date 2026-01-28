@@ -141,7 +141,7 @@ impl HtmlParser {
     }
 
     /// Handle opening tag
-    fn handle_open_tag(&mut self, tag: &str, _attrs: &str) {
+    fn handle_open_tag(&mut self, tag: &str) {
         let tag_lower = tag.to_lowercase();
 
         match tag_lower.as_str() {
@@ -385,16 +385,12 @@ impl HtmlParser {
             self.handle_close_tag(tag_name);
         } else if let Some(rest) = tag_content.strip_suffix('/') {
             // Self-closing tag
-            let parts: Vec<&str> = rest.trim().splitn(2, char::is_whitespace).collect();
-            let tag_name = parts.first().unwrap_or(&"");
-            let attrs = parts.get(1).unwrap_or(&"");
-            self.handle_open_tag(tag_name, attrs);
+            let tag_name = rest.trim().split_whitespace().next().unwrap_or("");
+            self.handle_open_tag(tag_name);
         } else {
             // Opening tag
-            let parts: Vec<&str> = tag_content.splitn(2, char::is_whitespace).collect();
-            let tag_name = parts.first().unwrap_or(&"");
-            let attrs = parts.get(1).unwrap_or(&"");
-            self.handle_open_tag(tag_name, attrs);
+            let tag_name = tag_content.split_whitespace().next().unwrap_or("");
+            self.handle_open_tag(tag_name);
         }
     }
 }
