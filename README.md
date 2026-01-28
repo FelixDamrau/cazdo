@@ -1,4 +1,5 @@
-# cazdo
+
+![cazdo logo](docs/images/cazdo.png)
 
 ![CI](https://github.com/FelixDamrau/cazdo/actions/workflows/ci.yml/badge.svg)
 ![Release](https://github.com/FelixDamrau/cazdo/actions/workflows/release.yml/badge.svg)
@@ -76,10 +77,30 @@ The PAT needs **Work Items (Read)** scope.
 
 ## Usage
 
-```bash
-# Interactive TUI - browse all branches and their work items
-cazdo
+### 1. Setup
+First, ensure you have configured your Azure DevOps organization URL and PAT (see [Configuration](#configuration)).
 
+### 2. Start the TUI
+Run the application in your git repository:
+
+```bash
+cazdo
+```
+
+### 3. Navigate
+The interface lists your local branches. `cazdo` attempts to match each branch to an Azure DevOps work item based on numbers in the branch name.
+
+![cazdo TUI example](docs/images/cazdo_tui_example.png)
+
+- **Left Panel**: List of branches.
+  - Branches with found work items show the work item type and ID.
+  - The current branch is highlighted.
+- **Right Panel**: Details of the selected work item.
+
+Use the **Keyboard Shortcuts** below to navigate and interact.
+
+### CLI Commands
+```bash
 # Initialize config with defaults
 cazdo config init
 
