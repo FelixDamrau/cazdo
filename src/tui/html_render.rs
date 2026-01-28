@@ -32,6 +32,8 @@ struct HtmlParser {
     last_was_blank: bool,
     /// Whether we're inside an anchor tag
     in_anchor: bool,
+    /// Whether we're inside a preformatted text block
+    in_pre: bool,
     /// Work item ID extracted from anchor href
     anchor_work_item_id: Option<u32>,
     /// Maximum width for text wrapping
@@ -53,6 +55,7 @@ impl HtmlParser {
             lines: Vec::new(),
             last_was_blank: false,
             in_anchor: false,
+            in_pre: false,
             anchor_work_item_id: None,
             max_width,
             current_line_width: 0,
@@ -248,6 +251,9 @@ impl HtmlParser {
             // Code
             "code" | "pre" => {
                 self.flush_text();
+                if tag_lower == "pre" {
+                    self.in_pre = true;
+                }
                 self.current_style = self.compute_style().fg(Color::Yellow);
             }
 
@@ -310,6 +316,9 @@ impl HtmlParser {
             // Code
             "code" | "pre" => {
                 self.flush_text();
+                if tag_lower == "pre" {
+                    self.in_pre = false;
+                }
                 self.current_style = self.compute_style();
             }
 
@@ -349,8 +358,13 @@ impl HtmlParser {
                     text.push(chars.next().unwrap());
                 }
 
-                // Normalize whitespace
-                let normalized = normalize_whitespace(&text);
+                // Normalize whitespace unless in pre block
+                let normalized = if self.in_pre {
+                    text
+                } else {
+                    normalize_whitespace(&text)
+                };
+
                 if !normalized.is_empty() {
                     self.add_text(&normalized);
                 }
@@ -554,5 +568,22 @@ mod tests {
         assert_eq!(lines.len(), 2);
         assert!(lines[0].spans.iter().any(|s| s.content.contains("Item 1")));
         assert!(lines[1].spans.iter().any(|s| s.content.contains("Item 2")));
+    }
+
+    #[test]
+    fn test_pre_whitespace() {
+        let html = "<pre>  code\n    indent</pre>";
+        let lines = render_html(html, 80);
+
+        // Find the line containing the code
+        let content = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .map(|s| s.content.to_string())
+            .collect::<Vec<_>>()
+            .join("");
+
+        assert!(content.contains("  code"));
+        assert!(content.contains("    indent"));
     }
 }
