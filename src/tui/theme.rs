@@ -35,7 +35,7 @@ pub mod layout {
     /// Height of branch info panel
     pub const BRANCH_INFO_HEIGHT: u16 = 5;
     /// Popup size (width%, height%)
-    pub const POPUP_SIZE: (u16, u16) = (60, 20);
+    pub const POPUP_SIZE: (u16, u16) = (60, 12);
 }
 
 /// Timing constants
