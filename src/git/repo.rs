@@ -173,6 +173,73 @@ impl GitRepo {
         }
     }
 
+    /// Checkout a branch by name
+    /// Returns an error if the branch doesn't exist or if the working directory has uncommitted changes
+    pub fn checkout_branch(&self, branch_name: &str) -> Result<()> {
+        // Check if already on this branch
+        let current = self.current_branch()?;
+        if current == branch_name {
+            anyhow::bail!("Already on branch '{}'", branch_name);
+        }
+
+        // Find the branch
+        let branch = self
+            .repo
+            .find_branch(branch_name, BranchType::Local)
+            .with_context(|| format!("Branch '{}' not found", branch_name))?;
+
+        // Get the commit the branch points to
+        let commit = branch
+            .get()
+            .peel_to_commit()
+            .with_context(|| format!("Failed to resolve branch '{}' to a commit", branch_name))?;
+
+        // Check for uncommitted changes that would be overwritten
+        let statuses = self
+            .repo
+            .statuses(None)
+            .context("Failed to get repository status")?;
+
+        let has_conflicts = statuses.iter().any(|s| {
+            let status = s.status();
+            status.intersects(
+                git2::Status::INDEX_NEW
+                    | git2::Status::INDEX_MODIFIED
+                    | git2::Status::INDEX_DELETED
+                    | git2::Status::INDEX_RENAMED
+                    | git2::Status::INDEX_TYPECHANGE
+                    | git2::Status::WT_NEW
+                    | git2::Status::WT_MODIFIED
+                    | git2::Status::WT_DELETED
+                    | git2::Status::WT_RENAMED
+                    | git2::Status::WT_TYPECHANGE
+                    | git2::Status::CONFLICTED,
+            )
+        });
+
+        if has_conflicts {
+            anyhow::bail!(
+                "Cannot checkout '{}': you have uncommitted changes. Commit or stash them first.",
+                branch_name
+            );
+        }
+
+        // Perform the checkout
+        let tree = commit
+            .tree()
+            .with_context(|| format!("Failed to get tree for branch '{}'", branch_name))?;
+
+        self.repo
+            .checkout_tree(tree.as_object(), None)
+            .with_context(|| format!("Failed to checkout tree for branch '{}'", branch_name))?;
+
+        self.repo
+            .set_head(&format!("refs/heads/{}", branch_name))
+            .with_context(|| format!("Failed to set HEAD to branch '{}'", branch_name))?;
+
+        Ok(())
+    }
+
     /// Delete a local branch and return the commit SHA it was pointing to
     /// Returns an error if trying to delete the current branch or a protected branch
     pub fn delete_branch(
