@@ -72,8 +72,8 @@ fn render_popup_impl(frame: &mut Frame, title: &str, content: Vec<Line>, area: R
 /// Get the popup rect
 fn centered_rect(r: Rect) -> Rect {
     let (popup_width, popup_height) = theme::layout::POPUP_SIZE;
-    let width = popup_width.min(r.width - 2);
-    let height = popup_height.min(r.height - 3);
+    let width = popup_width.min(r.width - 2); // -2: keep main left/right border
+    let height = popup_height.min(r.height - 3);  // -3 keep main top/bottom border and help line
 
     let x = r.width.saturating_sub(width) / 2;
     let y = r.height.saturating_sub(height) / 2;
