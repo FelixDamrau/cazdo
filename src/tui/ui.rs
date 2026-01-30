@@ -48,8 +48,8 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     // Render popup if needed
     if let AppMode::ConfirmDelete(ref branch_name) = app.mode {
-        let (popup_width, popup_height) = theme::layout::POPUP_SIZE;
-        let area = popup::centered_rect(frame.area(), popup_width, popup_height);
-        popup::render_delete_popup(frame, branch_name, area);
+        popup::render_delete_popup(frame, branch_name);
+    } else if let AppMode::ErrorPopup(ref message) = app.mode {
+        popup::render_error_popup(frame, message);
     }
 }

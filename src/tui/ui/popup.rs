@@ -1,43 +1,14 @@
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 
 use crate::tui::theme;
 
-/// Calculate a centered rectangle within the given area
-pub fn centered_rect(r: Rect, percent_x: u16, percent_y: u16) -> Rect {
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(r);
-
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(popup_layout[1])[1]
-}
-
 /// Render the delete confirmation popup
-pub fn render_delete_popup(frame: &mut Frame, branch_name: &str, area: Rect) {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(theme::ui::BORDER_ERROR)
-        .title(Line::from(vec![Span::styled(
-            " Delete Branch ",
-            theme::ui::TITLE_ERROR,
-        )]));
-
+pub fn render_delete_popup(frame: &mut Frame, branch_name: &str) {
     let content = vec![
         Line::from(""),
         Line::from(vec![
@@ -46,24 +17,75 @@ pub fn render_delete_popup(frame: &mut Frame, branch_name: &str, area: Rect) {
             Span::raw("?"),
         ]),
         Line::from(""),
-        Line::from(vec![
-            Span::raw("Press "),
-            Span::styled("y", theme::styles::ERROR),
-            Span::raw(" to confirm"),
-        ]),
-        Line::from(vec![
-            Span::raw("Press "),
-            Span::styled("n", theme::ui::TITLE),
-            Span::raw(" or "),
-            Span::styled("Esc", theme::ui::TITLE),
-            Span::raw(" to cancel"),
-        ]),
+        make_key_hint(&["y"], "conform"),
+        make_key_hint(&["n", "Esc"], "cancel"),
     ];
+
+    let area = centered_rect(frame.area());
+    render_popup_impl(frame, " Delete Branch ", content, area);
+}
+
+/// Render an error popup with the given message
+pub fn render_error_popup(frame: &mut Frame, message: &str) {
+    let content = vec![
+        Line::from(""),
+        Line::from(Span::styled(message, theme::styles::ERROR)),
+        Line::from(""),
+        make_key_hint(&["Enter", "Esc"], "Dismiss"),
+    ];
+
+    let area = centered_rect(frame.area());
+    render_popup_impl(frame, " Error ", content, area);
+}
+
+fn make_key_hint<'a>(keys: &[&'a str], action: &str) -> Line<'a> {
+    let mut spans = vec![Span::raw("Press ")];
+    for (i, &key) in keys.iter().enumerate() {
+        spans.push(Span::styled(key, theme::ui::TITLE));
+        if i < keys.len() - 1 {
+            spans.push(Span::raw(" or "));
+        }
+    }
+    spans.push(Span::raw(format!(" to {}.", action)));
+    Line::from(spans)
+}
+
+fn render_popup_impl(frame: &mut Frame, title: &str, content: Vec<Line>, area: Rect) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(theme::ui::BORDER_ERROR)
+        .title(Line::from(vec![Span::styled(
+            title,
+            theme::ui::TITLE_ERROR,
+        )]));
 
     let paragraph = Paragraph::new(content)
         .block(block)
-        .alignment(ratatui::layout::Alignment::Center);
+        .alignment(Alignment::Center)
+        .wrap(Wrap { trim: true });
 
-    frame.render_widget(Clear, area); // Clear background
+    frame.render_widget(Clear, area);
     frame.render_widget(paragraph, area);
+}
+
+/// Get the popup rect
+fn centered_rect(r: Rect) -> Rect {
+    let (popup_width, popup_height) = theme::layout::POPUP_SIZE;
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - popup_height) / 2),
+            Constraint::Percentage(popup_height),
+            Constraint::Percentage((100 - popup_height) / 2),
+        ])
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - popup_width) / 2),
+            Constraint::Percentage(popup_width),
+            Constraint::Percentage((100 - popup_width) / 2),
+        ])
+        .split(popup_layout[1])[1]
 }

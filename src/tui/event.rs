@@ -34,6 +34,8 @@ enum Action {
     Refresh(u32),
     /// Open the current work item in browser
     OpenWorkItem,
+    /// Checkout the selected branch
+    Checkout(String),
 }
 
 pub async fn run_app(mut app: App, git_repo: GitRepo) -> Result<()> {
@@ -123,6 +125,7 @@ async fn run_loop(
                     app.reset_work_item(wi_id);
                 }
                 Action::OpenWorkItem => open_current_work_item(app),
+                Action::Checkout(name) => execute_checkout_branch(app, git_repo, &name),
             }
         }
 
@@ -225,6 +228,10 @@ fn handle_key_event(app: &mut App, key: KeyEvent, visible_height: u16) -> Option
             let branch_name = branch_name.clone();
             handle_confirm_delete_key(app, key, &branch_name)
         }
+        AppMode::ErrorPopup(_) => {
+            handle_error_popup_key(app, key);
+            None
+        }
     }
 }
 
@@ -299,7 +306,12 @@ fn handle_normal_mode_key(app: &mut App, key: KeyEvent, visible_height: u16) -> 
         }
 
         // Open work item
-        KeyCode::Char('o') | KeyCode::Enter => Some(Action::OpenWorkItem),
+        KeyCode::Char('o') => Some(Action::OpenWorkItem),
+
+        // Checkout branch
+        KeyCode::Enter => app
+            .selected_branch()
+            .map(|b| Action::Checkout(b.name.clone())),
 
         // Refresh work item
         KeyCode::Char('r') => app.selected_work_item_id().map(Action::Refresh),
@@ -327,6 +339,16 @@ fn handle_confirm_delete_key(app: &mut App, key: KeyEvent, branch_name: &str) ->
             None
         }
         _ => None,
+    }
+}
+
+/// Handle keyboard events in error popup mode
+fn handle_error_popup_key(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') => {
+            app.cancel_mode();
+        }
+        _ => {}
     }
 }
 
@@ -371,6 +393,23 @@ fn execute_delete_branch(app: &mut App, git_repo: &GitRepo, branch_name: &str) {
         }
         Err(e) => {
             app.set_status_message(e.to_string(), true, timing::STATUS_DURATION_SECS);
+        }
+    }
+}
+
+/// Execute branch checkout and update app state with result
+fn execute_checkout_branch(app: &mut App, git_repo: &GitRepo, branch_name: &str) {
+    match git_repo.checkout_branch(branch_name) {
+        Ok(()) => {
+            app.update_current_branch(branch_name);
+            app.set_status_message(
+                format!("Switched to branch '{}'", branch_name),
+                false,
+                timing::STATUS_DURATION_SECS,
+            );
+        }
+        Err(e) => {
+            app.show_error_popup(e.to_string());
         }
     }
 }

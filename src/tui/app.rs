@@ -8,6 +8,7 @@ use std::time::Instant;
 pub enum AppMode {
     Normal,
     ConfirmDelete(String), // branch name to delete
+    ErrorPopup(String),    // error message to display
 }
 
 /// Deleted branch info for summary on exit
@@ -201,6 +202,11 @@ impl App {
         }
     }
 
+    /// Show an error popup with the given message
+    pub fn show_error_popup(&mut self, message: String) {
+        self.mode = AppMode::ErrorPopup(message);
+    }
+
     /// Cancel any modal and return to normal mode
     pub fn cancel_mode(&mut self) {
         self.mode = AppMode::Normal;
@@ -250,6 +256,13 @@ impl App {
             if self.selected_index >= self.branches.len() && !self.branches.is_empty() {
                 self.selected_index = self.branches.len() - 1;
             }
+        }
+    }
+
+    /// Update which branch is marked as current after a checkout
+    pub fn update_current_branch(&mut self, new_current_branch: &str) {
+        for branch in &mut self.branches {
+            branch.is_current = branch.name == new_current_branch;
         }
     }
 

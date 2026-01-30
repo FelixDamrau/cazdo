@@ -113,7 +113,8 @@ cazdo config show
 | Key                      | Action                                |
 | ------------------------ | ------------------------------------- |
 | `j` / `k` / `Arrow keys` | Navigate branches                     |
-| `o` / `Enter`            | Open work item in browser             |
+| `Enter`                  | Checkout selected branch              |
+| `o`                      | Open work item in browser             |
 | `d`                      | Delete branch (with confirmation)     |
 | `D`                      | Force delete branch (no confirmation) |
 | `r`                      | Refresh current work item             |
