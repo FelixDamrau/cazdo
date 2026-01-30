@@ -1,8 +1,8 @@
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Rect},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, Padding, Paragraph, Wrap},
 };
 
 use crate::tui::theme;
@@ -54,6 +54,7 @@ fn render_popup_impl(frame: &mut Frame, title: &str, content: Vec<Line>, area: R
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(theme::ui::BORDER_ERROR)
+        .padding(Padding::horizontal(1))
         .title(Line::from(vec![Span::styled(
             title,
             theme::ui::TITLE_ERROR,
@@ -71,21 +72,11 @@ fn render_popup_impl(frame: &mut Frame, title: &str, content: Vec<Line>, area: R
 /// Get the popup rect
 fn centered_rect(r: Rect) -> Rect {
     let (popup_width, popup_height) = theme::layout::POPUP_SIZE;
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - popup_height) / 2),
-            Constraint::Percentage(popup_height),
-            Constraint::Percentage((100 - popup_height) / 2),
-        ])
-        .split(r);
+    let width = popup_width.min(r.width - 2); // -2: keep main left/right border
+    let height = popup_height.min(r.height - 3); // -3 keep main top/bottom border and help line
 
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - popup_width) / 2),
-            Constraint::Percentage(popup_width),
-            Constraint::Percentage((100 - popup_width) / 2),
-        ])
-        .split(popup_layout[1])[1]
+    let x = r.width.saturating_sub(width) / 2;
+    let y = r.height.saturating_sub(height) / 2;
+
+    Rect::new(r.x + x, r.y + y, width, height)
 }
