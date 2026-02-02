@@ -3,7 +3,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
+    widgets::{Block, Borders, Clear, Paragraph},
 };
 
 use crate::tui::app::{App, WorkItemStatus};
@@ -185,16 +185,11 @@ fn render_work_item_details(frame: &mut Frame, app: &mut App, area: Rect, wi_id:
 
     frame.render_widget(paragraph, area);
 
-    // Render scrollbar if content exceeds visible area
-    if content_height > area.height {
-        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
-            .begin_symbol(Some("↑"))
-            .end_symbol(Some("↓"));
-
-        let mut scrollbar_state =
-            ScrollbarState::new(content_height.saturating_sub(area.height) as usize)
-                .position(app.scroll_offset as usize);
-
-        frame.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
-    }
+    // Render scrollbar
+    super::helpers::render_scrollbar(
+        frame,
+        area,
+        content_height as usize,
+        app.scroll_offset as usize,
+    );
 }

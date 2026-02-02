@@ -1,11 +1,34 @@
 use chrono::{TimeZone, Utc};
 use chrono_humanize::HumanTime;
 use ratatui::{
+    Frame,
+    layout::Rect,
     style::Style,
     text::{Line, Span},
+    widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
 
 use crate::git::RemoteStatus;
+
+/// Helper to render a consistent scrollbar
+pub fn render_scrollbar(
+    frame: &mut Frame,
+    area: Rect,
+    content_height: usize,
+    scroll_offset: usize,
+) {
+    if content_height > area.height as usize {
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(Some("↑"))
+            .end_symbol(Some("↓"));
+
+        let mut scrollbar_state =
+            ScrollbarState::new(content_height.saturating_sub(area.height as usize))
+                .position(scroll_offset);
+
+        frame.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
+    }
+}
 
 /// Helper to wrap text and append to lines with standard indentation
 pub fn append_wrapped_text(lines: &mut Vec<Line>, text: &str, max_width: usize, style: Style) {
