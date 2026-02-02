@@ -22,9 +22,8 @@ pub fn render_scrollbar(
             .begin_symbol(Some("↑"))
             .end_symbol(Some("↓"));
 
-        let mut scrollbar_state =
-            ScrollbarState::new(content_height.saturating_sub(area.height as usize))
-                .position(scroll_offset);
+        let max_scroll = content_height.saturating_sub(area.height as usize);
+        let mut scrollbar_state = ScrollbarState::new(max_scroll).position(scroll_offset);
 
         frame.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
     }

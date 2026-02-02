@@ -19,6 +19,7 @@ pub fn render_details(frame: &mut Frame, app: &mut App, area: Rect) {
     // Calculate inner area first to determine visible height
     let inner = Block::default().borders(Borders::ALL).inner(area);
     let visible_height = inner.height;
+    app.visible_height = visible_height;
 
     // Build scroll info for bottom border (only if scrollable)
     let scroll_title = if app.content_height > visible_height {

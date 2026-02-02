@@ -54,6 +54,4 @@ pub mod scroll {
     pub const LINE_SCROLL_AMOUNT: u16 = 3;
     /// Divisor for page scroll (e.g., 2 = half page)
     pub const PAGE_SCROLL_DIVISOR: u16 = 2;
-    /// Height reserved for borders (top + bottom + footer)
-    pub const BORDER_HEIGHT_OFFSET: u16 = 4;
 }

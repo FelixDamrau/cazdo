@@ -91,12 +91,6 @@ async fn run_loop(
     mut rx: mpsc::UnboundedReceiver<FetchResult>,
     git_repo: &GitRepo,
 ) -> Result<()> {
-    // Get terminal size for scroll calculations
-    let visible_height = terminal
-        .size()?
-        .height
-        .saturating_sub(scroll::BORDER_HEIGHT_OFFSET);
-
     // Track which work items are currently being fetched to avoid duplicate requests
     let mut pending_fetches: HashSet<u32> = HashSet::new();
 
@@ -117,7 +111,7 @@ async fn run_loop(
         terminal.draw(|frame| ui::render(frame, app))?;
 
         // Handle input and process any resulting actions
-        if let Some(action) = handle_input(app, visible_height)? {
+        if let Some(action) = handle_input(app)? {
             match action {
                 Action::Delete(name) => execute_delete_branch(app, git_repo, &name),
                 Action::Refresh(wi_id) => {
@@ -203,17 +197,15 @@ fn fetch_branch_status_if_needed(app: &mut App, git_repo: &GitRepo) {
 }
 
 /// Handle input events and return an action if one should be performed
-fn handle_input(app: &mut App, visible_height: u16) -> Result<Option<Action>> {
+fn handle_input(app: &mut App) -> Result<Option<Action>> {
     if !event::poll(timing::POLL_INTERVAL)? {
         return Ok(None);
     }
 
     match event::read()? {
-        Event::Key(key) if key.kind == KeyEventKind::Press => {
-            Ok(handle_key_event(app, key, visible_height))
-        }
+        Event::Key(key) if key.kind == KeyEventKind::Press => Ok(handle_key_event(app, key)),
         Event::Mouse(mouse_event) => {
-            handle_mouse_event(app, mouse_event, visible_height);
+            handle_mouse_event(app, mouse_event);
             Ok(None)
         }
         _ => Ok(None),
@@ -221,9 +213,9 @@ fn handle_input(app: &mut App, visible_height: u16) -> Result<Option<Action>> {
 }
 
 /// Handle keyboard events based on current app mode
-fn handle_key_event(app: &mut App, key: KeyEvent, visible_height: u16) -> Option<Action> {
+fn handle_key_event(app: &mut App, key: KeyEvent) -> Option<Action> {
     match &app.mode {
-        AppMode::Normal => handle_normal_mode_key(app, key, visible_height),
+        AppMode::Normal => handle_normal_mode_key(app, key),
         AppMode::ConfirmDelete(branch_name) => {
             let branch_name = branch_name.clone();
             handle_confirm_delete_key(app, key, &branch_name)
@@ -236,7 +228,7 @@ fn handle_key_event(app: &mut App, key: KeyEvent, visible_height: u16) -> Option
 }
 
 /// Handle keyboard events in normal mode
-fn handle_normal_mode_key(app: &mut App, key: KeyEvent, visible_height: u16) -> Option<Action> {
+fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Action> {
     match key.code {
         // Quit
         KeyCode::Char('q') | KeyCode::Esc => {
@@ -251,7 +243,7 @@ fn handle_normal_mode_key(app: &mut App, key: KeyEvent, visible_height: u16) -> 
         // Navigation
         KeyCode::Down | KeyCode::Char('j') => {
             if key.modifiers.contains(event::KeyModifiers::SHIFT) {
-                app.scroll_down(scroll::LINE_SCROLL_AMOUNT, visible_height);
+                app.scroll_down(scroll::LINE_SCROLL_AMOUNT);
             } else {
                 app.next();
             }
@@ -268,19 +260,19 @@ fn handle_normal_mode_key(app: &mut App, key: KeyEvent, visible_height: u16) -> 
 
         // Page scrolling
         KeyCode::PageDown => {
-            app.scroll_down(visible_height / scroll::PAGE_SCROLL_DIVISOR, visible_height);
+            app.scroll_down(app.visible_height / scroll::PAGE_SCROLL_DIVISOR);
             None
         }
         KeyCode::PageUp => {
-            app.scroll_up(visible_height / scroll::PAGE_SCROLL_DIVISOR);
+            app.scroll_up(app.visible_height / scroll::PAGE_SCROLL_DIVISOR);
             None
         }
         KeyCode::Char('d') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
-            app.scroll_down(visible_height / scroll::PAGE_SCROLL_DIVISOR, visible_height);
+            app.scroll_down(app.visible_height / scroll::PAGE_SCROLL_DIVISOR);
             None
         }
         KeyCode::Char('u') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
-            app.scroll_up(visible_height / scroll::PAGE_SCROLL_DIVISOR);
+            app.scroll_up(app.visible_height / scroll::PAGE_SCROLL_DIVISOR);
             None
         }
 
@@ -353,14 +345,14 @@ fn handle_error_popup_key(app: &mut App, key: KeyEvent) {
 }
 
 /// Handle mouse events
-fn handle_mouse_event(app: &mut App, mouse_event: MouseEvent, visible_height: u16) {
+fn handle_mouse_event(app: &mut App, mouse_event: MouseEvent) {
     if !app.is_normal_mode() {
         return;
     }
 
     match mouse_event.kind {
         MouseEventKind::ScrollDown => {
-            app.scroll_down(scroll::LINE_SCROLL_AMOUNT, visible_height);
+            app.scroll_down(scroll::LINE_SCROLL_AMOUNT);
         }
         MouseEventKind::ScrollUp => {
             app.scroll_up(scroll::LINE_SCROLL_AMOUNT);
