@@ -17,7 +17,7 @@ pub fn render_delete_popup(frame: &mut Frame, branch_name: &str) {
             Span::raw("?"),
         ]),
         Line::from(""),
-        make_key_hint(&["y"], "conform"),
+        make_key_hint(&["y"], "confirm"),
         make_key_hint(&["n", "Esc"], "cancel"),
     ];
 
