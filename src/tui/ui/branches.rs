@@ -62,4 +62,8 @@ pub fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
     state.select(Some(app.selected_index));
 
     frame.render_stateful_widget(list, area, &mut state);
+
+    // Render scrollbar inside the borders to match details view
+    let inner_area = Block::default().borders(Borders::ALL).inner(area);
+    super::helpers::render_scrollbar(frame, inner_area, visible.len(), state.offset());
 }

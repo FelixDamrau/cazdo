@@ -53,6 +53,7 @@ pub struct App {
     pub should_quit: bool,
     pub scroll_offset: u16,
     pub content_height: u16, // Total height of content for scroll bounds
+    pub visible_height: u16, // Actual visible height of the scrollable area
     pub mode: AppMode,
     pub status_message: Option<StatusMessage>,
     pub deleted_branches: Vec<DeletedBranch>,
@@ -70,6 +71,7 @@ impl App {
             should_quit: false,
             scroll_offset: 0,
             content_height: 0,
+            visible_height: 0,
             mode: AppMode::Normal,
             status_message: None,
             deleted_branches: Vec::new(),
@@ -132,8 +134,8 @@ impl App {
         }
     }
 
-    pub fn scroll_down(&mut self, amount: u16, visible_height: u16) {
-        let max_scroll = self.content_height.saturating_sub(visible_height);
+    pub fn scroll_down(&mut self, amount: u16) {
+        let max_scroll = self.content_height.saturating_sub(self.visible_height);
         self.scroll_offset = (self.scroll_offset + amount).min(max_scroll);
     }
 
