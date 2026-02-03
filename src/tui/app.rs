@@ -286,3 +286,109 @@ impl App {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_branches() -> Vec<BranchInfo> {
+        vec![
+            BranchInfo {
+                name: "main".to_string(),
+                work_item_id: None,
+                is_current: true,
+                is_protected: true,
+            },
+            BranchInfo {
+                name: "feature/123".to_string(),
+                work_item_id: Some(123),
+                is_current: false,
+                is_protected: false,
+            },
+            BranchInfo {
+                name: "bugfix/456".to_string(),
+                work_item_id: Some(456),
+                is_current: false,
+                is_protected: false,
+            },
+        ]
+    }
+
+    #[test]
+    fn test_navigation_wraps() {
+        let branches = create_test_branches();
+        let mut app = App::new(branches, vec!["main".to_string(), "master".to_string()]);
+
+        assert_eq!(app.selected_index, 0);
+
+        app.previous();
+        assert_eq!(app.selected_index, 2);
+
+        app.next();
+        assert_eq!(app.selected_index, 0);
+    }
+
+    #[test]
+    fn test_navigation_movement() {
+        let branches = create_test_branches();
+        let mut app = App::new(branches, vec![]);
+
+        app.next();
+        assert_eq!(app.selected_index, 1);
+
+        app.next();
+        assert_eq!(app.selected_index, 2);
+
+        app.previous();
+        assert_eq!(app.selected_index, 1);
+    }
+
+    #[test]
+    fn test_scroll_bounds() {
+        let branches = create_test_branches();
+        let mut app = App::new(branches, vec![]);
+        app.content_height = 50;
+        app.visible_height = 20;
+
+        app.scroll_down(10);
+        assert_eq!(app.scroll_offset, 10);
+
+        app.scroll_down(100);
+        assert_eq!(app.scroll_offset, 30);
+
+        app.scroll_up(10);
+        assert_eq!(app.scroll_offset, 20);
+
+        app.scroll_up(100);
+        assert_eq!(app.scroll_offset, 0);
+    }
+
+    #[test]
+    fn test_reset_scroll_on_nav() {
+        let branches = create_test_branches();
+        let mut app = App::new(branches, vec![]);
+        app.content_height = 50;
+        app.visible_height = 20;
+
+        app.scroll_down(10);
+        assert_eq!(app.scroll_offset, 10);
+
+        app.next();
+        assert_eq!(app.scroll_offset, 0);
+    }
+
+    #[test]
+    fn test_visible_branches_filters_protected() {
+        let branches = create_test_branches();
+        let mut app = App::new(branches, vec![]);
+
+        assert_eq!(app.visible_count(), 3);
+
+        app.branches[0].is_current = false;
+
+        assert_eq!(app.visible_count(), 2);
+
+        app.toggle_show_protected();
+        assert_eq!(app.visible_count(), 3);
+    }
+}
