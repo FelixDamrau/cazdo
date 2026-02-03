@@ -18,7 +18,7 @@ use super::theme::{scroll, timing};
 use super::ui;
 use crate::azure_devops::{AzureDevOpsClient, WorkItem};
 use crate::config::Config;
-use crate::git::GitRepo;
+use crate::git::{GitRepo, short_sha};
 
 /// Message sent from background fetch tasks to the main loop
 enum FetchResult {
@@ -73,7 +73,7 @@ pub async fn run_app(mut app: App, git_repo: GitRepo) -> Result<()> {
             println!(
                 "  • {} (was {}) - restore: git checkout -b {} {}",
                 db.name,
-                &db.commit_sha[..7],
+                short_sha(&db.commit_sha),
                 db.name,
                 db.commit_sha
             );
@@ -378,7 +378,7 @@ fn execute_delete_branch(app: &mut App, git_repo: &GitRepo, branch_name: &str) {
             app.record_deleted_branch(branch_name.to_string(), sha.clone());
             app.remove_branch(branch_name);
             app.set_status_message(
-                format!("Deleted {} (was {})", branch_name, &sha[..7]),
+                format!("Deleted {} (was {})", branch_name, short_sha(&sha)),
                 false,
                 timing::STATUS_DURATION_SECS,
             );

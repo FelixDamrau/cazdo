@@ -13,6 +13,11 @@ pub fn extract_work_item_number(branch_name: &str) -> Option<u32> {
     num_str.parse().ok()
 }
 
+/// Safely get the short SHA (first 7 characters)
+pub fn short_sha(sha: &str) -> &str {
+    sha.get(..7).unwrap_or(sha)
+}
+
 /// Remote tracking status for a branch
 #[derive(Debug, Clone)]
 pub enum RemoteStatus {
@@ -64,7 +69,7 @@ impl GitRepo {
             // Detached HEAD state
             let commit = head.peel_to_commit().context("Failed to get HEAD commit")?;
             let short_id = commit.id().to_string();
-            Ok(format!("(detached HEAD at {})", &short_id[..7]))
+            Ok(format!("(detached HEAD at {})", short_sha(&short_id)))
         }
     }
 
