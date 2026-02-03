@@ -284,3 +284,29 @@ impl GitRepo {
         Ok(commit_sha)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_work_item_number() {
+        assert_eq!(extract_work_item_number("feature/12345-login"), Some(12345));
+        assert_eq!(extract_work_item_number("bugfix-42-fix-crash"), Some(42));
+        assert_eq!(extract_work_item_number("12345-some-feature"), Some(12345));
+
+        assert_eq!(extract_work_item_number("main"), None);
+        assert_eq!(extract_work_item_number("develop"), None);
+        assert_eq!(extract_work_item_number("no-numbers-here"), None);
+
+        assert_eq!(extract_work_item_number(""), None);
+        assert_eq!(extract_work_item_number("v2.1.0"), Some(2));
+    }
+
+    #[test]
+    fn test_short_sha() {
+        assert_eq!(short_sha("1234567890"), "1234567");
+        assert_eq!(short_sha("12345"), "12345");
+        assert_eq!(short_sha(""), "");
+    }
+}
