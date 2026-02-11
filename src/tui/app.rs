@@ -127,11 +127,7 @@ impl App {
     /// Toggle visibility of protected branches
     pub fn toggle_show_protected(&mut self) {
         self.show_protected = !self.show_protected;
-        // Clamp selected index to new visible range
-        let count = self.visible_count();
-        if self.selected_index >= count && count > 0 {
-            self.selected_index = count - 1;
-        }
+        self.clamp_selected_index();
     }
 
     pub fn scroll_down(&mut self, amount: u16) {
@@ -254,10 +250,17 @@ impl App {
     pub fn remove_branch(&mut self, name: &str) {
         if let Some(pos) = self.branches.iter().position(|b| b.name == name) {
             self.branches.remove(pos);
-            // Adjust selected index if needed
-            if self.selected_index >= self.branches.len() && !self.branches.is_empty() {
-                self.selected_index = self.branches.len() - 1;
-            }
+            self.clamp_selected_index();
+        }
+    }
+
+    /// Keep selection inside the currently visible branch range
+    fn clamp_selected_index(&mut self) {
+        let count = self.visible_count();
+        if count == 0 {
+            self.selected_index = 0;
+        } else if self.selected_index >= count {
+            self.selected_index = count - 1;
         }
     }
 
@@ -390,5 +393,72 @@ mod tests {
 
         app.toggle_show_protected();
         assert_eq!(app.visible_count(), 3);
+    }
+
+    #[test]
+    fn test_remove_branch_clamps_to_visible_count() {
+        let branches = vec![
+            BranchInfo {
+                name: "main".to_string(),
+                work_item_id: None,
+                is_current: false,
+                is_protected: true,
+            },
+            BranchInfo {
+                name: "feature/1".to_string(),
+                work_item_id: Some(1),
+                is_current: true,
+                is_protected: false,
+            },
+            BranchInfo {
+                name: "feature/2".to_string(),
+                work_item_id: Some(2),
+                is_current: false,
+                is_protected: false,
+            },
+        ];
+        let mut app = App::new(branches, vec![]);
+
+        app.show_protected = false;
+        app.selected_index = 1;
+        app.remove_branch("feature/2");
+
+        assert_eq!(app.visible_count(), 1);
+        assert_eq!(app.selected_index, 0);
+        assert!(app.selected_branch().is_some());
+    }
+
+    #[test]
+    fn test_toggle_show_protected_clamps_selected_index() {
+        let branches = vec![
+            BranchInfo {
+                name: "main".to_string(),
+                work_item_id: None,
+                is_current: false,
+                is_protected: true,
+            },
+            BranchInfo {
+                name: "master".to_string(),
+                work_item_id: None,
+                is_current: false,
+                is_protected: true,
+            },
+            BranchInfo {
+                name: "feature/1".to_string(),
+                work_item_id: Some(1),
+                is_current: true,
+                is_protected: false,
+            },
+        ];
+        let mut app = App::new(branches, vec![]);
+
+        app.show_protected = true;
+        app.selected_index = 2;
+
+        app.toggle_show_protected();
+
+        assert_eq!(app.visible_count(), 1);
+        assert_eq!(app.selected_index, 0);
+        assert!(app.selected_branch().is_some());
     }
 }

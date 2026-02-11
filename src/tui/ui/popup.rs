@@ -72,11 +72,38 @@ fn render_popup_impl(frame: &mut Frame, title: &str, content: Vec<Line>, area: R
 /// Get the popup rect
 fn centered_rect(r: Rect) -> Rect {
     let (popup_width, popup_height) = theme::layout::POPUP_SIZE;
-    let width = popup_width.min(r.width - 2); // -2: keep main left/right border
-    let height = popup_height.min(r.height - 3); // -3 keep main top/bottom border and help line
+    let max_width = r.width.saturating_sub(2); // -2: keep main left/right border
+    let max_height = r.height.saturating_sub(3); // -3: keep top/bottom border and help line
+    let width = popup_width.min(max_width);
+    let height = popup_height.min(max_height);
 
     let x = r.width.saturating_sub(width) / 2;
     let y = r.height.saturating_sub(height) / 2;
 
     Rect::new(r.x + x, r.y + y, width, height)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_centered_rect_stays_within_tiny_area() {
+        let area = Rect::new(0, 0, 1, 1);
+        let popup = centered_rect(area);
+
+        assert!(popup.width <= area.width);
+        assert!(popup.height <= area.height);
+        assert!(popup.x >= area.x);
+        assert!(popup.y >= area.y);
+    }
+
+    #[test]
+    fn test_centered_rect_respects_padding_limits() {
+        let area = Rect::new(0, 0, 10, 8);
+        let popup = centered_rect(area);
+
+        assert_eq!(popup.width, 8);
+        assert_eq!(popup.height, 5);
+    }
 }
