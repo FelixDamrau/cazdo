@@ -1,4 +1,5 @@
-use crate::config::Config;
+use crate::azure_devops::AzureDevOpsClient;
+use crate::config::{Config, PatSource};
 use crate::git::{GitRepo, extract_work_item_number};
 use crate::pattern::is_protected;
 use crate::tui::{App, BranchInfo, run_app};
@@ -68,15 +69,17 @@ pub fn config_show() -> Result<()> {
         .with_context(|| format!("Failed to read config file: {}", config_path.display()))?;
     print!("{}", content);
 
+    let config = Config::load()?;
+    let pat_status = match config.pat_source() {
+        PatSource::Env => "env (CAZDO_PAT)",
+        PatSource::Config => "config ([azure_devops].pat)",
+        PatSource::Missing => "missing",
+        PatSource::InvalidEnvWhitespace => "invalid: CAZDO_PAT is whitespace-only",
+        PatSource::InvalidConfigWhitespace => "invalid: [azure_devops].pat is whitespace-only",
+    };
+
     println!();
-    println!(
-        "# PAT: {}",
-        if std::env::var("CAZDO_PAT").is_ok() {
-            "(set via CAZDO_PAT)"
-        } else {
-            "(not set)"
-        }
-    );
+    println!("# PAT source: {}", pat_status);
     Ok(())
 }
 
@@ -118,5 +121,37 @@ pub fn config_init() -> Result<()> {
         println!("  export CAZDO_PAT=\"your-personal-access-token\"");
     }
 
+    Ok(())
+}
+
+pub async fn config_verify() -> Result<()> {
+    let config = Config::load()?;
+    let org_url = config.azure_devops.organization_url.trim();
+
+    println!("Checking Azure DevOps configuration...");
+    println!("  organization_url: {}", org_url);
+
+    let pat_source = config.pat_source();
+    match pat_source {
+        PatSource::Missing => {
+            println!("  PAT: missing");
+            println!("Cannot verify organization URL/auth without a PAT.");
+            println!("Set CAZDO_PAT or [azure_devops].pat, then run `cazdo config verify` again.");
+            return Ok(());
+        }
+        PatSource::InvalidEnvWhitespace => {
+            bail!("CAZDO_PAT is whitespace-only. Set a valid token or unset CAZDO_PAT.");
+        }
+        PatSource::InvalidConfigWhitespace => {
+            bail!("[azure_devops].pat is whitespace-only. Set a valid token or remove the field.");
+        }
+        PatSource::Env => println!("  PAT source: env (CAZDO_PAT)"),
+        PatSource::Config => println!("  PAT source: config ([azure_devops].pat)"),
+    }
+
+    let client = AzureDevOpsClient::new(&config)?;
+    client.verify_connection().await?;
+
+    println!("Verification successful: URL and PAT are working.");
     Ok(())
 }

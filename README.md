@@ -106,6 +106,9 @@ cazdo config init
 
 # Show current configuration
 cazdo config show
+
+# Verify org URL + PAT access
+cazdo config verify
 ```
 
 ## Keyboard Shortcuts

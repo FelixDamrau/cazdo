@@ -19,6 +19,7 @@ async fn main() -> Result<()> {
         Some(Commands::Config { action }) => match action {
             ConfigAction::Init => commands::config_init()?,
             ConfigAction::Show => commands::config_show()?,
+            ConfigAction::Verify => commands::config_verify().await?,
         },
         None => {
             // Default: launch interactive TUI
