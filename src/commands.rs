@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::{Config, PatSource};
 use crate::git::{GitRepo, extract_work_item_number};
 use crate::pattern::is_protected;
 use crate::tui::{App, BranchInfo, run_app};
@@ -68,15 +68,17 @@ pub fn config_show() -> Result<()> {
         .with_context(|| format!("Failed to read config file: {}", config_path.display()))?;
     print!("{}", content);
 
+    let config = Config::load()?;
+    let pat_status = match config.pat_source() {
+        PatSource::Env => "env (CAZDO_PAT)",
+        PatSource::Config => "config ([azure_devops].pat)",
+        PatSource::Missing => "missing",
+        PatSource::InvalidEnvWhitespace => "invalid: CAZDO_PAT is whitespace-only",
+        PatSource::InvalidConfigWhitespace => "invalid: [azure_devops].pat is whitespace-only",
+    };
+
     println!();
-    println!(
-        "# PAT: {}",
-        if std::env::var("CAZDO_PAT").is_ok() {
-            "(set via CAZDO_PAT)"
-        } else {
-            "(not set)"
-        }
-    );
+    println!("# PAT source: {}", pat_status);
     Ok(())
 }
 

@@ -7,6 +7,22 @@ use std::path::PathBuf;
 /// Default protected branch patterns (main/master)
 pub const DEFAULT_PROTECTED_PATTERNS: &[&str] = &["main", "master"];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PatSource {
+    Env,
+    Config,
+    Missing,
+    InvalidEnvWhitespace,
+    InvalidConfigWhitespace,
+}
+
+enum PatResolution {
+    Valid { source: PatSource, token: String },
+    Missing,
+    InvalidEnvWhitespace,
+    InvalidConfigWhitespace,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     pub azure_devops: AzureDevOpsConfig,
@@ -116,25 +132,69 @@ impl Config {
         // Read from actual environment or use fallback logic
         self.resolve_pat(std::env::var("CAZDO_PAT").ok())
     }
+
+    pub fn pat_source(&self) -> PatSource {
+        self.resolve_pat_source(std::env::var("CAZDO_PAT").ok())
+    }
+
     /// Helper for tests to abstract env::var("CAZDO_PAT")
     fn resolve_pat(&self, env_pat: Option<String>) -> Result<String> {
-        // 1. Check environment variable (highest priority)
-        if let Some(pat) = env_pat.filter(|p| !p.is_empty()) {
-            return Ok(pat);
+        match self.resolve_pat_resolution(env_pat) {
+            PatResolution::Valid { token, .. } => Ok(token),
+            PatResolution::InvalidEnvWhitespace => {
+                bail!(
+                    "CAZDO_PAT is set but empty/whitespace. Set a valid token or unset CAZDO_PAT to use config value."
+                )
+            }
+            PatResolution::InvalidConfigWhitespace => {
+                bail!(
+                    "Config value [azure_devops].pat is empty/whitespace. Set a valid token or remove the field."
+                )
+            }
+            PatResolution::Missing => anyhow::bail!(
+                "Azure DevOps PAT not found.\n\n\
+                You can set it in two ways (checked in order):\n\
+                1. Environment variable: export CAZDO_PAT=\"your-token\"\n\
+                2. Config file: Add 'pat = \"your-token\"' under [azure_devops] section in config.toml\n\n\
+                The PAT needs 'Work Items (Read)' permission."
+            ),
+        }
+    }
+
+    /// Helper for status display and tests.
+    fn resolve_pat_source(&self, env_pat: Option<String>) -> PatSource {
+        match self.resolve_pat_resolution(env_pat) {
+            PatResolution::Valid { source, .. } => source,
+            PatResolution::Missing => PatSource::Missing,
+            PatResolution::InvalidEnvWhitespace => PatSource::InvalidEnvWhitespace,
+            PatResolution::InvalidConfigWhitespace => PatSource::InvalidConfigWhitespace,
+        }
+    }
+
+    fn resolve_pat_resolution(&self, env_pat: Option<String>) -> PatResolution {
+        if let Some(pat) = env_pat {
+            let trimmed = pat.trim();
+            if trimmed.is_empty() {
+                return PatResolution::InvalidEnvWhitespace;
+            }
+            return PatResolution::Valid {
+                source: PatSource::Env,
+                token: trimmed.to_string(),
+            };
         }
 
-        // 2. Check config file
         if let Some(pat) = &self.azure_devops.pat {
-            return Ok(pat.clone());
+            let trimmed = pat.trim();
+            if trimmed.is_empty() {
+                return PatResolution::InvalidConfigWhitespace;
+            }
+            return PatResolution::Valid {
+                source: PatSource::Config,
+                token: trimmed.to_string(),
+            };
         }
 
-        anyhow::bail!(
-            "Azure DevOps PAT not found.\n\n\
-            You can set it in two ways (checked in order):\n\
-            1. Environment variable: export CAZDO_PAT=\"your-token\"\n\
-            2. Config file: Add 'pat = \"your-token\"' under [azure_devops] section in config.toml\n\n\
-            The PAT needs 'Work Items (Read)' permission."
-        )
+        PatResolution::Missing
     }
 }
 
@@ -160,9 +220,78 @@ mod tests {
         let pat = config.resolve_pat(None).unwrap();
         assert_eq!(pat, "config-pat");
 
-        // Case 3: Env var empty string (should fallback to config)
-        let pat = config.resolve_pat(Some("".to_string())).unwrap();
-        assert_eq!(pat, "config-pat");
+        // Case 3: Env var with surrounding whitespace is trimmed
+        let pat = config.resolve_pat(Some("  env-pat  ".to_string())).unwrap();
+        assert_eq!(pat, "env-pat");
+    }
+
+    #[test]
+    fn test_get_pat_rejects_whitespace_sources() {
+        let config_with_pat = Config {
+            azure_devops: AzureDevOpsConfig {
+                organization_url: "https://dev.azure.com/test".to_string(),
+                pat: Some("config-pat".to_string()),
+            },
+            branches: BranchConfig::default(),
+        };
+
+        // Whitespace env is treated as invalid (no fallback)
+        assert!(
+            config_with_pat
+                .resolve_pat(Some("   \t\n".to_string()))
+                .is_err()
+        );
+
+        let config_whitespace = Config {
+            azure_devops: AzureDevOpsConfig {
+                organization_url: "https://dev.azure.com/test".to_string(),
+                pat: Some("   ".to_string()),
+            },
+            branches: BranchConfig::default(),
+        };
+        assert!(config_whitespace.resolve_pat(None).is_err());
+    }
+
+    #[test]
+    fn test_pat_source_resolution() {
+        let config = Config {
+            azure_devops: AzureDevOpsConfig {
+                organization_url: "https://dev.azure.com/test".to_string(),
+                pat: Some("config-pat".to_string()),
+            },
+            branches: BranchConfig::default(),
+        };
+
+        assert_eq!(
+            config.resolve_pat_source(Some("env-pat".to_string())),
+            PatSource::Env
+        );
+        assert_eq!(
+            config.resolve_pat_source(Some("   ".to_string())),
+            PatSource::InvalidEnvWhitespace
+        );
+        assert_eq!(config.resolve_pat_source(None), PatSource::Config);
+
+        let no_pat_config = Config {
+            azure_devops: AzureDevOpsConfig {
+                organization_url: "https://dev.azure.com/test".to_string(),
+                pat: None,
+            },
+            branches: BranchConfig::default(),
+        };
+        assert_eq!(no_pat_config.resolve_pat_source(None), PatSource::Missing);
+
+        let whitespace_config = Config {
+            azure_devops: AzureDevOpsConfig {
+                organization_url: "https://dev.azure.com/test".to_string(),
+                pat: Some("   ".to_string()),
+            },
+            branches: BranchConfig::default(),
+        };
+        assert_eq!(
+            whitespace_config.resolve_pat_source(None),
+            PatSource::InvalidConfigWhitespace
+        );
     }
 
     #[test]
