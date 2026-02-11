@@ -73,6 +73,8 @@ impl AzureDevOpsClient {
 
         let status = response.status();
         if status.is_success() {
+            // 200 can still be a login HTML page in some setups.
+            // Require JSON + authenticatedUser so verify checks real API auth.
             let content_type = response
                 .headers()
                 .get(reqwest::header::CONTENT_TYPE)
