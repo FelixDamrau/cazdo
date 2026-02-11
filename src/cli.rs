@@ -28,4 +28,6 @@ pub enum ConfigAction {
     Init,
     /// Show current configuration
     Show,
+    /// Verify Azure DevOps organization URL and PAT access
+    Verify,
 }
