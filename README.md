@@ -11,6 +11,8 @@ _Cats Do Console Azure DevOps._
 
 It scans your local branches, extracts work item IDs from their names (e.g., `feature/123-login`), and fetches the corresponding details from Azure DevOps. This allows you to view acceptance criteria, descriptions, and status directly alongside your code.
 
+![cazdo TUI example](docs/images/cazdo-open-nav-still.png)
+
 ## Installation
 
 ### Linux & macOS
@@ -90,7 +92,7 @@ cazdo
 ### 3. Navigate
 The interface lists your local branches. `cazdo` attempts to match each branch to an Azure DevOps work item based on numbers in the branch name.
 
-![cazdo TUI example](docs/images/cazdo_tui_example.png)
+![cazdo TUI open + navigation demo](docs/images/cazdo-open-nav.gif)
 
 - **Left Panel**: List of branches.
   - Branches with found work items show the work item type and ID.
@@ -98,6 +100,13 @@ The interface lists your local branches. `cazdo` attempts to match each branch t
 - **Right Panel**: Details of the selected work item.
 
 Use the **Keyboard Shortcuts** below to navigate and interact.
+
+Regenerate the animated demo:
+
+```bash
+cargo build --quiet
+vhs docs/tapes/cazdo-open-nav.tape
+```
 
 ### CLI Commands
 ```bash
