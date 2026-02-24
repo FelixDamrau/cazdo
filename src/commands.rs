@@ -254,3 +254,41 @@ fn compact_text_preview(html: &str, max_chars: usize) -> String {
 fn terminal_link(label: &str, url: &str) -> String {
     format!("\x1b]8;;{}\x1b\\{}\x1b]8;;\x1b\\", url, label)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compact_text_preview_keeps_short_text() {
+        let preview = compact_text_preview("<p>Hello <b>world</b></p>", 50);
+        assert_eq!(preview, "Hello world");
+    }
+
+    #[test]
+    fn compact_text_preview_truncates_long_text() {
+        let preview = compact_text_preview("<p>abcdefghijklmnopqrstuvwxyz</p>", 10);
+        assert_eq!(preview, "abcdefg...");
+    }
+
+    #[test]
+    fn compact_text_preview_collapses_whitespace() {
+        let preview = compact_text_preview("Hello&nbsp;&nbsp; <b>world</b>\n<p>again</p>", 80);
+        assert_eq!(preview, "Hello world again");
+    }
+
+    #[test]
+    fn compact_text_preview_handles_tiny_limits() {
+        let preview = compact_text_preview("<p>Hello world</p>", 2);
+        assert_eq!(preview, "...");
+    }
+
+    #[test]
+    fn terminal_link_uses_osc8_format() {
+        let out = terminal_link("#123", "https://example.com/wi/123");
+        assert_eq!(
+            out,
+            "\x1b]8;;https://example.com/wi/123\x1b\\#123\x1b]8;;\x1b\\"
+        );
+    }
+}
