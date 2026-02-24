@@ -2,8 +2,10 @@ use crate::azure_devops::AzureDevOpsClient;
 use crate::config::{Config, PatSource};
 use crate::git::{GitRepo, extract_work_item_number};
 use crate::pattern::is_protected;
+use crate::tui::render_html;
 use crate::tui::{App, BranchInfo, run_app};
 use anyhow::{Context, Result, bail};
+use crossterm::style::Stylize;
 
 pub async fn interactive() -> Result<()> {
     let repo = GitRepo::open_current_dir().context("Failed to open git repository")?;
@@ -154,4 +156,101 @@ pub async fn config_verify() -> Result<()> {
 
     println!("Verification successful: URL and PAT are working.");
     Ok(())
+}
+
+pub async fn show_work_item(id: Option<u32>) -> Result<()> {
+    let wi_id = match id {
+        Some(id) => id,
+        None => {
+            let repo = GitRepo::open_current_dir().context("Failed to open git repository")?;
+
+            let branch_name = match repo.current_branch() {
+                Ok(branch) => branch,
+                Err(_) => {
+                    println!("No current branch found.");
+                    return Ok(());
+                }
+            };
+
+            match extract_work_item_number(&branch_name) {
+                Some(id) => id,
+                None => {
+                    println!(
+                        "No work item number found in current branch '{}'.",
+                        branch_name
+                    );
+                    return Ok(());
+                }
+            }
+        }
+    };
+
+    let config = Config::load()?;
+    let client = AzureDevOpsClient::new(&config)?;
+    let wi = client.get_work_item(wi_id).await?;
+
+    let wi_label = format!("#{}", wi.id);
+    let linked_wi = wi
+        .url
+        .as_deref()
+        .map(|url| terminal_link(&wi_label, url))
+        .unwrap_or(wi_label);
+
+    let state = wi.state.display_name();
+
+    println!(
+        "{}  {} - {}",
+        linked_wi,
+        wi.work_item_type.display_name(),
+        state
+    );
+    println!("{} {}", "Title:".bold(), wi.title);
+
+    if let Some(assigned_to) = wi.assigned_to.as_deref() {
+        println!("{} {}", "Assigned:".bold(), assigned_to);
+    }
+
+    let description_html = wi
+        .rich_text_fields
+        .iter()
+        .find(|field| field.name == "Description")
+        .map(|field| field.value.as_str());
+
+    let description = description_html
+        .map(|html| compact_text_preview(html, 220))
+        .unwrap_or_else(|| "(none)".to_string());
+
+    println!("{} {}", "Description:".bold(), description);
+
+    Ok(())
+}
+
+fn compact_text_preview(html: &str, max_chars: usize) -> String {
+    let plain = render_html(html, 120)
+        .into_iter()
+        .map(|line| {
+            line.spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    let collapsed = plain.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    if collapsed.chars().count() <= max_chars {
+        return collapsed;
+    }
+
+    let mut truncated = collapsed
+        .chars()
+        .take(max_chars.saturating_sub(3))
+        .collect::<String>();
+    truncated.push_str("...");
+    truncated
+}
+
+fn terminal_link(label: &str, url: &str) -> String {
+    format!("\x1b]8;;{}\x1b\\{}\x1b]8;;\x1b\\", url, label)
 }

@@ -21,6 +21,9 @@ async fn main() -> Result<()> {
             ConfigAction::Show => commands::config_show()?,
             ConfigAction::Verify => commands::config_verify().await?,
         },
+        Some(Commands::Wi { id }) => {
+            commands::show_work_item(id).await?;
+        }
         None => {
             // Default: launch interactive TUI
             commands::interactive().await?;

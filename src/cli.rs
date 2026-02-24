@@ -20,6 +20,11 @@ pub enum Commands {
         #[command(subcommand)]
         action: ConfigAction,
     },
+    /// Show a compact work item preview in the console
+    Wi {
+        /// Work item ID (if omitted, uses the current branch)
+        id: Option<u32>,
+    },
 }
 
 #[derive(Subcommand)]

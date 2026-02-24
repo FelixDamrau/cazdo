@@ -118,6 +118,12 @@ cazdo config show
 
 # Verify org URL + PAT access
 cazdo config verify
+
+# Show compact WI preview for current branch
+cazdo wi
+
+# Show compact WI preview for WI 120
+cazdo wi 120
 ```
 
 ## Keyboard Shortcuts
