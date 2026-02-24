@@ -20,6 +20,11 @@ pub enum Commands {
         #[command(subcommand)]
         action: ConfigAction,
     },
+    /// Show a compact work item preview in the console
+    Wi {
+        /// Work item ID (if omitted, uses the current branch)
+        id: Option<u32>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -30,4 +35,29 @@ pub enum ConfigAction {
     Show,
     /// Verify Azure DevOps organization URL and PAT access
     Verify,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_wi_without_id() {
+        let cli = Cli::parse_from(["cazdo", "wi"]);
+
+        match cli.command {
+            Some(Commands::Wi { id }) => assert_eq!(id, None),
+            _ => panic!("expected wi command without id"),
+        }
+    }
+
+    #[test]
+    fn parses_wi_with_id() {
+        let cli = Cli::parse_from(["cazdo", "wi", "120"]);
+
+        match cli.command {
+            Some(Commands::Wi { id }) => assert_eq!(id, Some(120)),
+            _ => panic!("expected wi command with id"),
+        }
+    }
 }
