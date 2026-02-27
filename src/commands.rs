@@ -136,10 +136,9 @@ pub async fn config_verify() -> Result<()> {
     let pat_source = config.pat_source();
     match pat_source {
         PatSource::Missing => {
-            println!("  PAT: missing");
-            println!("Cannot verify organization URL/auth without a PAT.");
-            println!("Set CAZDO_PAT or [azure_devops].pat, then run `cazdo config verify` again.");
-            return Ok(());
+            bail!(
+                "PAT is missing. Cannot verify organization URL/auth without a PAT.\nSet CAZDO_PAT or [azure_devops].pat, then run `cazdo config verify` again."
+            );
         }
         PatSource::InvalidEnvWhitespace => {
             bail!("CAZDO_PAT is whitespace-only. Set a valid token or unset CAZDO_PAT.");
@@ -167,19 +166,17 @@ pub async fn show_work_item(id: Option<u32>) -> Result<()> {
             let branch_name = match repo.current_branch() {
                 Ok(branch) => branch,
                 Err(_) => {
-                    println!("No current branch found.");
-                    return Ok(());
+                    bail!("No current branch found.");
                 }
             };
 
             match extract_work_item_number(&branch_name) {
                 Some(id) => id,
                 None => {
-                    println!(
+                    bail!(
                         "No work item number found in current branch '{}'.",
                         branch_name
                     );
-                    return Ok(());
                 }
             }
         }
