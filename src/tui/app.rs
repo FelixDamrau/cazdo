@@ -126,7 +126,16 @@ impl App {
 
     /// Toggle visibility of protected branches
     pub fn toggle_show_protected(&mut self) {
+        let selected_name = self.selected_branch().map(|b| b.name.clone());
         self.show_protected = !self.show_protected;
+
+        if let Some(name) = selected_name
+            && let Some(new_idx) = self.visible_branches().iter().position(|b| b.name == name)
+        {
+            self.selected_index = new_idx;
+            return;
+        }
+
         self.clamp_selected_index();
     }
 
