@@ -2,7 +2,11 @@ use anyhow::{Context, Result, bail};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+#[cfg(unix)]
+use std::io::Write;
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::path::{Path, PathBuf};
 
 /// Default protected branch patterns (main/master)
 pub const DEFAULT_PROTECTED_PATTERNS: &[&str] = &["main", "master"];
@@ -122,8 +126,7 @@ impl Config {
 
         let content = toml::to_string_pretty(self).context("Failed to serialize config")?;
 
-        fs::write(&config_path, content)
-            .with_context(|| format!("Failed to write config file: {}", config_path.display()))?;
+        write_config_file(&config_path, &content)?;
 
         Ok(())
     }
@@ -198,9 +201,75 @@ impl Config {
     }
 }
 
+fn write_config_file(path: &Path, content: &str) -> Result<()> {
+    #[cfg(unix)]
+    {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)
+            .with_context(|| format!("Failed to write config file: {}", path.display()))?;
+
+        file.write_all(content.as_bytes())
+            .with_context(|| format!("Failed to write config file: {}", path.display()))?;
+
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).with_context(|| {
+            format!(
+                "Failed to set permissions on config file: {}",
+                path.display()
+            )
+        })?;
+
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
+    {
+        fs::write(path, content)
+            .with_context(|| format!("Failed to write config file: {}", path.display()))?;
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TestDir {
+        path: PathBuf,
+    }
+
+    impl TestDir {
+        fn new() -> Self {
+            let unique = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir()
+                .join(format!("cazdo-config-test-{}-{unique}", std::process::id()));
+            fs::create_dir_all(&path).unwrap();
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    #[cfg(unix)]
+    fn file_mode(path: &Path) -> u32 {
+        fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
 
     #[test]
     fn test_get_pat_precedence() {
@@ -319,5 +388,44 @@ mod tests {
         };
 
         assert!(config.resolve_pat(None).is_err());
+    }
+
+    #[test]
+    fn write_config_file_writes_content_to_target_path() {
+        let temp_dir = TestDir::new();
+        let config_path = temp_dir.path().join("config.toml");
+
+        write_config_file(&config_path, "hello = \"world\"\n").unwrap();
+
+        assert_eq!(
+            fs::read_to_string(&config_path).unwrap(),
+            "hello = \"world\"\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_config_file_creates_unix_config_with_owner_only_permissions() {
+        let temp_dir = TestDir::new();
+        let config_path = temp_dir.path().join("config.toml");
+
+        write_config_file(&config_path, "hello = \"world\"\n").unwrap();
+
+        assert_eq!(file_mode(&config_path), 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_config_file_tightens_existing_unix_permissions_on_overwrite() {
+        let temp_dir = TestDir::new();
+        let config_path = temp_dir.path().join("config.toml");
+
+        fs::write(&config_path, "old = true\n").unwrap();
+        fs::set_permissions(&config_path, fs::Permissions::from_mode(0o644)).unwrap();
+
+        write_config_file(&config_path, "new = true\n").unwrap();
+
+        assert_eq!(fs::read_to_string(&config_path).unwrap(), "new = true\n");
+        assert_eq!(file_mode(&config_path), 0o600);
     }
 }
