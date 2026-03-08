@@ -259,10 +259,9 @@ fn redact_config_for_display(content: &str) -> String {
     for line in content.split_inclusive('\n') {
         let line_without_newline = line.trim_end_matches(['\r', '\n']);
         let newline = &line[line_without_newline.len()..];
-        let trimmed = line_without_newline.trim();
 
-        if trimmed.starts_with('[') && trimmed.ends_with(']') {
-            in_azure_devops_section = trimmed == "[azure_devops]";
+        if let Some(section) = section_name(line_without_newline) {
+            in_azure_devops_section = section == "azure_devops";
             redacted.push_str(line);
             continue;
         }
@@ -278,6 +277,21 @@ fn redact_config_for_display(content: &str) -> String {
     }
 
     redacted
+}
+
+fn section_name(line: &str) -> Option<&str> {
+    let trimmed = line.trim();
+    if !trimmed.starts_with('[') {
+        return None;
+    }
+
+    let end = trimmed.find(']')?;
+    let rest = trimmed[end + 1..].trim_start();
+    if !rest.is_empty() && !rest.starts_with('#') {
+        return None;
+    }
+
+    Some(trimmed[1..end].trim())
 }
 
 fn is_pat_assignment(line_without_newline: &str) -> bool {
@@ -360,6 +374,14 @@ mod tests {
             "[azure_devops]\npat = \"secret-token\"\n[branches]\npat = \"leave-me-alone\"\n";
         let expected =
             "[azure_devops]\npat = \"***redacted***\"\n[branches]\npat = \"leave-me-alone\"\n";
+
+        assert_eq!(redact_config_for_display(input), expected);
+    }
+
+    #[test]
+    fn redact_config_for_display_handles_inline_comment_on_section_header() {
+        let input = "[azure_devops] # local settings\npat = \"secret-token\"\n";
+        let expected = "[azure_devops] # local settings\npat = \"***redacted***\"\n";
 
         assert_eq!(redact_config_for_display(input), expected);
     }

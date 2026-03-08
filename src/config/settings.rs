@@ -204,6 +204,8 @@ impl Config {
 fn write_config_file(path: &Path, content: &str) -> Result<()> {
     #[cfg(unix)]
     {
+        // Use 0o600 on create as a best-effort default; umask may still make the
+        // initial mode more restrictive, so set_permissions below enforces 0o600.
         let mut file = fs::OpenOptions::new()
             .write(true)
             .create(true)
