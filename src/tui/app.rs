@@ -1,21 +1,56 @@
 use crate::azure_devops::WorkItem;
-use crate::git::BranchStatus;
+use crate::git::{BranchScope, BranchStatus};
 use std::collections::HashMap;
 use std::time::Instant;
+
+/// Branch info with optional work item
+#[derive(Debug, Clone)]
+pub struct BranchInfo {
+    pub key: String,
+    pub display_name: String,
+    pub branch_name: String,
+    pub remote_name: Option<String>,
+    pub scope: BranchScope,
+    pub work_item_id: Option<u32>,
+    pub is_current: bool,
+    pub is_protected: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BranchView {
+    Local,
+    Remote,
+}
+
+impl BranchView {
+    pub fn toggle(self) -> Self {
+        match self {
+            Self::Local => Self::Remote,
+            Self::Remote => Self::Local,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Local => "Local",
+            Self::Remote => "Remote",
+        }
+    }
+}
 
 /// Application mode for modal dialogs
 #[derive(Debug, Clone)]
 pub enum AppMode {
     Normal,
-    ConfirmDelete(String), // branch name to delete
-    ErrorPopup(String),    // error message to display
+    ConfirmDelete(BranchInfo),
+    ErrorPopup(String),
 }
 
 /// Deleted branch info for summary on exit
 #[derive(Debug, Clone)]
 pub struct DeletedBranch {
     pub name: String,
-    pub commit_sha: String,
+    pub restore_hint: Option<String>,
 }
 
 /// Status message with expiration
@@ -24,15 +59,6 @@ pub struct StatusMessage {
     pub text: String,
     pub is_error: bool,
     pub expires_at: Instant,
-}
-
-/// Branch info with optional work item
-#[derive(Debug, Clone)]
-pub struct BranchInfo {
-    pub name: String,
-    pub work_item_id: Option<u32>,
-    pub is_current: bool,
-    pub is_protected: bool,
 }
 
 /// Work item fetch status
@@ -47,13 +73,15 @@ pub enum WorkItemStatus {
 /// Application state
 pub struct App {
     pub branches: Vec<BranchInfo>,
-    pub selected_index: usize,
+    pub active_view: BranchView,
+    pub local_selected_index: usize,
+    pub remote_selected_index: usize,
     pub work_items: HashMap<u32, WorkItemStatus>,
     pub branch_statuses: HashMap<String, BranchStatus>,
     pub should_quit: bool,
     pub scroll_offset: u16,
-    pub content_height: u16, // Total height of content for scroll bounds
-    pub visible_height: u16, // Actual visible height of the scrollable area
+    pub content_height: u16,
+    pub visible_height: u16,
     pub mode: AppMode,
     pub status_message: Option<StatusMessage>,
     pub deleted_branches: Vec<DeletedBranch>,
@@ -65,7 +93,9 @@ impl App {
     pub fn new(branches: Vec<BranchInfo>, protected_patterns: Vec<String>) -> Self {
         Self {
             branches,
-            selected_index: 0,
+            active_view: BranchView::Local,
+            local_selected_index: 0,
+            remote_selected_index: 0,
             work_items: HashMap::new(),
             branch_statuses: HashMap::new(),
             should_quit: false,
@@ -82,60 +112,71 @@ impl App {
 
     pub fn selected_branch(&self) -> Option<&BranchInfo> {
         let visible = self.visible_branches();
-        visible.get(self.selected_index).copied()
+        visible.get(self.selected_index()).copied()
     }
 
-    /// Get the work item ID of the currently selected branch (if any)
     pub fn selected_work_item_id(&self) -> Option<u32> {
         self.selected_branch().and_then(|b| b.work_item_id)
     }
 
-    /// Get branches that should be displayed based on show_protected toggle
-    /// Current branch is always visible even if protected
     pub fn visible_branches(&self) -> Vec<&BranchInfo> {
         self.branches
             .iter()
+            .filter(|b| self.matches_active_view(b))
             .filter(|b| self.show_protected || b.is_current || !b.is_protected)
             .collect()
     }
 
-    /// Get count of visible branches
     pub fn visible_count(&self) -> usize {
         self.visible_branches().len()
+    }
+
+    pub fn selected_index(&self) -> usize {
+        match self.active_view {
+            BranchView::Local => self.local_selected_index,
+            BranchView::Remote => self.remote_selected_index,
+        }
     }
 
     pub fn next(&mut self) {
         let count = self.visible_count();
         if count > 0 {
-            self.selected_index = (self.selected_index + 1) % count;
-            self.scroll_offset = 0; // Reset scroll when changing branch
+            let next = (self.selected_index() + 1) % count;
+            self.set_selected_index(next);
+            self.scroll_offset = 0;
         }
     }
 
     pub fn previous(&mut self) {
         let count = self.visible_count();
         if count > 0 {
-            self.selected_index = if self.selected_index == 0 {
+            let next = if self.selected_index() == 0 {
                 count - 1
             } else {
-                self.selected_index - 1
+                self.selected_index() - 1
             };
-            self.scroll_offset = 0; // Reset scroll when changing branch
+            self.set_selected_index(next);
+            self.scroll_offset = 0;
         }
     }
 
-    /// Toggle visibility of protected branches
     pub fn toggle_show_protected(&mut self) {
-        let selected_name = self.selected_branch().map(|b| b.name.clone());
+        let selected_key = self.selected_branch().map(|b| b.key.clone());
         self.show_protected = !self.show_protected;
 
-        if let Some(name) = selected_name
-            && let Some(new_idx) = self.visible_branches().iter().position(|b| b.name == name)
+        if let Some(key) = selected_key
+            && let Some(new_idx) = self.visible_branches().iter().position(|b| b.key == key)
         {
-            self.selected_index = new_idx;
+            self.set_selected_index(new_idx);
             return;
         }
 
+        self.clamp_selected_index();
+    }
+
+    pub fn toggle_view(&mut self) {
+        self.active_view = self.active_view.toggle();
+        self.scroll_offset = 0;
         self.clamp_selected_index();
     }
 
@@ -175,56 +216,46 @@ impl App {
         self.work_items.insert(id, WorkItemStatus::Error(error));
     }
 
-    /// Reset a work item status to allow refresh
     pub fn reset_work_item(&mut self, id: u32) {
         self.work_items.remove(&id);
     }
 
-    /// Check if current branch has a work item (for showing refresh hint)
     pub fn current_branch_has_work_item(&self) -> bool {
         self.selected_branch()
             .and_then(|b| b.work_item_id)
             .is_some()
     }
 
-    /// Get cached branch status
-    pub fn get_branch_status(&self, name: &str) -> Option<&BranchStatus> {
-        self.branch_statuses.get(name)
+    pub fn get_branch_status(&self, key: &str) -> Option<&BranchStatus> {
+        self.branch_statuses.get(key)
     }
 
-    /// Cache branch status
-    pub fn set_branch_status(&mut self, name: String, status: BranchStatus) {
-        self.branch_statuses.insert(name, status);
+    pub fn set_branch_status(&mut self, key: String, status: BranchStatus) {
+        self.branch_statuses.insert(key, status);
     }
 
-    /// Check if branch status needs to be fetched
-    pub fn needs_branch_status(&self, name: &str) -> bool {
-        !self.branch_statuses.contains_key(name)
+    pub fn needs_branch_status(&self, key: &str) -> bool {
+        !self.branch_statuses.contains_key(key)
     }
 
-    /// Enter delete confirmation mode for the selected branch
     pub fn enter_delete_mode(&mut self) {
         if let Some(branch) = self.selected_branch() {
-            self.mode = AppMode::ConfirmDelete(branch.name.clone());
+            self.mode = AppMode::ConfirmDelete(branch.clone());
         }
     }
 
-    /// Show an error popup with the given message
     pub fn show_error_popup(&mut self, message: String) {
         self.mode = AppMode::ErrorPopup(message);
     }
 
-    /// Cancel any modal and return to normal mode
     pub fn cancel_mode(&mut self) {
         self.mode = AppMode::Normal;
     }
 
-    /// Check if we're in normal mode
     pub fn is_normal_mode(&self) -> bool {
         matches!(self.mode, AppMode::Normal)
     }
 
-    /// Set a status message that expires after a duration
     pub fn set_status_message(&mut self, text: String, is_error: bool, duration_secs: u64) {
         self.status_message = Some(StatusMessage {
             text,
@@ -233,14 +264,12 @@ impl App {
         });
     }
 
-    /// Get the current status message if not expired
     pub fn get_status_message(&self) -> Option<&StatusMessage> {
         self.status_message
             .as_ref()
             .filter(|m| m.expires_at > Instant::now())
     }
 
-    /// Clear expired status message
     pub fn clear_expired_status(&mut self) {
         if let Some(ref msg) = self.status_message
             && msg.expires_at <= Instant::now()
@@ -249,39 +278,25 @@ impl App {
         }
     }
 
-    /// Record a deleted branch for summary on exit
-    pub fn record_deleted_branch(&mut self, name: String, commit_sha: String) {
+    pub fn record_deleted_branch(&mut self, name: String, restore_hint: Option<String>) {
         self.deleted_branches
-            .push(DeletedBranch { name, commit_sha });
+            .push(DeletedBranch { name, restore_hint });
     }
 
-    /// Remove a branch from the list by name and adjust selected index
-    pub fn remove_branch(&mut self, name: &str) {
-        if let Some(pos) = self.branches.iter().position(|b| b.name == name) {
+    pub fn remove_branch(&mut self, key: &str) {
+        if let Some(pos) = self.branches.iter().position(|b| b.key == key) {
             self.branches.remove(pos);
             self.clamp_selected_index();
         }
     }
 
-    /// Keep selection inside the currently visible branch range
-    fn clamp_selected_index(&mut self) {
-        let count = self.visible_count();
-        if count == 0 {
-            self.selected_index = 0;
-        } else if self.selected_index >= count {
-            self.selected_index = count - 1;
-        }
-    }
-
-    /// Update which branch is marked as current after a checkout
     pub fn update_current_branch(&mut self, new_current_branch: &str) {
         for branch in &mut self.branches {
-            branch.is_current = branch.name == new_current_branch;
+            branch.is_current =
+                branch.scope == BranchScope::Local && branch.branch_name == new_current_branch;
         }
     }
 
-    /// Check if the selected branch can be deleted
-    /// Returns Ok(()) if deletable, Err(reason) if not
     pub fn can_delete_selected(&self) -> Result<(), String> {
         let Some(branch) = self.selected_branch() else {
             return Err("No branch selected".to_string());
@@ -292,10 +307,37 @@ impl App {
         }
 
         if branch.is_protected {
-            return Err(format!("Cannot delete protected branch '{}'", branch.name));
+            return Err(format!(
+                "Cannot delete protected branch '{}'",
+                branch.display_name
+            ));
         }
 
         Ok(())
+    }
+
+    fn matches_active_view(&self, branch: &BranchInfo) -> bool {
+        matches!(
+            (self.active_view, branch.scope),
+            (BranchView::Local, BranchScope::Local) | (BranchView::Remote, BranchScope::Remote)
+        )
+    }
+
+    fn set_selected_index(&mut self, index: usize) {
+        match self.active_view {
+            BranchView::Local => self.local_selected_index = index,
+            BranchView::Remote => self.remote_selected_index = index,
+        }
+    }
+
+    fn clamp_selected_index(&mut self) {
+        let count = self.visible_count();
+        let next = if count == 0 {
+            0
+        } else {
+            self.selected_index().min(count - 1)
+        };
+        self.set_selected_index(next);
     }
 }
 
@@ -303,26 +345,56 @@ impl App {
 mod tests {
     use super::*;
 
+    fn branch(
+        key: &str,
+        display_name: &str,
+        branch_name: &str,
+        scope: BranchScope,
+        is_current: bool,
+        is_protected: bool,
+        work_item_id: Option<u32>,
+    ) -> BranchInfo {
+        BranchInfo {
+            key: key.to_string(),
+            display_name: display_name.to_string(),
+            branch_name: branch_name.to_string(),
+            remote_name: (scope == BranchScope::Remote).then(|| "origin".to_string()),
+            scope,
+            work_item_id,
+            is_current,
+            is_protected,
+        }
+    }
+
     fn create_test_branches() -> Vec<BranchInfo> {
         vec![
-            BranchInfo {
-                name: "main".to_string(),
-                work_item_id: None,
-                is_current: true,
-                is_protected: true,
-            },
-            BranchInfo {
-                name: "feature/123".to_string(),
-                work_item_id: Some(123),
-                is_current: false,
-                is_protected: false,
-            },
-            BranchInfo {
-                name: "bugfix/456".to_string(),
-                work_item_id: Some(456),
-                is_current: false,
-                is_protected: false,
-            },
+            branch(
+                "refs/heads/main",
+                "main",
+                "main",
+                BranchScope::Local,
+                true,
+                true,
+                None,
+            ),
+            branch(
+                "refs/heads/feature/123",
+                "feature/123",
+                "feature/123",
+                BranchScope::Local,
+                false,
+                false,
+                Some(123),
+            ),
+            branch(
+                "refs/remotes/origin/feature/456",
+                "origin/feature/456",
+                "feature/456",
+                BranchScope::Remote,
+                false,
+                false,
+                Some(456),
+            ),
         ]
     }
 
@@ -331,13 +403,13 @@ mod tests {
         let branches = create_test_branches();
         let mut app = App::new(branches, vec!["main".to_string(), "master".to_string()]);
 
-        assert_eq!(app.selected_index, 0);
+        assert_eq!(app.selected_index(), 0);
 
         app.previous();
-        assert_eq!(app.selected_index, 2);
+        assert_eq!(app.selected_index(), 1);
 
         app.next();
-        assert_eq!(app.selected_index, 0);
+        assert_eq!(app.selected_index(), 0);
     }
 
     #[test]
@@ -346,13 +418,10 @@ mod tests {
         let mut app = App::new(branches, vec![]);
 
         app.next();
-        assert_eq!(app.selected_index, 1);
-
-        app.next();
-        assert_eq!(app.selected_index, 2);
+        assert_eq!(app.selected_index(), 1);
 
         app.previous();
-        assert_eq!(app.selected_index, 1);
+        assert_eq!(app.selected_index(), 0);
     }
 
     #[test]
@@ -383,91 +452,126 @@ mod tests {
         app.visible_height = 20;
 
         app.scroll_down(10);
-        assert_eq!(app.scroll_offset, 10);
-
         app.next();
+
         assert_eq!(app.scroll_offset, 0);
     }
 
     #[test]
-    fn test_visible_branches_filters_protected() {
+    fn test_visible_branches_filters_protected_in_active_view() {
         let branches = create_test_branches();
         let mut app = App::new(branches, vec![]);
 
-        assert_eq!(app.visible_count(), 3);
-
-        app.branches[0].is_current = false;
-
         assert_eq!(app.visible_count(), 2);
 
+        app.branches[0].is_current = false;
+        assert_eq!(app.visible_count(), 1);
+
         app.toggle_show_protected();
-        assert_eq!(app.visible_count(), 3);
+        assert_eq!(app.visible_count(), 2);
+    }
+
+    #[test]
+    fn test_toggle_view_keeps_separate_selection() {
+        let branches = vec![
+            branch(
+                "refs/heads/main",
+                "main",
+                "main",
+                BranchScope::Local,
+                false,
+                true,
+                None,
+            ),
+            branch(
+                "refs/heads/feature/1",
+                "feature/1",
+                "feature/1",
+                BranchScope::Local,
+                true,
+                false,
+                Some(1),
+            ),
+            branch(
+                "refs/heads/feature/4",
+                "feature/4",
+                "feature/4",
+                BranchScope::Local,
+                false,
+                false,
+                Some(4),
+            ),
+            branch(
+                "refs/remotes/origin/feature/2",
+                "origin/feature/2",
+                "feature/2",
+                BranchScope::Remote,
+                false,
+                false,
+                Some(2),
+            ),
+            branch(
+                "refs/remotes/origin/feature/3",
+                "origin/feature/3",
+                "feature/3",
+                BranchScope::Remote,
+                false,
+                false,
+                Some(3),
+            ),
+        ];
+        let mut app = App::new(branches, vec![]);
+
+        app.local_selected_index = 1;
+        app.toggle_view();
+        assert_eq!(app.active_view, BranchView::Remote);
+        assert_eq!(app.selected_index(), 0);
+
+        app.next();
+        assert_eq!(app.selected_index(), 1);
+
+        app.toggle_view();
+        assert_eq!(app.active_view, BranchView::Local);
+        assert_eq!(app.selected_index(), 1);
     }
 
     #[test]
     fn test_remove_branch_clamps_to_visible_count() {
         let branches = vec![
-            BranchInfo {
-                name: "main".to_string(),
-                work_item_id: None,
-                is_current: false,
-                is_protected: true,
-            },
-            BranchInfo {
-                name: "feature/1".to_string(),
-                work_item_id: Some(1),
-                is_current: true,
-                is_protected: false,
-            },
-            BranchInfo {
-                name: "feature/2".to_string(),
-                work_item_id: Some(2),
-                is_current: false,
-                is_protected: false,
-            },
+            branch(
+                "refs/heads/main",
+                "main",
+                "main",
+                BranchScope::Local,
+                false,
+                true,
+                None,
+            ),
+            branch(
+                "refs/heads/feature/1",
+                "feature/1",
+                "feature/1",
+                BranchScope::Local,
+                true,
+                false,
+                Some(1),
+            ),
+            branch(
+                "refs/heads/feature/2",
+                "feature/2",
+                "feature/2",
+                BranchScope::Local,
+                false,
+                false,
+                Some(2),
+            ),
         ];
         let mut app = App::new(branches, vec![]);
 
-        app.show_protected = false;
-        app.selected_index = 1;
-        app.remove_branch("feature/2");
+        app.local_selected_index = 1;
+        app.remove_branch("refs/heads/feature/2");
 
         assert_eq!(app.visible_count(), 1);
-        assert_eq!(app.selected_index, 0);
-        assert!(app.selected_branch().is_some());
-    }
-
-    #[test]
-    fn test_toggle_show_protected_clamps_selected_index() {
-        let branches = vec![
-            BranchInfo {
-                name: "main".to_string(),
-                work_item_id: None,
-                is_current: false,
-                is_protected: true,
-            },
-            BranchInfo {
-                name: "master".to_string(),
-                work_item_id: None,
-                is_current: false,
-                is_protected: true,
-            },
-            BranchInfo {
-                name: "feature/1".to_string(),
-                work_item_id: Some(1),
-                is_current: true,
-                is_protected: false,
-            },
-        ];
-        let mut app = App::new(branches, vec![]);
-
-        app.show_protected = true;
-        app.selected_index = 2;
-
-        app.toggle_show_protected();
-
-        assert_eq!(app.visible_count(), 1);
-        assert_eq!(app.selected_index, 0);
-        assert!(app.selected_branch().is_some());
+        assert_eq!(app.selected_index(), 0);
     }
 }

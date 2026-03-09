@@ -6,6 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
 };
 
+use crate::git::BranchScope;
 use crate::tui::app::App;
 use crate::tui::theme;
 
@@ -27,34 +28,53 @@ pub fn render_branch_info(frame: &mut Frame, app: &App, area: Rect) {
     let mut lines: Vec<Line> = Vec::new();
 
     if let Some(branch) = app.selected_branch() {
-        // Branch name
         lines.push(Line::from(vec![
             Span::styled("  ", Style::default()),
-            Span::styled(&branch.name, theme::branch::CURRENT),
+            Span::styled(&branch.display_name, theme::branch::CURRENT),
         ]));
 
-        // Remote status and last commit
-        if let Some(status) = app.get_branch_status(&branch.name) {
-            let (remote_text, remote_color) = format_remote_status(&status.remote_status);
+        if let Some(status) = app.get_branch_status(&branch.key) {
+            match branch.scope {
+                BranchScope::Local => {
+                    let (remote_text, remote_color) = format_remote_status(&status.remote_status);
+                    if let (Some(author), Some(time)) =
+                        (&status.last_commit_author, status.last_commit_time)
+                    {
+                        let relative_time = format_relative_time(time);
+                        lines.push(Line::from(vec![
+                            Span::styled("  Remote: ", theme::styles::MUTED),
+                            Span::styled(remote_text, Style::default().fg(remote_color)),
+                            Span::styled("  │  ", theme::styles::MUTED),
+                            Span::styled(author.clone(), theme::styles::TEXT),
+                            Span::styled(", ", theme::styles::MUTED),
+                            Span::styled(relative_time, theme::styles::MUTED),
+                        ]));
+                    } else {
+                        lines.push(Line::from(vec![
+                            Span::styled("  Remote: ", theme::styles::MUTED),
+                            Span::styled(remote_text, Style::default().fg(remote_color)),
+                        ]));
+                    }
+                }
+                BranchScope::Remote => {
+                    let remote_name = branch.remote_name.as_deref().unwrap_or("origin");
+                    lines.push(Line::from(vec![
+                        Span::styled("  Source: ", theme::styles::MUTED),
+                        Span::styled(remote_name, theme::styles::TEXT),
+                    ]));
 
-            // Last commit info on same line as remote if available
-            if let (Some(author), Some(time)) =
-                (&status.last_commit_author, status.last_commit_time)
-            {
-                let relative_time = format_relative_time(time);
-                lines.push(Line::from(vec![
-                    Span::styled("  Remote: ", theme::styles::MUTED),
-                    Span::styled(remote_text, Style::default().fg(remote_color)),
-                    Span::styled("  │  ", theme::styles::MUTED),
-                    Span::styled(author.clone(), theme::styles::TEXT),
-                    Span::styled(", ", theme::styles::MUTED),
-                    Span::styled(relative_time, theme::styles::MUTED),
-                ]));
-            } else {
-                lines.push(Line::from(vec![
-                    Span::styled("  Remote: ", theme::styles::MUTED),
-                    Span::styled(remote_text, Style::default().fg(remote_color)),
-                ]));
+                    if let (Some(author), Some(time)) =
+                        (&status.last_commit_author, status.last_commit_time)
+                    {
+                        let relative_time = format_relative_time(time);
+                        lines.push(Line::from(vec![
+                            Span::styled("  Last commit: ", theme::styles::MUTED),
+                            Span::styled(author.clone(), theme::styles::TEXT),
+                            Span::styled(", ", theme::styles::MUTED),
+                            Span::styled(relative_time, theme::styles::MUTED),
+                        ]));
+                    }
+                }
             }
         } else {
             lines.push(Line::from(vec![Span::styled(

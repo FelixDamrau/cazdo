@@ -39,7 +39,7 @@ pub fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
 
             ListItem::new(format!(
                 "{}{}{}{}",
-                prefix, branch.name, protected_indicator, wi_suffix
+                prefix, branch.display_name, protected_indicator, wi_suffix
             ))
             .style(style)
         })
@@ -51,7 +51,7 @@ pub fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
                 .borders(Borders::ALL)
                 .border_style(theme::ui::BORDER)
                 .title(Line::from(vec![Span::styled(
-                    " Branches ",
+                    format!(" Branches ({}) ", app.active_view.label()),
                     theme::ui::TITLE,
                 )])),
         )
@@ -59,7 +59,7 @@ pub fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
         .highlight_symbol("\u{25BA} ");
 
     let mut state = ListState::default();
-    state.select(Some(app.selected_index));
+    state.select(Some(app.selected_index()));
 
     frame.render_stateful_widget(list, area, &mut state);
 

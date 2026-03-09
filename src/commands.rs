@@ -1,6 +1,6 @@
 use crate::azure_devops::AzureDevOpsClient;
 use crate::config::{Config, PatSource};
-use crate::git::{GitRepo, extract_work_item_number};
+use crate::git::{GitRepo, RepoBranch, extract_work_item_number};
 use crate::pattern::is_protected;
 use crate::tui::render_html;
 use crate::tui::{App, BranchInfo, run_app};
@@ -9,9 +9,6 @@ use crossterm::style::Stylize;
 
 pub async fn interactive() -> Result<()> {
     let repo = GitRepo::open_current_dir().context("Failed to open git repository")?;
-    let current_branch = repo
-        .current_branch()
-        .context("Failed to get current branch")?;
     let branches = repo.list_branches().context("Failed to list branches")?;
 
     // Load protected patterns from config (with fallback to defaults)
@@ -26,22 +23,7 @@ pub async fn interactive() -> Result<()> {
 
     let branch_infos: Vec<BranchInfo> = branches
         .into_iter()
-        .map(|name| {
-            let is_current = name == current_branch;
-            let is_protected_branch = is_protected(&name, &protected_patterns);
-            // Don't extract work item from protected branches (they're version names, not work items)
-            let wi_id = if is_protected_branch {
-                None
-            } else {
-                extract_work_item_number(&name)
-            };
-            BranchInfo {
-                name,
-                work_item_id: wi_id,
-                is_current,
-                is_protected: is_protected_branch,
-            }
-        })
+        .map(|branch| branch_info(branch, &protected_patterns))
         .collect();
 
     if branch_infos.is_empty() {
@@ -52,6 +34,27 @@ pub async fn interactive() -> Result<()> {
     run_app(app, repo).await?;
 
     Ok(())
+}
+
+fn branch_info(branch: RepoBranch, protected_patterns: &[String]) -> BranchInfo {
+    let is_current = branch.is_current;
+    let is_protected_branch = is_protected(&branch.branch_name, protected_patterns);
+    let wi_id = if is_protected_branch {
+        None
+    } else {
+        extract_work_item_number(&branch.branch_name)
+    };
+
+    BranchInfo {
+        key: branch.key,
+        display_name: branch.display_name,
+        branch_name: branch.branch_name,
+        remote_name: branch.remote_name,
+        scope: branch.scope,
+        work_item_id: wi_id,
+        is_current,
+        is_protected: is_protected_branch,
+    }
 }
 
 pub fn config_show() -> Result<()> {

@@ -8,11 +8,12 @@ use ratatui::{
 use crate::tui::theme;
 
 /// Render the delete confirmation popup
-pub fn render_delete_popup(frame: &mut Frame, branch_name: &str) {
+pub fn render_delete_popup(frame: &mut Frame, branch_name: &str, is_remote: bool) {
+    let branch_kind = if is_remote { "remote branch" } else { "branch" };
     let content = vec![
         Line::from(""),
         Line::from(vec![
-            Span::raw("Are you sure you want to delete branch "),
+            Span::raw(format!("Are you sure you want to delete {} ", branch_kind)),
             Span::styled(branch_name, theme::branch::CURRENT),
             Span::raw("?"),
         ]),
