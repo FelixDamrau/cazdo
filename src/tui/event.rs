@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 use std::io;
+use std::path::PathBuf;
+use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::{
@@ -33,6 +35,8 @@ enum Action {
     OpenWorkItem,
     Checkout(BranchInfo),
 }
+
+const REMOTE_FRESHNESS_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub async fn run_app(mut app: App, git_repo: GitRepo) -> Result<()> {
     let config = Config::load()?;
@@ -155,15 +159,38 @@ fn trigger_remote_freshness_check(
         }
     };
 
-    tokio::task::spawn_blocking(move || {
-        let message = match list_origin_remote_heads_in_dir(&repo_dir) {
-            Ok(live_branches) => FetchResult::RemoteFreshnessSuccess { live_branches },
-            Err(error) => FetchResult::RemoteFreshnessError {
-                error: error.to_string(),
-            },
-        };
-        let _ = tx.send(message);
+    tokio::spawn(async move {
+        let _ = tx.send(fetch_remote_freshness(repo_dir).await);
     });
+}
+
+async fn fetch_remote_freshness(repo_dir: PathBuf) -> FetchResult {
+    let task = tokio::task::spawn_blocking(move || list_origin_remote_heads_in_dir(&repo_dir));
+
+    let join_result = match tokio::time::timeout(REMOTE_FRESHNESS_TIMEOUT, task).await {
+        Ok(join_result) => join_result,
+        Err(_) => {
+            return FetchResult::RemoteFreshnessError {
+                error: "Network timeout checking origin branches".to_string(),
+            };
+        }
+    };
+
+    let branch_result = match join_result {
+        Ok(branch_result) => branch_result,
+        Err(_) => {
+            return FetchResult::RemoteFreshnessError {
+                error: "Task panicked while checking origin branches".to_string(),
+            };
+        }
+    };
+
+    match branch_result {
+        Ok(live_branches) => FetchResult::RemoteFreshnessSuccess { live_branches },
+        Err(error) => FetchResult::RemoteFreshnessError {
+            error: error.to_string(),
+        },
+    }
 }
 
 fn trigger_work_item_fetch(
@@ -405,6 +432,7 @@ fn execute_checkout_branch(app: &mut App, git_repo: &GitRepo, branch: &BranchInf
             app.update_current_branch(&branch.branch_name);
             if branch.scope == BranchScope::Remote {
                 app.active_view = BranchView::Local;
+                app.scroll_offset = 0;
             }
             app.set_status_message(
                 format!("Switched to branch '{}'", branch.branch_name),

@@ -529,7 +529,7 @@ fn last_commit_details(branch: &git2::Branch) -> (Option<String>, Option<i64>) {
 }
 
 fn origin_branch_name(name: &str) -> Option<&str> {
-    let branch_name = name.strip_prefix("origin/")?;
+    let branch_name = name.strip_prefix(ORIGIN_REMOTE)?.strip_prefix('/')?;
     if branch_name == "HEAD" {
         return None;
     }
