@@ -632,4 +632,108 @@ mod tests {
             .expect("remote branch exists");
         assert!(remote_branch.is_stale);
     }
+
+    #[test]
+    fn test_visible_branches_hides_protected_remotes_by_default() {
+        let branches = vec![
+            branch(
+                "refs/remotes/origin/main",
+                "origin/main",
+                "main",
+                BranchScope::Remote,
+                false,
+                true,
+                None,
+            ),
+            branch(
+                "refs/remotes/origin/feature/1",
+                "origin/feature/1",
+                "feature/1",
+                BranchScope::Remote,
+                false,
+                false,
+                Some(1),
+            ),
+        ];
+        let mut app = App::new(branches, vec![]);
+        app.active_view = BranchView::Remote;
+
+        // protected remote is hidden by default since it's not current
+        assert_eq!(app.visible_count(), 1);
+
+        app.toggle_show_protected();
+        assert_eq!(app.visible_count(), 2);
+    }
+
+    #[test]
+    fn test_update_current_branch_ignores_remotes() {
+        let branches = vec![
+            branch(
+                "refs/heads/feature/1",
+                "feature/1",
+                "feature/1",
+                BranchScope::Local,
+                false,
+                false,
+                Some(1),
+            ),
+            branch(
+                "refs/remotes/origin/feature/1",
+                "origin/feature/1",
+                "feature/1",
+                BranchScope::Remote,
+                false,
+                false,
+                Some(1),
+            ),
+        ];
+        let mut app = App::new(branches, vec![]);
+        app.update_current_branch("feature/1");
+
+        let local = app
+            .branches
+            .iter()
+            .find(|b| b.scope == BranchScope::Local)
+            .unwrap();
+        let remote = app
+            .branches
+            .iter()
+            .find(|b| b.scope == BranchScope::Remote)
+            .unwrap();
+
+        assert!(local.is_current);
+        assert!(!remote.is_current);
+    }
+
+    #[test]
+    fn test_set_remote_freshness_keeps_live_branches_fresh() {
+        let mut app = App::new(create_test_branches(), vec![]);
+        // The remote branch in create_test_branches is feature/456
+        let live = HashSet::from(["feature/456".to_string()]);
+
+        app.set_remote_freshness(live);
+
+        let remote_branch = app
+            .branches
+            .iter()
+            .find(|branch| branch.scope == BranchScope::Remote)
+            .expect("remote branch exists");
+        assert!(!remote_branch.is_stale);
+    }
+
+    #[test]
+    fn test_remote_freshness_message() {
+        let mut app = App::new(vec![], vec![]);
+
+        assert_eq!(app.remote_freshness_message(), None);
+
+        app.set_remote_freshness_checking();
+        assert_eq!(app.remote_freshness_message(), Some("Checking origin..."));
+
+        app.set_remote_freshness(HashSet::new());
+        assert_eq!(app.remote_freshness_message(), None);
+
+        app.set_remote_freshness_error("Network timeout".to_string());
+        assert_eq!(app.remote_freshness_message(), Some("Network timeout"));
+    }
 }
