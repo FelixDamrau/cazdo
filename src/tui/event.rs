@@ -401,6 +401,7 @@ fn execute_checkout_branch(app: &mut App, git_repo: &GitRepo, branch: &BranchInf
         branch.remote_name.as_deref(),
     ) {
         Ok(()) => {
+            app.ensure_local_branch_exists(branch);
             app.update_current_branch(&branch.branch_name);
             if branch.scope == BranchScope::Remote {
                 app.active_view = BranchView::Local;

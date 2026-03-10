@@ -339,6 +339,30 @@ impl App {
         }
     }
 
+    /// When checking out a remote branch, a local branch is created.
+    /// This adds it to the list if it doesn't already exist.
+    pub fn ensure_local_branch_exists(&mut self, branch: &BranchInfo) {
+        if branch.scope != BranchScope::Remote {
+            return;
+        }
+
+        let local_exists = self
+            .branches
+            .iter()
+            .any(|b| b.scope == BranchScope::Local && b.branch_name == branch.branch_name);
+
+        if !local_exists {
+            let mut new_branch = branch.clone();
+            new_branch.scope = BranchScope::Local;
+            new_branch.key = format!("refs/heads/{}", branch.branch_name);
+            new_branch.display_name = branch.branch_name.clone();
+            new_branch.remote_name = None;
+            new_branch.is_current = false; // update_current_branch will set this
+            new_branch.is_stale = false;
+            self.branches.push(new_branch);
+        }
+    }
+
     pub fn can_delete_selected(&self) -> Result<(), String> {
         let Some(branch) = self.selected_branch() else {
             return Err("No branch selected".to_string());
@@ -735,5 +759,50 @@ mod tests {
 
         app.set_remote_freshness_error("Network timeout".to_string());
         assert_eq!(app.remote_freshness_message(), Some("Network timeout"));
+    }
+
+    #[test]
+    fn test_ensure_local_branch_exists() {
+        let mut app = App::new(vec![], vec![]);
+
+        let remote_branch = branch(
+            "refs/remotes/origin/feature/1",
+            "origin/feature/1",
+            "feature/1",
+            BranchScope::Remote,
+            false,
+            false,
+            Some(1),
+        );
+
+        // Test adding a new local branch from remote
+        app.ensure_local_branch_exists(&remote_branch);
+
+        assert_eq!(app.branches.len(), 1);
+        let new_local = &app.branches[0];
+        assert_eq!(new_local.scope, BranchScope::Local);
+        assert_eq!(new_local.branch_name, "feature/1");
+        assert_eq!(new_local.display_name, "feature/1");
+        assert_eq!(new_local.key, "refs/heads/feature/1");
+        assert_eq!(new_local.remote_name, None);
+        assert_eq!(new_local.work_item_id, Some(1));
+        assert!(!new_local.is_current);
+
+        // Test it doesn't add duplicates
+        app.ensure_local_branch_exists(&remote_branch);
+        assert_eq!(app.branches.len(), 1);
+
+        // Test it doesn't do anything for local branches
+        let local_branch = branch(
+            "refs/heads/feature/2",
+            "feature/2",
+            "feature/2",
+            BranchScope::Local,
+            false,
+            false,
+            Some(2),
+        );
+        app.ensure_local_branch_exists(&local_branch);
+        assert_eq!(app.branches.len(), 1);
     }
 }

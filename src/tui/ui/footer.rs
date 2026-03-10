@@ -6,7 +6,7 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use crate::tui::app::App;
+use crate::tui::app::{App, BranchView};
 use crate::tui::theme;
 
 /// Render the footer bar with status messages or key hints
@@ -36,9 +36,9 @@ pub fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let protected_prefix = if app.show_protected { "hide " } else { "show " };
-    let toggle_label = match app.active_view.label() {
-        "Local" => "remote",
-        _ => "local",
+    let toggle_label = match app.active_view {
+        BranchView::Local => "remote",
+        BranchView::Remote => "local",
     };
     let spans = vec![
         Span::styled(" j/k ", theme::styles::ACCENT),
