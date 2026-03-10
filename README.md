@@ -98,6 +98,7 @@ The interface starts with your local branches and can toggle to `origin` remote 
   - Branches with found work items show the work item type and ID.
   - The current branch is highlighted.
   - Press `t` to toggle between local and remote (`origin`) branches.
+  - In remote view, branches marked with `⚠` no longer exist on `origin`; the cached remote-tracking ref is stale until you prune it yourself.
 - **Right Panel**: Details of the selected work item.
 
 Use the **Keyboard Shortcuts** below to navigate and interact.

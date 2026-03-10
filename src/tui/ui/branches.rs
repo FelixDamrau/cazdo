@@ -29,17 +29,19 @@ pub fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
                 None => String::new(),
             };
 
+            let stale_indicator = if branch.is_stale { " ⚠" } else { "" };
+
             let style = if branch.is_current {
                 theme::branch::CURRENT
-            } else if branch.is_protected {
+            } else if branch.is_protected || branch.is_stale {
                 theme::styles::MUTED
             } else {
                 Style::default()
             };
 
             ListItem::new(format!(
-                "{}{}{}{}",
-                prefix, branch.display_name, protected_indicator, wi_suffix
+                "{}{}{}{}{}",
+                prefix, branch.display_name, protected_indicator, wi_suffix, stale_indicator
             ))
             .style(style)
         })

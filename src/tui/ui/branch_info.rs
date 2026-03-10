@@ -63,6 +63,21 @@ pub fn render_branch_info(frame: &mut Frame, app: &App, area: Rect) {
                         Span::styled(remote_name, theme::styles::TEXT),
                     ]));
 
+                    if branch.is_stale {
+                        lines.push(Line::from(vec![
+                            Span::styled("  Stale: ", theme::styles::MUTED),
+                            Span::styled(
+                                "Missing on origin; cached remote-tracking ref may be stale",
+                                theme::styles::ERROR,
+                            ),
+                        ]));
+                    } else if let Some(message) = app.remote_freshness_message() {
+                        lines.push(Line::from(vec![
+                            Span::styled("  Origin: ", theme::styles::MUTED),
+                            Span::styled(message, theme::styles::MUTED),
+                        ]));
+                    }
+
                     if let (Some(author), Some(time)) =
                         (&status.last_commit_author, status.last_commit_time)
                     {

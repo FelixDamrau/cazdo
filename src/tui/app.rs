@@ -1,6 +1,6 @@
 use crate::azure_devops::WorkItem;
 use crate::git::{BranchScope, BranchStatus};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 /// Branch info with optional work item
@@ -14,6 +14,7 @@ pub struct BranchInfo {
     pub work_item_id: Option<u32>,
     pub is_current: bool,
     pub is_protected: bool,
+    pub is_stale: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,6 +71,15 @@ pub enum WorkItemStatus {
     Error(String),
 }
 
+#[derive(Debug, Clone, Default)]
+pub enum RemoteFreshness {
+    #[default]
+    NotChecked,
+    Checking,
+    Checked,
+    Error(String),
+}
+
 /// Application state
 pub struct App {
     pub branches: Vec<BranchInfo>,
@@ -87,6 +97,7 @@ pub struct App {
     pub deleted_branches: Vec<DeletedBranch>,
     pub protected_patterns: Vec<String>,
     pub show_protected: bool,
+    pub remote_freshness: RemoteFreshness,
 }
 
 impl App {
@@ -107,6 +118,7 @@ impl App {
             deleted_branches: Vec::new(),
             protected_patterns,
             show_protected: false,
+            remote_freshness: RemoteFreshness::NotChecked,
         }
     }
 
@@ -178,6 +190,36 @@ impl App {
         self.active_view = self.active_view.toggle();
         self.scroll_offset = 0;
         self.clamp_selected_index();
+    }
+
+    pub fn should_check_remote_freshness(&self) -> bool {
+        self.active_view == BranchView::Remote
+            && matches!(self.remote_freshness, RemoteFreshness::NotChecked)
+    }
+
+    pub fn set_remote_freshness_checking(&mut self) {
+        self.remote_freshness = RemoteFreshness::Checking;
+    }
+
+    pub fn set_remote_freshness(&mut self, live_branches: HashSet<String>) {
+        for branch in &mut self.branches {
+            if branch.scope == BranchScope::Remote {
+                branch.is_stale = !live_branches.contains(&branch.branch_name);
+            }
+        }
+        self.remote_freshness = RemoteFreshness::Checked;
+    }
+
+    pub fn set_remote_freshness_error(&mut self, error: String) {
+        self.remote_freshness = RemoteFreshness::Error(error);
+    }
+
+    pub fn remote_freshness_message(&self) -> Option<&str> {
+        match &self.remote_freshness {
+            RemoteFreshness::Checking => Some("Checking origin..."),
+            RemoteFreshness::Error(error) => Some(error.as_str()),
+            _ => None,
+        }
     }
 
     pub fn scroll_down(&mut self, amount: u16) {
@@ -363,6 +405,7 @@ mod tests {
             work_item_id,
             is_current,
             is_protected,
+            is_stale: false,
         }
     }
 
@@ -573,5 +616,20 @@ mod tests {
 
         assert_eq!(app.visible_count(), 1);
         assert_eq!(app.selected_index(), 0);
+    }
+
+    #[test]
+    fn test_set_remote_freshness_marks_missing_remote_branches_stale() {
+        let mut app = App::new(create_test_branches(), vec![]);
+        let live = HashSet::from(["feature/other".to_string()]);
+
+        app.set_remote_freshness(live);
+
+        let remote_branch = app
+            .branches
+            .iter()
+            .find(|branch| branch.scope == BranchScope::Remote)
+            .expect("remote branch exists");
+        assert!(remote_branch.is_stale);
     }
 }

@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result};
@@ -212,6 +214,17 @@ impl GitRepo {
         }
     }
 
+    pub fn repo_dir(&self) -> Result<PathBuf> {
+        Ok(self.command_dir()?.to_path_buf())
+    }
+
+    fn command_dir(&self) -> Result<&Path> {
+        self.repo
+            .workdir()
+            .or_else(|| self.repo.path().parent())
+            .context("Failed to determine repository working directory")
+    }
+
     fn get_local_branch_status(&self, branch_name: &str) -> Result<BranchStatus> {
         let branch = self
             .repo
@@ -252,12 +265,11 @@ impl GitRepo {
         let upstream = match branch.upstream() {
             Ok(upstream) => upstream,
             Err(e) => {
-                if e.code() == git2::ErrorCode::NotFound {
-                    if let Some(ref_name) = branch.get().name()
-                        && self.repo.branch_upstream_name(ref_name).is_ok()
-                    {
-                        return RemoteStatus::Gone;
-                    }
+                if e.code() == git2::ErrorCode::NotFound
+                    && let Some(ref_name) = branch.get().name()
+                    && self.repo.branch_upstream_name(ref_name).is_ok()
+                {
+                    return RemoteStatus::Gone;
                 }
                 return RemoteStatus::LocalOnly;
             }
@@ -340,10 +352,10 @@ impl GitRepo {
         let remote_ref_name = format!("{remote_name}/{branch_name}");
 
         if let Ok(local_branch) = self.repo.find_branch(branch_name, BranchType::Local) {
-            if let Ok(upstream) = local_branch.upstream() {
-                if upstream.name().ok().flatten() == Some(remote_ref_name.as_str()) {
-                    return self.checkout_local_branch(branch_name);
-                }
+            if let Ok(upstream) = local_branch.upstream()
+                && upstream.name().ok().flatten() == Some(remote_ref_name.as_str())
+            {
+                return self.checkout_local_branch(branch_name);
             }
 
             let current = self.current_branch()?;
@@ -484,23 +496,33 @@ impl GitRepo {
 
         Ok(upstream.name().ok().flatten() == Some(remote_ref_name))
     }
+}
 
-    fn command_dir(&self) -> Result<&std::path::Path> {
-        self.repo
-            .workdir()
-            .or_else(|| self.repo.path().parent())
-            .context("Failed to determine repository working directory")
+pub fn list_origin_remote_heads_in_dir(dir: &Path) -> Result<HashSet<String>> {
+    let output = Command::new("git")
+        .args(["ls-remote", "--heads", ORIGIN_REMOTE])
+        .current_dir(dir)
+        .output()
+        .context("Failed to run git ls-remote --heads origin")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let message = if !stderr.is_empty() { stderr } else { stdout };
+        anyhow::bail!("Failed to check origin branches: {}", message);
     }
+
+    parse_ls_remote_heads(&String::from_utf8_lossy(&output.stdout))
 }
 
 fn last_commit_details(branch: &git2::Branch) -> (Option<String>, Option<i64>) {
-    if let Ok(reference) = branch.get().resolve() {
-        if let Ok(commit) = reference.peel_to_commit() {
-            let author = commit.author();
-            let name = author.name().map(|s| s.to_string());
-            let time = commit.time().seconds();
-            return (name, Some(time));
-        }
+    if let Ok(reference) = branch.get().resolve()
+        && let Ok(commit) = reference.peel_to_commit()
+    {
+        let author = commit.author();
+        let name = author.name().map(|s| s.to_string());
+        let time = commit.time().seconds();
+        return (name, Some(time));
     }
 
     (None, None)
@@ -512,6 +534,24 @@ fn origin_branch_name(name: &str) -> Option<&str> {
         return None;
     }
     Some(branch_name)
+}
+
+fn parse_ls_remote_heads(output: &str) -> Result<HashSet<String>> {
+    let mut branches = HashSet::new();
+
+    for line in output.lines() {
+        let mut parts = line.split_whitespace();
+        let _sha = parts.next();
+        let Some(ref_name) = parts.next() else {
+            continue;
+        };
+        let Some(branch_name) = ref_name.strip_prefix("refs/heads/") else {
+            continue;
+        };
+        branches.insert(branch_name.to_string());
+    }
+
+    Ok(branches)
 }
 
 #[cfg(test)]
@@ -555,5 +595,22 @@ mod tests {
     #[test]
     fn test_origin_branch_name_rejects_other_remotes() {
         assert_eq!(origin_branch_name("upstream/main"), None);
+    }
+
+    #[test]
+    fn test_parse_ls_remote_heads_extracts_branch_names() {
+        let output = "abc refs/heads/main\ndef refs/heads/feature/123\n";
+        let branches = parse_ls_remote_heads(output).expect("parsed");
+
+        assert!(branches.contains("main"));
+        assert!(branches.contains("feature/123"));
+    }
+
+    #[test]
+    fn test_parse_ls_remote_heads_ignores_non_head_refs() {
+        let output = "abc refs/tags/v1\ndef refs/remotes/origin/main\n";
+        let branches = parse_ls_remote_heads(output).expect("parsed");
+
+        assert!(branches.is_empty());
     }
 }

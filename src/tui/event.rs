@@ -18,11 +18,13 @@ use super::theme::{scroll, timing};
 use super::ui;
 use crate::azure_devops::{AzureDevOpsClient, WorkItem};
 use crate::config::Config;
-use crate::git::{BranchScope, DeleteResult, GitRepo, short_sha};
+use crate::git::{BranchScope, DeleteResult, GitRepo, list_origin_remote_heads_in_dir, short_sha};
 
 enum FetchResult {
     Success { id: u32, work_item: WorkItem },
     Error { id: u32, error: String },
+    RemoteFreshnessSuccess { live_branches: HashSet<String> },
+    RemoteFreshnessError { error: String },
 }
 
 enum Action {
@@ -80,6 +82,7 @@ async fn run_loop(
         app.clear_expired_status();
         process_fetch_results(&mut rx, app, &mut pending_fetches);
         trigger_work_item_fetch(app, &client, &tx, &mut pending_fetches);
+        trigger_remote_freshness_check(app, git_repo, &tx);
         fetch_branch_status_if_needed(app, git_repo);
 
         terminal.draw(|frame| ui::render(frame, app))?;
@@ -117,8 +120,50 @@ fn process_fetch_results(
                 app.set_work_item_error(id, error);
                 pending_fetches.remove(&id);
             }
+            FetchResult::RemoteFreshnessSuccess { live_branches } => {
+                app.set_remote_freshness(live_branches);
+            }
+            FetchResult::RemoteFreshnessError { error } => {
+                app.set_remote_freshness_error(error);
+                app.set_status_message(
+                    "Could not verify origin branches".to_string(),
+                    true,
+                    timing::STATUS_DURATION_SECS,
+                );
+            }
         }
     }
+}
+
+fn trigger_remote_freshness_check(
+    app: &mut App,
+    git_repo: &GitRepo,
+    tx: &mpsc::UnboundedSender<FetchResult>,
+) {
+    if !app.should_check_remote_freshness() {
+        return;
+    }
+
+    app.set_remote_freshness_checking();
+    let tx = tx.clone();
+
+    let repo_dir = match git_repo.repo_dir() {
+        Ok(repo_dir) => repo_dir,
+        Err(error) => {
+            app.set_remote_freshness_error(error.to_string());
+            return;
+        }
+    };
+
+    tokio::task::spawn_blocking(move || {
+        let message = match list_origin_remote_heads_in_dir(&repo_dir) {
+            Ok(live_branches) => FetchResult::RemoteFreshnessSuccess { live_branches },
+            Err(error) => FetchResult::RemoteFreshnessError {
+                error: error.to_string(),
+            },
+        };
+        let _ = tx.send(message);
+    });
 }
 
 fn trigger_work_item_fetch(

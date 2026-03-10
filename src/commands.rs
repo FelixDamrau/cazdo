@@ -54,6 +54,7 @@ fn branch_info(branch: RepoBranch, protected_patterns: &[String]) -> BranchInfo 
         work_item_id: wi_id,
         is_current,
         is_protected: is_protected_branch,
+        is_stale: false,
     }
 }
 
