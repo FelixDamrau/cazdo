@@ -1,9 +1,9 @@
 use ratatui::{
     Frame,
-    layout::Rect,
+    layout::{Alignment, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState},
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
 
 use crate::tui::app::App;
@@ -12,6 +12,38 @@ use crate::tui::theme;
 /// Render the branch list panel
 pub fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
     let visible = app.visible_branches();
+    if visible.is_empty() {
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme::ui::BORDER)
+            .title(Line::from(vec![Span::styled(
+                format!(" Branches ({}) ", app.active_view.label()),
+                theme::ui::TITLE,
+            )]));
+
+        let inner_area = block.inner(area);
+        frame.render_widget(block, area);
+
+        let empty_msg = Paragraph::new(format!(
+            "No {} branches found.",
+            app.active_view.label().to_lowercase()
+        ))
+        .style(theme::styles::MUTED)
+        .alignment(Alignment::Center);
+
+        let msg_height = 1;
+        let y_offset = inner_area.height.saturating_sub(msg_height) / 2;
+        let centered_area = Rect {
+            x: inner_area.x,
+            y: inner_area.y + y_offset,
+            width: inner_area.width,
+            height: msg_height,
+        };
+
+        frame.render_widget(empty_msg, centered_area);
+        return;
+    }
+
     let items: Vec<ListItem> = visible
         .iter()
         .map(|branch| {
