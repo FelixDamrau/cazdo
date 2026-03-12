@@ -43,7 +43,7 @@ impl BranchView {
 #[derive(Debug, Clone)]
 pub enum AppMode {
     Normal,
-    ConfirmDelete(BranchInfo),
+    ConfirmDelete { branch: BranchInfo, is_prune: bool },
     ErrorPopup(String),
 }
 
@@ -280,9 +280,12 @@ impl App {
         !self.branch_statuses.contains_key(key)
     }
 
-    pub fn enter_delete_mode(&mut self) {
+    pub fn enter_confirm_mode(&mut self, is_prune: bool) {
         if let Some(branch) = self.selected_branch() {
-            self.mode = AppMode::ConfirmDelete(branch.clone());
+            self.mode = AppMode::ConfirmDelete {
+                branch: branch.clone(),
+                is_prune,
+            };
         }
     }
 
@@ -804,5 +807,48 @@ mod tests {
         );
         app.ensure_local_branch_exists(&local_branch);
         assert_eq!(app.branches.len(), 1);
+    }
+
+    #[test]
+    fn test_enter_confirm_mode_delete() {
+        let branches = vec![branch(
+            "refs/heads/feature/1",
+            "feature/1",
+            "feature/1",
+            BranchScope::Local,
+            false,
+            false,
+            None,
+        )];
+        let mut app = App::new(branches, vec![]);
+        app.enter_confirm_mode(false);
+        assert!(matches!(
+            app.mode,
+            AppMode::ConfirmDelete {
+                is_prune: false,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_enter_confirm_mode_prune() {
+        let mut stale = branch(
+            "refs/remotes/origin/gone",
+            "origin/gone",
+            "gone",
+            BranchScope::Remote,
+            false,
+            false,
+            None,
+        );
+        stale.is_stale = true;
+        let mut app = App::new(vec![stale], vec![]);
+        app.active_view = BranchView::Remote;
+        app.enter_confirm_mode(true);
+        assert!(matches!(
+            app.mode,
+            AppMode::ConfirmDelete { is_prune: true, .. }
+        ));
     }
 }

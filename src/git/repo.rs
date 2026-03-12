@@ -214,6 +214,30 @@ impl GitRepo {
         }
     }
 
+    /// Remove the local tracking ref for a stale remote branch.
+    pub fn prune_remote_tracking_branch(&self, branch_name: &str) -> Result<()> {
+        let tracking_ref = format!("{ORIGIN_REMOTE}/{branch_name}");
+
+        let output = Command::new("git")
+            .args(["branch", "-dr", &tracking_ref])
+            .current_dir(self.command_dir()?)
+            .output()
+            .with_context(|| format!("Failed to run git branch -dr {tracking_ref}"))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let message = if !stderr.is_empty() { stderr } else { stdout };
+            anyhow::bail!(
+                "Failed to prune tracking ref '{}': {}",
+                tracking_ref,
+                message
+            );
+        }
+
+        Ok(())
+    }
+
     pub fn repo_dir(&self) -> Result<PathBuf> {
         Ok(self.command_dir()?.to_path_buf())
     }

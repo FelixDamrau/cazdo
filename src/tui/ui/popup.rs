@@ -7,23 +7,44 @@ use ratatui::{
 
 use crate::tui::theme;
 
-/// Render the delete confirmation popup
-pub fn render_delete_popup(frame: &mut Frame, branch_name: &str, is_remote: bool) {
-    let branch_kind = if is_remote { "remote branch" } else { "branch" };
-    let content = vec![
-        Line::from(""),
-        Line::from(vec![
-            Span::raw(format!("Are you sure you want to delete {} ", branch_kind)),
-            Span::styled(branch_name, theme::branch::CURRENT),
-            Span::raw("?"),
-        ]),
-        Line::from(""),
-        make_key_hint(&["y"], "confirm"),
-        make_key_hint(&["n", "Esc"], "cancel"),
-    ];
+/// Render the delete or prune confirmation popup
+pub fn render_confirm_popup(frame: &mut Frame, branch_name: &str, is_remote: bool, is_prune: bool) {
+    let content = if is_prune {
+        vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::raw("Prune stale tracking ref for "),
+                Span::styled(branch_name, theme::branch::CURRENT),
+                Span::raw("?"),
+            ]),
+            Line::from(Span::raw("(branch no longer exists on origin)")),
+            Line::from(""),
+            make_key_hint(&["y"], "confirm"),
+            make_key_hint(&["n", "Esc"], "cancel"),
+        ]
+    } else {
+        let branch_kind = if is_remote { "remote branch" } else { "branch" };
+        vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::raw(format!("Are you sure you want to delete {} ", branch_kind)),
+                Span::styled(branch_name, theme::branch::CURRENT),
+                Span::raw("?"),
+            ]),
+            Line::from(""),
+            make_key_hint(&["y"], "confirm"),
+            make_key_hint(&["n", "Esc"], "cancel"),
+        ]
+    };
+
+    let title = if is_prune {
+        " Prune Stale Branch "
+    } else {
+        " Delete Branch "
+    };
 
     let area = centered_rect(frame.area());
-    render_popup_impl(frame, " Delete Branch ", content, area);
+    render_popup_impl(frame, title, content, area);
 }
 
 /// Render an error popup with the given message

@@ -31,6 +31,7 @@ enum FetchResult {
 
 enum Action {
     Delete(BranchInfo),
+    Prune(BranchInfo),
     Refresh(u32),
     OpenWorkItem,
     Checkout(BranchInfo),
@@ -94,6 +95,7 @@ async fn run_loop(
         if let Some(action) = handle_input(app)? {
             match action {
                 Action::Delete(branch) => execute_delete_branch(app, git_repo, &branch),
+                Action::Prune(branch) => execute_prune_branch(app, git_repo, &branch),
                 Action::Refresh(wi_id) => {
                     pending_fetches.remove(&wi_id);
                     app.reset_work_item(wi_id);
@@ -258,9 +260,10 @@ fn handle_input(app: &mut App) -> Result<Option<Action>> {
 fn handle_key_event(app: &mut App, key: KeyEvent) -> Option<Action> {
     match &app.mode {
         AppMode::Normal => handle_normal_mode_key(app, key),
-        AppMode::ConfirmDelete(branch) => {
+        AppMode::ConfirmDelete { branch, is_prune } => {
             let branch = branch.clone();
-            handle_confirm_delete_key(app, key, &branch)
+            let is_prune = *is_prune;
+            handle_confirm_delete_key(app, key, &branch, is_prune)
         }
         AppMode::ErrorPopup(_) => {
             handle_error_popup_key(app, key);
@@ -315,7 +318,8 @@ fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Action> {
             if let Err(e) = app.can_delete_selected() {
                 app.set_status_message(e, true, timing::STATUS_DURATION_SECS);
             } else {
-                app.enter_delete_mode();
+                let is_prune = app.selected_branch().is_some_and(|b| b.is_stale);
+                app.enter_confirm_mode(is_prune);
             }
             None
         }
@@ -323,6 +327,8 @@ fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Action> {
             if let Err(e) = app.can_delete_selected() {
                 app.set_status_message(e, true, timing::STATUS_DURATION_SECS);
                 None
+            } else if app.selected_branch().is_some_and(|b| b.is_stale) {
+                app.selected_branch().cloned().map(Action::Prune)
             } else {
                 app.selected_branch().cloned().map(Action::Delete)
             }
@@ -342,10 +348,19 @@ fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Action> {
     }
 }
 
-fn handle_confirm_delete_key(app: &mut App, key: KeyEvent, branch: &BranchInfo) -> Option<Action> {
+fn handle_confirm_delete_key(
+    app: &mut App,
+    key: KeyEvent,
+    branch: &BranchInfo,
+    is_prune: bool,
+) -> Option<Action> {
     match key.code {
         KeyCode::Char('y') | KeyCode::Enter => {
-            let action = Action::Delete(branch.clone());
+            let action = if is_prune {
+                Action::Prune(branch.clone())
+            } else {
+                Action::Delete(branch.clone())
+            };
             app.cancel_mode();
             Some(action)
         }
@@ -416,6 +431,22 @@ fn execute_delete_branch(app: &mut App, git_repo: &GitRepo, branch: &BranchInfo)
                 false,
                 timing::STATUS_DURATION_SECS,
             );
+        }
+        Err(e) => app.set_status_message(e.to_string(), true, timing::STATUS_DURATION_SECS),
+    }
+}
+
+fn execute_prune_branch(app: &mut App, git_repo: &GitRepo, branch: &BranchInfo) {
+    match git_repo.prune_remote_tracking_branch(&branch.branch_name) {
+        Ok(()) => {
+            app.remove_branch(&branch.key);
+            app.set_status_message(
+                format!("Pruned stale tracking ref '{}'", branch.display_name),
+                false,
+                timing::STATUS_DURATION_SECS,
+            );
+            // Be dont want to collected pruned branches,
+            // so we don't call record_deleted_branch
         }
         Err(e) => app.set_status_message(e.to_string(), true, timing::STATUS_DURATION_SECS),
     }
