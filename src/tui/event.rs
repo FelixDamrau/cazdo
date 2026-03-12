@@ -424,6 +424,7 @@ fn execute_delete_branch(app: &mut App, git_repo: &GitRepo, branch: &BranchInfo)
             );
         }
         Ok(DeleteResult::Remote) => {
+            let _ = git_repo.prune_remote_tracking_branch(&branch.branch_name);
             app.record_deleted_branch(branch.display_name.clone(), None);
             app.remove_branch(&branch.key);
             app.set_status_message(
@@ -445,7 +446,7 @@ fn execute_prune_branch(app: &mut App, git_repo: &GitRepo, branch: &BranchInfo) 
                 false,
                 timing::STATUS_DURATION_SECS,
             );
-            // Be dont want to collected pruned branches,
+            // We don't want to record pruned branches,
             // so we don't call record_deleted_branch
         }
         Err(e) => app.set_status_message(e.to_string(), true, timing::STATUS_DURATION_SECS),
@@ -464,6 +465,13 @@ fn execute_checkout_branch(app: &mut App, git_repo: &GitRepo, branch: &BranchInf
             if branch.scope == BranchScope::Remote {
                 app.active_view = BranchView::Local;
                 app.scroll_offset = 0;
+                if let Some(idx) = app
+                    .visible_branches()
+                    .iter()
+                    .position(|b| b.branch_name == branch.branch_name)
+                {
+                    app.local_selected_index = idx;
+                }
             }
             app.set_status_message(
                 format!("Switched to branch '{}'", branch.branch_name),
