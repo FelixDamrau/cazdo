@@ -424,16 +424,55 @@ fn execute_delete_branch(app: &mut App, git_repo: &GitRepo, branch: &BranchInfo)
             );
         }
         Ok(DeleteResult::Remote) => {
-            let _ = git_repo.prune_remote_tracking_branch(&branch.branch_name);
+            let (message, is_error) = remote_delete_status_message(
+                &branch.display_name,
+                git_repo.prune_remote_tracking_branch(&branch.branch_name),
+            );
             app.record_deleted_branch(branch.display_name.clone(), None);
             app.remove_branch(&branch.key);
-            app.set_status_message(
-                format!("Deleted remote branch '{}'", branch.display_name),
-                false,
-                timing::STATUS_DURATION_SECS,
-            );
+            app.set_status_message(message, is_error, timing::STATUS_DURATION_SECS);
         }
         Err(e) => app.set_status_message(e.to_string(), true, timing::STATUS_DURATION_SECS),
+    }
+}
+
+fn remote_delete_status_message(display_name: &str, prune_result: Result<()>) -> (String, bool) {
+    match prune_result {
+        Ok(()) => (format!("Deleted remote branch '{}'", display_name), false),
+        Err(error) => (
+            format!(
+                "Deleted remote branch '{}', but could not prune tracking ref: {}",
+                display_name, error
+            ),
+            true,
+        ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_remote_delete_status_message_reports_prune_failure() {
+        let (message, is_error) = remote_delete_status_message(
+            "origin/feature/test",
+            Err(anyhow::anyhow!("could not prune tracking ref")),
+        );
+
+        assert!(is_error);
+        assert_eq!(
+            message,
+            "Deleted remote branch 'origin/feature/test', but could not prune tracking ref: could not prune tracking ref"
+        );
+    }
+
+    #[test]
+    fn test_remote_delete_status_message_reports_success() {
+        let (message, is_error) = remote_delete_status_message("origin/feature/test", Ok(()));
+
+        assert!(!is_error);
+        assert_eq!(message, "Deleted remote branch 'origin/feature/test'");
     }
 }
 

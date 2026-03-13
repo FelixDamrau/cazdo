@@ -409,14 +409,25 @@ impl GitRepo {
             .branch(branch_name, &commit, false)
             .with_context(|| format!("Failed to create local branch '{}'", branch_name))?;
 
-        local_branch
-            .set_upstream(Some(&remote_ref_name))
-            .with_context(|| {
-                format!(
-                    "Failed to set upstream for '{}' to '{}'",
-                    branch_name, remote_ref_name
-                )
-            })?;
+        handle_upstream_setup_result(
+            branch_name,
+            local_branch
+                .set_upstream(Some(&remote_ref_name))
+                .with_context(|| {
+                    format!(
+                        "Failed to set upstream for '{}' to '{}'",
+                        branch_name, remote_ref_name
+                    )
+                }),
+            || {
+                local_branch.delete().with_context(|| {
+                    format!(
+                        "Failed to clean up local branch '{}' after upstream setup failure",
+                        branch_name
+                    )
+                })
+            },
+        )?;
 
         self.checkout_commit_to_local_branch(branch_name, &commit)
     }
@@ -578,9 +589,22 @@ fn parse_ls_remote_heads(output: &str) -> Result<HashSet<String>> {
     Ok(branches)
 }
 
+fn handle_upstream_setup_result<F>(branch_name: &str, result: Result<()>, cleanup: F) -> Result<()>
+where
+    F: FnOnce() -> Result<()>,
+{
+    if let Err(error) = result {
+        let _ = cleanup();
+        anyhow::bail!("Failed to set upstream for '{}': {}", branch_name, error);
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::anyhow;
 
     #[test]
     fn test_extract_work_item_number() {
@@ -636,5 +660,35 @@ mod tests {
         let branches = parse_ls_remote_heads(output).expect("parsed");
 
         assert!(branches.is_empty());
+    }
+
+    #[test]
+    fn test_preserve_upstream_error_when_cleanup_succeeds() {
+        let result = handle_upstream_setup_result(
+            "feature/test",
+            Err(anyhow!("set upstream failed")),
+            || Ok(()),
+        );
+
+        let error = result.expect_err("upstream setup should fail");
+        assert_eq!(
+            error.to_string(),
+            "Failed to set upstream for 'feature/test': set upstream failed"
+        );
+    }
+
+    #[test]
+    fn test_preserve_upstream_error_when_cleanup_fails() {
+        let result = handle_upstream_setup_result(
+            "feature/test",
+            Err(anyhow!("set upstream failed")),
+            || Err(anyhow!("delete failed")),
+        );
+
+        let error = result.expect_err("upstream setup should fail");
+        assert_eq!(
+            error.to_string(),
+            "Failed to set upstream for 'feature/test': set upstream failed"
+        );
     }
 }
