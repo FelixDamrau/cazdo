@@ -214,9 +214,12 @@ impl App {
         self.remote_freshness = RemoteFreshness::Error(error);
     }
 
-    pub fn remote_freshness_message(&self) -> Option<&str> {
+    pub fn remote_freshness_is_checking(&self) -> bool {
+        matches!(self.remote_freshness, RemoteFreshness::Checking)
+    }
+
+    pub fn remote_freshness_error(&self) -> Option<&str> {
         match &self.remote_freshness {
-            RemoteFreshness::Checking => Some("Checking origin..."),
             RemoteFreshness::Error(error) => Some(error.as_str()),
             _ => None,
         }
@@ -749,19 +752,29 @@ mod tests {
     }
 
     #[test]
-    fn test_remote_freshness_message() {
+    fn test_remote_freshness_is_checking() {
         let mut app = App::new(vec![], vec![]);
 
-        assert_eq!(app.remote_freshness_message(), None);
+        assert!(!app.remote_freshness_is_checking());
 
         app.set_remote_freshness_checking();
-        assert_eq!(app.remote_freshness_message(), Some("Checking origin..."));
+        assert!(app.remote_freshness_is_checking());
 
-        app.set_remote_freshness(HashSet::new());
-        assert_eq!(app.remote_freshness_message(), None);
+        app.set_remote_freshness_error("timeout".to_string());
+        assert!(!app.remote_freshness_is_checking());
+    }
+
+    #[test]
+    fn test_remote_freshness_error() {
+        let mut app = App::new(vec![], vec![]);
+
+        assert_eq!(app.remote_freshness_error(), None);
 
         app.set_remote_freshness_error("Network timeout".to_string());
-        assert_eq!(app.remote_freshness_message(), Some("Network timeout"));
+        assert_eq!(app.remote_freshness_error(), Some("Network timeout"));
+
+        app.set_remote_freshness(HashSet::new());
+        assert_eq!(app.remote_freshness_error(), None);
     }
 
     #[test]

@@ -85,6 +85,7 @@ pub fn format_remote_status(status: &RemoteStatus) -> (String, ratatui::style::C
 
     match status {
         RemoteStatus::LocalOnly => ("local only".to_string(), Color::DarkGray),
+        RemoteStatus::RemoteTracking => ("remote tracking".to_string(), Color::DarkGray),
         RemoteStatus::UpToDate => ("up to date".to_string(), Color::Green),
         RemoteStatus::Ahead(n) => (format!("↑{}", n), Color::Yellow),
         RemoteStatus::Behind(n) => (format!("↓{}", n), Color::Yellow),
@@ -92,5 +93,18 @@ pub fn format_remote_status(status: &RemoteStatus) -> (String, ratatui::style::C
             (format!("↑{} ↓{}", ahead, behind), Color::Yellow)
         }
         RemoteStatus::Gone => ("remote gone".to_string(), Color::Red),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_remote_status_remote_tracking() {
+        let (text, color) = format_remote_status(&RemoteStatus::RemoteTracking);
+
+        assert_eq!(text, "remote tracking");
+        assert_eq!(color, ratatui::style::Color::DarkGray);
     }
 }

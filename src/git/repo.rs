@@ -51,6 +51,8 @@ pub struct RepoBranch {
 pub enum RemoteStatus {
     /// No upstream configured
     LocalOnly,
+    /// Status used for remote-tracking branches themselves
+    RemoteTracking,
     /// Synced with remote
     UpToDate,
     /// Local has commits not on remote
@@ -278,11 +280,7 @@ impl GitRepo {
 
         let (last_commit_author, last_commit_time) = last_commit_details(&branch);
 
-        Ok(BranchStatus {
-            remote_status: RemoteStatus::LocalOnly,
-            last_commit_author,
-            last_commit_time,
-        })
+        Ok(remote_branch_status(last_commit_author, last_commit_time))
     }
 
     fn get_remote_status(&self, branch: &git2::Branch) -> RemoteStatus {
@@ -589,6 +587,17 @@ fn parse_ls_remote_heads(output: &str) -> Result<HashSet<String>> {
     Ok(branches)
 }
 
+fn remote_branch_status(
+    last_commit_author: Option<String>,
+    last_commit_time: Option<i64>,
+) -> BranchStatus {
+    BranchStatus {
+        remote_status: RemoteStatus::RemoteTracking,
+        last_commit_author,
+        last_commit_time,
+    }
+}
+
 fn handle_upstream_setup_result<F>(branch_name: &str, result: Result<()>, cleanup: F) -> Result<()>
 where
     F: FnOnce() -> Result<()>,
@@ -690,5 +699,14 @@ mod tests {
             error.to_string(),
             "Failed to set upstream for 'feature/test': set upstream failed"
         );
+    }
+
+    #[test]
+    fn test_remote_branch_status_uses_remote_tracking_variant() {
+        let status = remote_branch_status(Some("Alice".to_string()), Some(123));
+
+        assert!(matches!(status.remote_status, RemoteStatus::RemoteTracking));
+        assert_eq!(status.last_commit_author.as_deref(), Some("Alice"));
+        assert_eq!(status.last_commit_time, Some(123));
     }
 }
