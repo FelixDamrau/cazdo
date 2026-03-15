@@ -93,15 +93,10 @@ impl GitRepo {
 
     /// Get the name of the current branch
     pub fn current_branch(&self) -> Result<String> {
-        let head = self.repo.head().context("Failed to get HEAD reference")?;
-
-        if head.is_branch() {
-            let branch_name = head
-                .shorthand()
-                .context("Failed to get branch name")?
-                .to_string();
+        if let Some(branch_name) = self.current_local_branch_name()? {
             Ok(branch_name)
         } else {
+            let head = self.repo.head().context("Failed to get HEAD reference")?;
             let commit = head.peel_to_commit().context("Failed to get HEAD commit")?;
             let short_id = commit.id().to_string();
             Ok(format!("(detached HEAD at {})", short_sha(&short_id)))
@@ -517,7 +512,10 @@ impl GitRepo {
     }
 
     fn current_branch_tracks_remote(&self, remote_ref_name: &str) -> Result<bool> {
-        let current = self.current_branch()?;
+        let Some(current) = self.current_local_branch_name()? else {
+            return Ok(false);
+        };
+
         let branch = self
             .repo
             .find_branch(&current, BranchType::Local)
@@ -528,6 +526,19 @@ impl GitRepo {
         };
 
         Ok(upstream.name().ok().flatten() == Some(remote_ref_name))
+    }
+
+    fn current_local_branch_name(&self) -> Result<Option<String>> {
+        let head = self.repo.head().context("Failed to get HEAD reference")?;
+        if !head.is_branch() {
+            return Ok(None);
+        }
+
+        let branch_name = head
+            .shorthand()
+            .context("Failed to get branch name")?
+            .to_string();
+        Ok(Some(branch_name))
     }
 }
 
@@ -614,6 +625,9 @@ where
 mod tests {
     use super::*;
     use anyhow::anyhow;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn test_extract_work_item_number() {
@@ -708,5 +722,49 @@ mod tests {
         assert!(matches!(status.remote_status, RemoteStatus::RemoteTracking));
         assert_eq!(status.last_commit_author.as_deref(), Some("Alice"));
         assert_eq!(status.last_commit_time, Some(123));
+    }
+
+    #[test]
+    fn test_current_branch_tracks_remote_returns_false_in_detached_head() {
+        let (repo, repo_path, oid) = init_test_repo("detached-head");
+        repo.repo
+            .set_head_detached(oid)
+            .expect("detached head should be set");
+
+        let result = repo.current_branch_tracks_remote("origin/main");
+
+        let _ = fs::remove_dir_all(repo_path);
+        assert_eq!(result.expect("detached head should not error"), false);
+    }
+
+    fn init_test_repo(name: &str) -> (GitRepo, PathBuf, git2::Oid) {
+        let repo_path = std::env::temp_dir().join(format!(
+            "cazdo-{name}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time should be after epoch")
+                .as_nanos()
+        ));
+
+        fs::create_dir_all(&repo_path).expect("temp repo dir should be created");
+        let repo = Repository::init(&repo_path).expect("repo should initialize");
+
+        fs::write(repo_path.join("README.md"), "hello\n").expect("file should be written");
+
+        let mut index = repo.index().expect("repo index should load");
+        index
+            .add_path(Path::new("README.md"))
+            .expect("file should be staged");
+        let tree_id = index.write_tree().expect("tree should write");
+        let tree = repo.find_tree(tree_id).expect("tree should load");
+        let signature =
+            git2::Signature::now("Test User", "test@example.com").expect("signature should create");
+        let oid = repo
+            .commit(Some("HEAD"), &signature, &signature, "init", &tree, &[])
+            .expect("commit should succeed");
+        drop(tree);
+
+        (GitRepo { repo }, repo_path, oid)
     }
 }

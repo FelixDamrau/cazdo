@@ -43,7 +43,7 @@ impl BranchView {
 #[derive(Debug, Clone)]
 pub enum AppMode {
     Normal,
-    ConfirmDelete { branch: BranchInfo, is_prune: bool },
+    ConfirmDelete { branch_key: String },
     ErrorPopup(String),
 }
 
@@ -143,6 +143,13 @@ impl App {
         self.visible_branches().len()
     }
 
+    pub fn has_hidden_branches_in_active_view(&self) -> bool {
+        self.branches
+            .iter()
+            .filter(|b| self.matches_active_view(b))
+            .any(|b| !self.show_protected && !b.is_current && b.is_protected)
+    }
+
     pub fn selected_index(&self) -> usize {
         match self.active_view {
             BranchView::Local => self.local_selected_index,
@@ -188,6 +195,11 @@ impl App {
 
     pub fn toggle_view(&mut self) {
         self.active_view = self.active_view.toggle();
+        if self.active_view == BranchView::Remote
+            && matches!(self.remote_freshness, RemoteFreshness::Error(_))
+        {
+            self.remote_freshness = RemoteFreshness::NotChecked;
+        }
         self.scroll_offset = 0;
         self.clamp_selected_index();
     }
@@ -283,11 +295,10 @@ impl App {
         !self.branch_statuses.contains_key(key)
     }
 
-    pub fn enter_confirm_mode(&mut self, is_prune: bool) {
+    pub fn enter_confirm_mode(&mut self) {
         if let Some(branch) = self.selected_branch() {
             self.mode = AppMode::ConfirmDelete {
-                branch: branch.clone(),
-                is_prune,
+                branch_key: branch.key.clone(),
             };
         }
     }
@@ -386,6 +397,22 @@ impl App {
         }
 
         Ok(())
+    }
+
+    pub fn branch_by_key(&self, key: &str) -> Option<&BranchInfo> {
+        self.branches.iter().find(|branch| branch.key == key)
+    }
+
+    pub fn confirm_delete_branch(&self) -> Option<&BranchInfo> {
+        match &self.mode {
+            AppMode::ConfirmDelete { branch_key } => self.branch_by_key(branch_key),
+            _ => None,
+        }
+    }
+
+    pub fn confirm_delete_is_prune(&self) -> bool {
+        self.confirm_delete_branch()
+            .is_some_and(|branch| branch.is_stale)
     }
 
     fn matches_active_view(&self, branch: &BranchInfo) -> bool {
@@ -696,6 +723,26 @@ mod tests {
     }
 
     #[test]
+    fn test_has_hidden_branches_in_active_view_tracks_filtered_protected_branches() {
+        let branches = vec![branch(
+            "refs/remotes/origin/main",
+            "origin/main",
+            "main",
+            BranchScope::Remote,
+            false,
+            true,
+            None,
+        )];
+        let mut app = App::new(branches, vec![]);
+        app.active_view = BranchView::Remote;
+
+        assert!(app.has_hidden_branches_in_active_view());
+
+        app.toggle_show_protected();
+        assert!(!app.has_hidden_branches_in_active_view());
+    }
+
+    #[test]
     fn test_update_current_branch_ignores_remotes() {
         let branches = vec![
             branch(
@@ -834,14 +881,9 @@ mod tests {
             None,
         )];
         let mut app = App::new(branches, vec![]);
-        app.enter_confirm_mode(false);
-        assert!(matches!(
-            app.mode,
-            AppMode::ConfirmDelete {
-                is_prune: false,
-                ..
-            }
-        ));
+        app.enter_confirm_mode();
+        assert!(matches!(app.mode, AppMode::ConfirmDelete { .. }));
+        assert!(!app.confirm_delete_is_prune());
     }
 
     #[test]
@@ -858,10 +900,55 @@ mod tests {
         stale.is_stale = true;
         let mut app = App::new(vec![stale], vec![]);
         app.active_view = BranchView::Remote;
-        app.enter_confirm_mode(true);
-        assert!(matches!(
-            app.mode,
-            AppMode::ConfirmDelete { is_prune: true, .. }
-        ));
+        app.enter_confirm_mode();
+        assert!(matches!(app.mode, AppMode::ConfirmDelete { .. }));
+        assert!(app.confirm_delete_is_prune());
+    }
+
+    #[test]
+    fn test_remote_freshness_retries_after_reentering_remote_view() {
+        let branches = vec![branch(
+            "refs/remotes/origin/feature/1",
+            "origin/feature/1",
+            "feature/1",
+            BranchScope::Remote,
+            false,
+            false,
+            Some(1),
+        )];
+        let mut app = App::new(branches, vec![]);
+
+        app.toggle_view();
+        assert!(app.should_check_remote_freshness());
+
+        app.set_remote_freshness_error("timeout".to_string());
+        assert!(!app.should_check_remote_freshness());
+
+        app.toggle_view();
+        app.toggle_view();
+
+        assert!(app.should_check_remote_freshness());
+    }
+
+    #[test]
+    fn test_remote_freshness_does_not_reset_after_successful_reentry() {
+        let branches = vec![branch(
+            "refs/remotes/origin/feature/1",
+            "origin/feature/1",
+            "feature/1",
+            BranchScope::Remote,
+            false,
+            false,
+            Some(1),
+        )];
+        let mut app = App::new(branches, vec![]);
+
+        app.toggle_view();
+        app.set_remote_freshness(HashSet::from(["feature/1".to_string()]));
+
+        app.toggle_view();
+        app.toggle_view();
+
+        assert!(!app.should_check_remote_freshness());
     }
 }

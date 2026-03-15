@@ -24,12 +24,21 @@ pub fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
         let inner_area = block.inner(area);
         frame.render_widget(block, area);
 
-        let empty_msg = Paragraph::new(format!(
-            "No {} branches found.",
-            app.active_view.label().to_lowercase()
-        ))
-        .style(theme::styles::MUTED)
-        .alignment(Alignment::Center);
+        let empty_text = if app.has_hidden_branches_in_active_view() {
+            format!(
+                "No {} branches shown. Press p to show protected branches.",
+                app.active_view.label().to_lowercase()
+            )
+        } else {
+            format!(
+                "No {} branches found.",
+                app.active_view.label().to_lowercase()
+            )
+        };
+
+        let empty_msg = Paragraph::new(empty_text)
+            .style(theme::styles::MUTED)
+            .alignment(Alignment::Center);
 
         let msg_height = 1;
         let y_offset = inner_area.height.saturating_sub(msg_height) / 2;

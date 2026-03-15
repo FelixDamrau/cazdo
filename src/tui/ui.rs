@@ -47,16 +47,12 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     footer::render_footer(frame, app, main_chunks[1]);
 
     // Render popup if needed
-    if let AppMode::ConfirmDelete {
-        ref branch,
-        is_prune,
-    } = app.mode
-    {
+    if let Some(branch) = app.confirm_delete_branch() {
         popup::render_confirm_popup(
             frame,
             &branch.display_name,
             branch.scope.is_remote(),
-            is_prune,
+            app.confirm_delete_is_prune(),
         );
     } else if let AppMode::ErrorPopup(ref message) = app.mode {
         popup::render_error_popup(frame, message);

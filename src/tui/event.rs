@@ -260,10 +260,9 @@ fn handle_input(app: &mut App) -> Result<Option<Action>> {
 fn handle_key_event(app: &mut App, key: KeyEvent) -> Option<Action> {
     match &app.mode {
         AppMode::Normal => handle_normal_mode_key(app, key),
-        AppMode::ConfirmDelete { branch, is_prune } => {
-            let branch = branch.clone();
-            let is_prune = *is_prune;
-            handle_confirm_delete_key(app, key, &branch, is_prune)
+        AppMode::ConfirmDelete { branch_key } => {
+            let branch_key = branch_key.clone();
+            handle_confirm_delete_key(app, key, &branch_key)
         }
         AppMode::ErrorPopup(_) => {
             handle_error_popup_key(app, key);
@@ -318,8 +317,7 @@ fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Action> {
             if let Err(e) = app.can_delete_selected() {
                 app.set_status_message(e, true, timing::STATUS_DURATION_SECS);
             } else {
-                let is_prune = app.selected_branch().is_some_and(|b| b.is_stale);
-                app.enter_confirm_mode(is_prune);
+                app.enter_confirm_mode();
             }
             None
         }
@@ -348,18 +346,14 @@ fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Action> {
     }
 }
 
-fn handle_confirm_delete_key(
-    app: &mut App,
-    key: KeyEvent,
-    branch: &BranchInfo,
-    is_prune: bool,
-) -> Option<Action> {
+fn handle_confirm_delete_key(app: &mut App, key: KeyEvent, branch_key: &str) -> Option<Action> {
     match key.code {
         KeyCode::Char('y') | KeyCode::Enter => {
-            let action = if is_prune {
-                Action::Prune(branch.clone())
+            let branch = app.branch_by_key(branch_key)?.clone();
+            let action = if branch.is_stale {
+                Action::Prune(branch)
             } else {
-                Action::Delete(branch.clone())
+                Action::Delete(branch)
             };
             app.cancel_mode();
             Some(action)
@@ -424,16 +418,29 @@ fn execute_delete_branch(app: &mut App, git_repo: &GitRepo, branch: &BranchInfo)
             );
         }
         Ok(DeleteResult::Remote) => {
-            let (message, is_error) = remote_delete_status_message(
-                &branch.display_name,
+            apply_remote_delete_result(
+                app,
+                branch,
                 git_repo.prune_remote_tracking_branch(&branch.branch_name),
             );
-            app.record_deleted_branch(branch.display_name.clone(), None);
-            app.remove_branch(&branch.key);
-            app.set_status_message(message, is_error, timing::STATUS_DURATION_SECS);
         }
         Err(e) => app.set_status_message(e.to_string(), true, timing::STATUS_DURATION_SECS),
     }
+}
+
+fn apply_remote_delete_result(app: &mut App, branch: &BranchInfo, prune_result: Result<()>) {
+    let (message, is_error) = remote_delete_status_message(&branch.display_name, prune_result);
+    app.record_deleted_branch(branch.display_name.clone(), None);
+
+    if is_error {
+        if let Some(existing_branch) = app.branches.iter_mut().find(|b| b.key == branch.key) {
+            existing_branch.is_stale = true;
+        }
+    } else {
+        app.remove_branch(&branch.key);
+    }
+
+    app.set_status_message(message, is_error, timing::STATUS_DURATION_SECS);
 }
 
 fn remote_delete_status_message(display_name: &str, prune_result: Result<()>) -> (String, bool) {
@@ -452,6 +459,8 @@ fn remote_delete_status_message(display_name: &str, prune_result: Result<()>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::git::BranchScope;
+    use crate::tui::app::{App, AppMode, BranchInfo};
 
     #[test]
     fn test_remote_delete_status_message_reports_prune_failure() {
@@ -473,6 +482,81 @@ mod tests {
 
         assert!(!is_error);
         assert_eq!(message, "Deleted remote branch 'origin/feature/test'");
+    }
+
+    #[test]
+    fn test_remote_delete_with_prune_failure_keeps_branch_visible_and_marks_stale() {
+        let branch = remote_branch(false);
+        let mut app = App::new(vec![branch.clone()], vec![]);
+        app.active_view = BranchView::Remote;
+
+        apply_remote_delete_result(
+            &mut app,
+            &branch,
+            Err(anyhow::anyhow!("could not prune tracking ref")),
+        );
+
+        let branch = app
+            .branch_by_key("refs/remotes/origin/feature/1")
+            .expect("branch should remain visible");
+        assert!(branch.is_stale);
+
+        let status = app
+            .get_status_message()
+            .expect("status message should be set");
+        assert!(status.is_error);
+        assert!(status.text.contains("could not prune tracking ref"));
+    }
+
+    #[test]
+    fn test_remote_delete_with_prune_failure_still_records_deleted_branch_summary() {
+        let branch = remote_branch(false);
+        let mut app = App::new(vec![branch.clone()], vec![]);
+        app.active_view = BranchView::Remote;
+
+        apply_remote_delete_result(
+            &mut app,
+            &branch,
+            Err(anyhow::anyhow!("could not prune tracking ref")),
+        );
+
+        assert_eq!(app.deleted_branches.len(), 1);
+        assert_eq!(app.deleted_branches[0].name, "origin/feature/1");
+        assert_eq!(app.deleted_branches[0].restore_hint, None);
+    }
+
+    #[test]
+    fn test_confirm_delete_derives_prune_from_current_branch_state() {
+        let mut app = App::new(vec![remote_branch(false)], vec![]);
+        app.active_view = BranchView::Remote;
+        app.enter_confirm_mode();
+        app.branches[0].is_stale = true;
+
+        let branch = match &app.mode {
+            AppMode::ConfirmDelete { branch_key } => branch_key.clone(),
+            _ => panic!("expected confirm mode"),
+        };
+
+        let action = handle_confirm_delete_key(&mut app, KeyEvent::from(KeyCode::Enter), &branch);
+
+        match action {
+            Some(Action::Prune(branch)) => assert_eq!(branch.key, "refs/remotes/origin/feature/1"),
+            _ => panic!("expected prune action after branch became stale"),
+        }
+    }
+
+    fn remote_branch(is_stale: bool) -> BranchInfo {
+        BranchInfo {
+            key: "refs/remotes/origin/feature/1".to_string(),
+            display_name: "origin/feature/1".to_string(),
+            branch_name: "feature/1".to_string(),
+            remote_name: Some("origin".to_string()),
+            scope: BranchScope::Remote,
+            work_item_id: None,
+            is_current: false,
+            is_protected: false,
+            is_stale,
+        }
     }
 }
 
