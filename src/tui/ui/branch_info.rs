@@ -153,7 +153,7 @@ mod tests {
 
     fn remote_status() -> BranchStatus {
         BranchStatus {
-            remote_status: RemoteStatus::LocalOnly,
+            remote_status: RemoteStatus::RemoteTracking,
             last_commit_author: Some("Alice".to_string()),
             last_commit_time: Some(123),
         }
@@ -239,5 +239,12 @@ mod tests {
 
         assert!(combined.contains("Remote: up to date"));
         assert!(combined.contains("Bob"));
+    }
+
+    #[test]
+    fn test_remote_status_fixture_matches_remote_tracking_behavior() {
+        let status = remote_status();
+
+        assert!(matches!(status.remote_status, RemoteStatus::RemoteTracking));
     }
 }
