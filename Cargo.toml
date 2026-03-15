@@ -11,7 +11,7 @@ authors = ["Felix Damrau"]
 clap = { version = "4", features = ["derive"] }
 
 # Async runtime
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "time"] }
 
 # HTTP client for Azure DevOps API
 reqwest = { version = "0.12", features = ["json"] }
