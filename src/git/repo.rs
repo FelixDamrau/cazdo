@@ -83,6 +83,11 @@ pub struct GitRepo {
     repo: Repository,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExistingLocalBranchAction {
+    CheckoutLocal,
+}
+
 impl GitRepo {
     /// Open the git repository in the current directory
     pub fn open_current_dir() -> Result<Self> {
@@ -369,22 +374,26 @@ impl GitRepo {
         let remote_ref_name = format!("{remote_name}/{branch_name}");
 
         if let Ok(local_branch) = self.repo.find_branch(branch_name, BranchType::Local) {
-            if let Ok(upstream) = local_branch.upstream()
-                && upstream.name().ok().flatten() == Some(remote_ref_name.as_str())
-            {
-                return self.checkout_local_branch(branch_name);
-            }
-
             let current = self.current_branch()?;
-            if current == branch_name {
-                anyhow::bail!("Already on branch '{}'", branch_name);
-            }
+            let upstream_name_result = match local_branch.upstream() {
+                Ok(upstream) => upstream
+                    .name()
+                    .map(|name| name.map(str::to_owned))
+                    .with_context(|| format!("Failed to read upstream name for '{branch_name}'")),
+                Err(error) if error.code() == git2::ErrorCode::NotFound => Ok(None),
+                Err(error) => Err(error.into()),
+            };
 
-            anyhow::bail!(
-                "Local branch '{}' already exists but is not tracking '{}'.",
+            match existing_local_branch_action(
                 branch_name,
-                remote_ref_name
-            );
+                &remote_ref_name,
+                &current,
+                upstream_name_result,
+            )? {
+                ExistingLocalBranchAction::CheckoutLocal => {
+                    return self.checkout_local_branch(branch_name);
+                }
+            }
         }
 
         let remote_branch = self
@@ -609,6 +618,30 @@ fn remote_branch_status(
     }
 }
 
+fn existing_local_branch_action(
+    branch_name: &str,
+    remote_ref_name: &str,
+    current_branch: &str,
+    upstream_name_result: Result<Option<String>>,
+) -> Result<ExistingLocalBranchAction> {
+    let upstream_name = upstream_name_result?;
+
+    if upstream_name.as_deref() == Some(remote_ref_name) {
+        return Ok(ExistingLocalBranchAction::CheckoutLocal);
+    }
+
+    if current_branch == branch_name {
+        anyhow::bail!("Already on branch '{}'", branch_name);
+    }
+
+    anyhow::bail!(
+        "Local branch '{}' already exists but is not tracking '{}' (currently tracks: {}).",
+        branch_name,
+        remote_ref_name,
+        upstream_name.as_deref().unwrap_or("<none>")
+    );
+}
+
 fn handle_upstream_setup_result<F>(branch_name: &str, result: Result<()>, cleanup: F) -> Result<()>
 where
     F: FnOnce() -> Result<()>,
@@ -722,6 +755,61 @@ mod tests {
         assert!(matches!(status.remote_status, RemoteStatus::RemoteTracking));
         assert_eq!(status.last_commit_author.as_deref(), Some("Alice"));
         assert_eq!(status.last_commit_time, Some(123));
+    }
+
+    #[test]
+    fn test_existing_local_branch_action_returns_checkout_when_tracking_target() {
+        let action = existing_local_branch_action(
+            "feature/test",
+            "origin/feature/test",
+            "main",
+            Ok(Some("origin/feature/test".to_string())),
+        )
+        .expect("matching upstream should reuse local branch");
+
+        assert_eq!(action, ExistingLocalBranchAction::CheckoutLocal);
+    }
+
+    #[test]
+    fn test_existing_local_branch_action_reports_current_upstream() {
+        let error = existing_local_branch_action(
+            "feature/test",
+            "origin/feature/test",
+            "main",
+            Ok(Some("origin/other".to_string())),
+        )
+        .expect_err("different upstream should error");
+
+        assert_eq!(
+            error.to_string(),
+            "Local branch 'feature/test' already exists but is not tracking 'origin/feature/test' (currently tracks: origin/other)."
+        );
+    }
+
+    #[test]
+    fn test_existing_local_branch_action_reports_already_on_branch() {
+        let error = existing_local_branch_action(
+            "feature/test",
+            "origin/feature/test",
+            "feature/test",
+            Ok(None),
+        )
+        .expect_err("current branch should error");
+
+        assert_eq!(error.to_string(), "Already on branch 'feature/test'");
+    }
+
+    #[test]
+    fn test_existing_local_branch_action_propagates_upstream_name_error() {
+        let error = existing_local_branch_action(
+            "feature/test",
+            "origin/feature/test",
+            "main",
+            Err(git2::Error::from_str("upstream name failure").into()),
+        )
+        .expect_err("upstream name failure should propagate");
+
+        assert_eq!(error.to_string(), "upstream name failure");
     }
 
     #[test]
