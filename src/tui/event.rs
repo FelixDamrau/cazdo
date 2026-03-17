@@ -456,6 +456,81 @@ fn remote_delete_status_message(display_name: &str, prune_result: Result<()>) ->
     }
 }
 
+fn execute_prune_branch(app: &mut App, git_repo: &GitRepo, branch: &BranchInfo) {
+    match git_repo.prune_remote_tracking_branch(&branch.branch_name) {
+        Ok(()) => {
+            app.remove_branch(&branch.key);
+            app.set_status_message(
+                format!("Pruned stale tracking ref '{}'", branch.display_name),
+                false,
+                timing::STATUS_DURATION_SECS,
+            );
+            // We don't want to record pruned branches,
+            // so we don't call record_deleted_branch
+        }
+        Err(e) => app.set_status_message(e.to_string(), true, timing::STATUS_DURATION_SECS),
+    }
+}
+
+fn focus_local_branch_after_remote_checkout(app: &mut App, branch_name: &str) {
+    app.active_view = BranchView::Local;
+    app.scroll_offset = 0;
+
+    if let Some(idx) = app
+        .visible_branches()
+        .iter()
+        .position(|b| b.branch_name == branch_name)
+    {
+        app.local_selected_index = idx;
+    } else {
+        app.local_selected_index = app
+            .visible_branches()
+            .len()
+            .checked_sub(1)
+            .map_or(0, |idx| app.local_selected_index.min(idx));
+    }
+}
+
+fn execute_checkout_branch(app: &mut App, git_repo: &GitRepo, branch: &BranchInfo) {
+    match git_repo.checkout_branch(
+        branch.scope,
+        &branch.branch_name,
+        branch.remote_name.as_deref(),
+    ) {
+        Ok(()) => {
+            app.ensure_local_branch_exists(branch);
+            app.update_current_branch(&branch.branch_name);
+            if branch.scope == BranchScope::Remote {
+                focus_local_branch_after_remote_checkout(app, &branch.branch_name);
+            }
+            app.set_status_message(
+                format!("Switched to branch '{}'", branch.branch_name),
+                false,
+                timing::STATUS_DURATION_SECS,
+            );
+        }
+        Err(e) => app.show_error_popup(e.to_string()),
+    }
+}
+
+fn open_url(url: &str) -> Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", url])
+            .spawn()?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").arg(url).spawn()?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open").arg(url).spawn()?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -545,6 +620,44 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_focus_local_branch_after_remote_checkout_clamps_when_branch_not_visible() {
+        let remote_branch = remote_branch(false);
+        let mut app = App::new(vec![], vec![]);
+        app.active_view = BranchView::Remote;
+        app.local_selected_index = 4;
+        app.remote_selected_index = 0;
+
+        focus_local_branch_after_remote_checkout(&mut app, &remote_branch.branch_name);
+
+        assert_eq!(app.active_view, BranchView::Local);
+        assert_eq!(app.scroll_offset, 0);
+        assert_eq!(app.local_selected_index, 0);
+    }
+
+    #[test]
+    fn test_focus_local_branch_after_remote_checkout_selects_matching_local_branch() {
+        let remote_branch = remote_branch(false);
+        let local_branch = BranchInfo {
+            key: "refs/heads/feature/1".to_string(),
+            display_name: "feature/1".to_string(),
+            branch_name: "feature/1".to_string(),
+            remote_name: None,
+            scope: BranchScope::Local,
+            work_item_id: None,
+            is_current: true,
+            is_protected: false,
+            is_stale: false,
+        };
+        let mut app = App::new(vec![local_branch], vec![]);
+        app.active_view = BranchView::Remote;
+
+        focus_local_branch_after_remote_checkout(&mut app, &remote_branch.branch_name);
+
+        assert_eq!(app.active_view, BranchView::Local);
+        assert_eq!(app.local_selected_index, 0);
+    }
+
     fn remote_branch(is_stale: bool) -> BranchInfo {
         BranchInfo {
             key: "refs/remotes/origin/feature/1".to_string(),
@@ -558,68 +671,4 @@ mod tests {
             is_stale,
         }
     }
-}
-
-fn execute_prune_branch(app: &mut App, git_repo: &GitRepo, branch: &BranchInfo) {
-    match git_repo.prune_remote_tracking_branch(&branch.branch_name) {
-        Ok(()) => {
-            app.remove_branch(&branch.key);
-            app.set_status_message(
-                format!("Pruned stale tracking ref '{}'", branch.display_name),
-                false,
-                timing::STATUS_DURATION_SECS,
-            );
-            // We don't want to record pruned branches,
-            // so we don't call record_deleted_branch
-        }
-        Err(e) => app.set_status_message(e.to_string(), true, timing::STATUS_DURATION_SECS),
-    }
-}
-
-fn execute_checkout_branch(app: &mut App, git_repo: &GitRepo, branch: &BranchInfo) {
-    match git_repo.checkout_branch(
-        branch.scope,
-        &branch.branch_name,
-        branch.remote_name.as_deref(),
-    ) {
-        Ok(()) => {
-            app.ensure_local_branch_exists(branch);
-            app.update_current_branch(&branch.branch_name);
-            if branch.scope == BranchScope::Remote {
-                app.active_view = BranchView::Local;
-                app.scroll_offset = 0;
-                if let Some(idx) = app
-                    .visible_branches()
-                    .iter()
-                    .position(|b| b.branch_name == branch.branch_name)
-                {
-                    app.local_selected_index = idx;
-                }
-            }
-            app.set_status_message(
-                format!("Switched to branch '{}'", branch.branch_name),
-                false,
-                timing::STATUS_DURATION_SECS,
-            );
-        }
-        Err(e) => app.show_error_popup(e.to_string()),
-    }
-}
-
-fn open_url(url: &str) -> Result<()> {
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", url])
-            .spawn()?;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open").arg(url).spawn()?;
-    }
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("xdg-open").arg(url).spawn()?;
-    }
-    Ok(())
 }

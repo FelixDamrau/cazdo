@@ -647,7 +647,15 @@ where
     F: FnOnce() -> Result<()>,
 {
     if let Err(error) = result {
-        let _ = cleanup();
+        if let Err(cleanup_error) = cleanup() {
+            anyhow::bail!(
+                "Failed to set upstream for '{}': {}; additionally, failed to clean up orphaned local branch: {}",
+                branch_name,
+                error,
+                cleanup_error
+            );
+        }
+
         anyhow::bail!("Failed to set upstream for '{}': {}", branch_name, error);
     }
 
@@ -744,7 +752,7 @@ mod tests {
         let error = result.expect_err("upstream setup should fail");
         assert_eq!(
             error.to_string(),
-            "Failed to set upstream for 'feature/test': set upstream failed"
+            "Failed to set upstream for 'feature/test': set upstream failed; additionally, failed to clean up orphaned local branch: delete failed"
         );
     }
 
