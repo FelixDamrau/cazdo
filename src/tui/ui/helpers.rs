@@ -85,7 +85,9 @@ pub fn format_remote_status(status: &RemoteStatus) -> (String, ratatui::style::C
 
     match status {
         RemoteStatus::LocalOnly => ("local only".to_string(), Color::DarkGray),
-        RemoteStatus::RemoteTracking => ("remote tracking".to_string(), Color::DarkGray),
+        RemoteStatus::RemoteTracking => {
+            unreachable!("remote-tracking branches are rendered separately")
+        }
         RemoteStatus::UpToDate => ("up to date".to_string(), Color::Green),
         RemoteStatus::Ahead(n) => (format!("↑{}", n), Color::Yellow),
         RemoteStatus::Behind(n) => (format!("↓{}", n), Color::Yellow),
@@ -101,10 +103,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_format_remote_status_remote_tracking() {
-        let (text, color) = format_remote_status(&RemoteStatus::RemoteTracking);
-
-        assert_eq!(text, "remote tracking");
-        assert_eq!(color, ratatui::style::Color::DarkGray);
+    #[should_panic(expected = "remote-tracking branches are rendered separately")]
+    fn test_format_remote_status_rejects_remote_tracking() {
+        let _ = format_remote_status(&RemoteStatus::RemoteTracking);
     }
 }
