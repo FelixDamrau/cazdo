@@ -585,7 +585,9 @@ pub fn list_origin_remote_heads_in_dir(dir: &Path) -> Result<HashSet<String>> {
         anyhow::bail!("Failed to check origin branches: {}", message);
     }
 
-    Ok(parse_ls_remote_heads(&String::from_utf8_lossy(&output.stdout)))
+    Ok(parse_ls_remote_heads(&String::from_utf8_lossy(
+        &output.stdout,
+    )))
 }
 
 fn last_commit_details(branch: &git2::Branch) -> (Option<String>, Option<i64>) {
