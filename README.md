@@ -9,7 +9,7 @@ _Cats Do Console Azure DevOps._
 
 `cazdo` is a TUI for Azure DevOps that bridges the gap between your git workflow and issue tracking.
 
-It scans your local branches, extracts work item IDs from their names (e.g., `feature/123-login`), and fetches the corresponding details from Azure DevOps. This allows you to view acceptance criteria, descriptions, and status directly alongside your code.
+It scans your local branches and `origin` remote branches, extracts work item IDs from their names (e.g., `feature/123-login`), and fetches the corresponding details from Azure DevOps. This allows you to view acceptance criteria, descriptions, and status directly alongside your code.
 
 ![cazdo TUI example](docs/images/cazdo-open-nav-still.png)
 
@@ -90,13 +90,15 @@ cazdo
 ```
 
 ### 3. Navigate
-The interface lists your local branches. `cazdo` attempts to match each branch to an Azure DevOps work item based on numbers in the branch name.
+The interface starts with your local branches and can toggle to `origin` remote branches. `cazdo` attempts to match each branch to an Azure DevOps work item based on numbers in the branch name.
 
 ![cazdo TUI open + navigation demo](docs/images/cazdo-open-nav.gif)
 
 - **Left Panel**: List of branches.
   - Branches with found work items show the work item type and ID.
   - The current branch is highlighted.
+  - Press `t` to toggle between local and remote (`origin`) branches.
+  - In remote view, branches marked with `⚠` no longer exist on `origin`; the cached remote-tracking ref is stale until you prune it yourself.
 - **Right Panel**: Details of the selected work item.
 
 Use the **Keyboard Shortcuts** below to navigate and interact.
@@ -136,6 +138,7 @@ cazdo wi 120
 | `d`                      | Delete branch (with confirmation)     |
 | `D`                      | Force delete branch (no confirmation) |
 | `r`                      | Refresh current work item             |
+| `t`                      | Toggle local / remote branch view     |
 | `p`                      | Toggle protected branches visibility  |
 | `PgUp` / `PgDn`          | Scroll work item details              |
 | `Ctrl+u` / `Ctrl+d`      | Scroll half page (vim-style)          |
@@ -143,7 +146,7 @@ cazdo wi 120
 
 ## Protected Branches
 
-Branches matching protected patterns are hidden by default and cannot be deleted. The default patterns are `main` and `master`.
+Branches matching protected patterns are hidden by default and cannot be deleted. The default patterns are `main` and `master`. The same protection also applies to `origin/main`, `origin/master`, and other matching remote branches.
 
 Configure custom patterns in `config.toml`:
 
