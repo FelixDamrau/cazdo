@@ -83,6 +83,26 @@ pub struct GitRepo {
     repo: Repository,
 }
 
+pub fn compare_branch_order(
+    a_scope: BranchScope,
+    a_is_current: bool,
+    a_display_name: &str,
+    b_scope: BranchScope,
+    b_is_current: bool,
+    b_display_name: &str,
+) -> std::cmp::Ordering {
+    match (a_scope, b_scope) {
+        (BranchScope::Local, BranchScope::Remote) => std::cmp::Ordering::Less,
+        (BranchScope::Remote, BranchScope::Local) => std::cmp::Ordering::Greater,
+        (BranchScope::Local, BranchScope::Local) => match (a_is_current, b_is_current) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a_display_name.cmp(b_display_name),
+        },
+        (BranchScope::Remote, BranchScope::Remote) => a_display_name.cmp(b_display_name),
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExistingLocalBranchAction {
     CheckoutLocal,
@@ -156,15 +176,15 @@ impl GitRepo {
             });
         }
 
-        branches.sort_by(|a, b| match (a.scope, b.scope) {
-            (BranchScope::Local, BranchScope::Remote) => std::cmp::Ordering::Less,
-            (BranchScope::Remote, BranchScope::Local) => std::cmp::Ordering::Greater,
-            (BranchScope::Local, BranchScope::Local) => match (a.is_current, b.is_current) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                _ => a.display_name.cmp(&b.display_name),
-            },
-            (BranchScope::Remote, BranchScope::Remote) => a.display_name.cmp(&b.display_name),
+        branches.sort_by(|a, b| {
+            compare_branch_order(
+                a.scope,
+                a.is_current,
+                &a.display_name,
+                b.scope,
+                b.is_current,
+                &b.display_name,
+            )
         });
 
         Ok(branches)
@@ -565,7 +585,7 @@ pub fn list_origin_remote_heads_in_dir(dir: &Path) -> Result<HashSet<String>> {
         anyhow::bail!("Failed to check origin branches: {}", message);
     }
 
-    parse_ls_remote_heads(&String::from_utf8_lossy(&output.stdout))
+    Ok(parse_ls_remote_heads(&String::from_utf8_lossy(&output.stdout)))
 }
 
 fn last_commit_details(branch: &git2::Branch) -> (Option<String>, Option<i64>) {
@@ -589,7 +609,7 @@ fn origin_branch_name(name: &str) -> Option<&str> {
     Some(branch_name)
 }
 
-fn parse_ls_remote_heads(output: &str) -> Result<HashSet<String>> {
+fn parse_ls_remote_heads(output: &str) -> HashSet<String> {
     let mut branches = HashSet::new();
 
     for line in output.lines() {
@@ -604,7 +624,7 @@ fn parse_ls_remote_heads(output: &str) -> Result<HashSet<String>> {
         branches.insert(branch_name.to_string());
     }
 
-    Ok(branches)
+    branches
 }
 
 fn remote_branch_status(
@@ -712,7 +732,7 @@ mod tests {
     #[test]
     fn test_parse_ls_remote_heads_extracts_branch_names() {
         let output = "abc refs/heads/main\ndef refs/heads/feature/123\n";
-        let branches = parse_ls_remote_heads(output).expect("parsed");
+        let branches = parse_ls_remote_heads(output);
 
         assert!(branches.contains("main"));
         assert!(branches.contains("feature/123"));
@@ -721,7 +741,7 @@ mod tests {
     #[test]
     fn test_parse_ls_remote_heads_ignores_non_head_refs() {
         let output = "abc refs/tags/v1\ndef refs/remotes/origin/main\n";
-        let branches = parse_ls_remote_heads(output).expect("parsed");
+        let branches = parse_ls_remote_heads(output);
 
         assert!(branches.is_empty());
     }

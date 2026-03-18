@@ -472,7 +472,7 @@ fn execute_prune_branch(app: &mut App, git_repo: &GitRepo, branch: &BranchInfo) 
     }
 }
 
-fn focus_local_branch_after_remote_checkout(app: &mut App, branch_name: &str) {
+fn focus_local_branch_after_checkout(app: &mut App, branch_name: &str) {
     app.active_view = BranchView::Local;
     app.scroll_offset = 0;
 
@@ -500,8 +500,9 @@ fn execute_checkout_branch(app: &mut App, git_repo: &GitRepo, branch: &BranchInf
         Ok(()) => {
             app.ensure_local_branch_exists(branch);
             app.update_current_branch(&branch.branch_name);
-            if branch.scope == BranchScope::Remote {
-                focus_local_branch_after_remote_checkout(app, &branch.branch_name);
+            if branch.scope == BranchScope::Remote || app.active_view == BranchView::Local {
+                app.sort_branches();
+                focus_local_branch_after_checkout(app, &branch.branch_name);
             }
             app.set_status_message(
                 format!("Switched to branch '{}'", branch.branch_name),
@@ -621,14 +622,14 @@ mod tests {
     }
 
     #[test]
-    fn test_focus_local_branch_after_remote_checkout_clamps_when_branch_not_visible() {
+    fn test_focus_local_branch_after_checkout_clamps_when_branch_not_visible() {
         let remote_branch = remote_branch(false);
         let mut app = App::new(vec![], vec![]);
         app.active_view = BranchView::Remote;
         app.local_selected_index = 4;
         app.remote_selected_index = 0;
 
-        focus_local_branch_after_remote_checkout(&mut app, &remote_branch.branch_name);
+        focus_local_branch_after_checkout(&mut app, &remote_branch.branch_name);
 
         assert_eq!(app.active_view, BranchView::Local);
         assert_eq!(app.scroll_offset, 0);
@@ -636,7 +637,7 @@ mod tests {
     }
 
     #[test]
-    fn test_focus_local_branch_after_remote_checkout_selects_matching_local_branch() {
+    fn test_focus_local_branch_after_checkout_selects_matching_local_branch() {
         let remote_branch = remote_branch(false);
         let local_branch = BranchInfo {
             key: "refs/heads/feature/1".to_string(),
@@ -652,10 +653,52 @@ mod tests {
         let mut app = App::new(vec![local_branch], vec![]);
         app.active_view = BranchView::Remote;
 
-        focus_local_branch_after_remote_checkout(&mut app, &remote_branch.branch_name);
+        focus_local_branch_after_checkout(&mut app, &remote_branch.branch_name);
 
         assert_eq!(app.active_view, BranchView::Local);
         assert_eq!(app.local_selected_index, 0);
+    }
+
+    #[test]
+    fn test_focus_local_branch_after_checkout_refocuses_sorted_current_branch() {
+        let mut app = App::new(
+            vec![
+                BranchInfo {
+                    key: "refs/heads/feature/1".to_string(),
+                    display_name: "feature/1".to_string(),
+                    branch_name: "feature/1".to_string(),
+                    remote_name: None,
+                    scope: BranchScope::Local,
+                    work_item_id: None,
+                    is_current: true,
+                    is_protected: false,
+                    is_stale: false,
+                },
+                BranchInfo {
+                    key: "refs/heads/feature/4".to_string(),
+                    display_name: "feature/4".to_string(),
+                    branch_name: "feature/4".to_string(),
+                    remote_name: None,
+                    scope: BranchScope::Local,
+                    work_item_id: None,
+                    is_current: false,
+                    is_protected: false,
+                    is_stale: false,
+                },
+            ],
+            vec![],
+        );
+        app.active_view = BranchView::Local;
+        app.local_selected_index = 1;
+
+        app.update_current_branch("feature/4");
+        app.sort_branches();
+        focus_local_branch_after_checkout(&mut app, "feature/4");
+
+        assert_eq!(app.active_view, BranchView::Local);
+        assert_eq!(app.scroll_offset, 0);
+        assert_eq!(app.local_selected_index, 0);
+        assert_eq!(app.visible_branches()[0].branch_name, "feature/4");
     }
 
     fn remote_branch(is_stale: bool) -> BranchInfo {

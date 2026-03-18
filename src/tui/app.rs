@@ -1,5 +1,5 @@
 use crate::azure_devops::WorkItem;
-use crate::git::{BranchScope, BranchStatus};
+use crate::git::{BranchScope, BranchStatus, compare_branch_order};
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
@@ -377,11 +377,7 @@ impl App {
             new_branch.is_current = false; // update_current_branch will set this
             new_branch.is_stale = false;
             self.branches.push(new_branch);
-            self.branches.sort_by(|a, b| {
-                branch_scope_sort_key(a.scope)
-                    .cmp(&branch_scope_sort_key(b.scope))
-                    .then_with(|| a.display_name.cmp(&b.display_name))
-            });
+            self.sort_branches();
         }
     }
 
@@ -434,6 +430,19 @@ impl App {
         }
     }
 
+    pub fn sort_branches(&mut self) {
+        self.branches.sort_by(|a, b| {
+            compare_branch_order(
+                a.scope,
+                a.is_current,
+                &a.display_name,
+                b.scope,
+                b.is_current,
+                &b.display_name,
+            )
+        });
+    }
+
     fn clamp_selected_index(&mut self) {
         let count = self.visible_count();
         let next = if count == 0 {
@@ -442,13 +451,6 @@ impl App {
             self.selected_index().min(count - 1)
         };
         self.set_selected_index(next);
-    }
-}
-
-fn branch_scope_sort_key(scope: BranchScope) -> u8 {
-    match scope {
-        BranchScope::Local => 0,
-        BranchScope::Remote => 1,
     }
 }
 
@@ -924,6 +926,53 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(local_names, vec!["feature/1", "feature/3", "feature/4"]);
+    }
+
+    #[test]
+    fn test_update_current_branch_resorts_local_branches_with_current_first() {
+        let branches = vec![
+            branch(
+                "refs/heads/feature/1",
+                "feature/1",
+                "feature/1",
+                BranchScope::Local,
+                false,
+                false,
+                Some(1),
+            ),
+            branch(
+                "refs/heads/feature/4",
+                "feature/4",
+                "feature/4",
+                BranchScope::Local,
+                false,
+                false,
+                Some(4),
+            ),
+        ];
+        let remote_branch = branch(
+            "refs/remotes/origin/feature/3",
+            "origin/feature/3",
+            "feature/3",
+            BranchScope::Remote,
+            false,
+            false,
+            Some(3),
+        );
+        let mut app = App::new(branches, vec![]);
+
+        app.ensure_local_branch_exists(&remote_branch);
+        app.update_current_branch("feature/3");
+        app.sort_branches();
+
+        let local_names = app
+            .branches
+            .iter()
+            .filter(|branch| branch.scope == BranchScope::Local)
+            .map(|branch| branch.branch_name.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(local_names, vec!["feature/3", "feature/1", "feature/4"]);
     }
 
     #[test]
