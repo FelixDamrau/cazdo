@@ -491,7 +491,23 @@ fn focus_local_branch_after_checkout(app: &mut App, branch_name: &str) {
     }
 }
 
+fn stale_remote_checkout_error_message(branch: &BranchInfo) -> Option<String> {
+    if branch.scope == BranchScope::Remote && branch.is_stale {
+        Some(format!(
+            "'{}' is stale (no longer on origin). Prune it first with 'd'.",
+            branch.display_name
+        ))
+    } else {
+        None
+    }
+}
+
 fn execute_checkout_branch(app: &mut App, git_repo: &GitRepo, branch: &BranchInfo) {
+    if let Some(message) = stale_remote_checkout_error_message(branch) {
+        app.set_status_message(message, true, timing::STATUS_DURATION_SECS);
+        return;
+    }
+
     match git_repo.checkout_branch(
         branch.scope,
         &branch.branch_name,
@@ -699,6 +715,18 @@ mod tests {
         assert_eq!(app.scroll_offset, 0);
         assert_eq!(app.local_selected_index, 0);
         assert_eq!(app.visible_branches()[0].branch_name, "feature/4");
+    }
+
+    #[test]
+    fn test_stale_remote_checkout_error_message_reports_prune_hint() {
+        let branch = remote_branch(true);
+
+        let message = stale_remote_checkout_error_message(&branch).expect("stale remote message");
+
+        assert_eq!(
+            message,
+            "'origin/feature/1' is stale (no longer on origin). Prune it first with 'd'."
+        );
     }
 
     fn remote_branch(is_stale: bool) -> BranchInfo {
