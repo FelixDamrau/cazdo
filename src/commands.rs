@@ -161,7 +161,10 @@ pub async fn config_verify() -> Result<()> {
     Ok(())
 }
 
-pub async fn show_work_item(id: Option<u32>) -> Result<()> {
+const WI_PREVIEW_CHAR_LIMIT: usize = 320;
+const WI_LONG_PREVIEW_CHAR_LIMIT: usize = 600;
+
+pub async fn show_work_item(id: Option<u32>, long: bool) -> Result<()> {
     let wi_id = match id {
         Some(id) => id,
         None => {
@@ -218,12 +221,20 @@ pub async fn show_work_item(id: Option<u32>) -> Result<()> {
         .map(|field| field.value.as_str());
 
     let description = description_html
-        .map(|html| compact_text_preview(html, 220))
+        .map(|html| compact_text_preview(html, wi_preview_char_limit(long)))
         .unwrap_or_else(|| "(none)".to_string());
 
     println!("{} {}", "Description:".bold(), description);
 
     Ok(())
+}
+
+fn wi_preview_char_limit(long: bool) -> usize {
+    if long {
+        WI_LONG_PREVIEW_CHAR_LIMIT
+    } else {
+        WI_PREVIEW_CHAR_LIMIT
+    }
 }
 
 fn compact_text_preview(html: &str, max_chars: usize) -> String {
@@ -332,6 +343,20 @@ mod tests {
     fn compact_text_preview_handles_tiny_limits() {
         let preview = compact_text_preview("<p>Hello world</p>", 2);
         assert_eq!(preview, "...");
+    }
+
+    #[test]
+    fn long_mode_produces_a_longer_bounded_preview() {
+        let html = format!("<p>{}</p>", "abcdefghijklmnopqrstuvwxyz".repeat(40));
+
+        let default_preview = compact_text_preview(&html, wi_preview_char_limit(false));
+        let long_preview = compact_text_preview(&html, wi_preview_char_limit(true));
+
+        assert_eq!(default_preview.chars().count(), WI_PREVIEW_CHAR_LIMIT);
+        assert_eq!(long_preview.chars().count(), WI_LONG_PREVIEW_CHAR_LIMIT);
+        assert!(default_preview.ends_with("..."));
+        assert!(long_preview.ends_with("..."));
+        assert!(long_preview.chars().count() > default_preview.chars().count());
     }
 
     #[test]

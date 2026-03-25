@@ -121,11 +121,14 @@ cazdo config show
 # Verify org URL + PAT access
 cazdo config verify
 
-# Show compact WI preview for current branch
+# Show bounded WI preview for current branch
 cazdo wi
 
-# Show compact WI preview for WI 120
+# Show bounded WI preview for WI 120
 cazdo wi 120
+
+# Show a longer but still bounded WI preview
+cazdo wi --long
 ```
 
 ## Keyboard Shortcuts

@@ -20,10 +20,13 @@ pub enum Commands {
         #[command(subcommand)]
         action: ConfigAction,
     },
-    /// Show a compact work item preview in the console
+    /// Show a bounded work item preview in the console
     Wi {
         /// Work item ID (if omitted, uses the current branch)
         id: Option<u32>,
+        /// Show a longer, still bounded description preview
+        #[arg(long)]
+        long: bool,
     },
 }
 
@@ -46,7 +49,10 @@ mod tests {
         let cli = Cli::parse_from(["cazdo", "wi"]);
 
         match cli.command {
-            Some(Commands::Wi { id }) => assert_eq!(id, None),
+            Some(Commands::Wi { id, long }) => {
+                assert_eq!(id, None);
+                assert!(!long);
+            }
             _ => panic!("expected wi command without id"),
         }
     }
@@ -56,8 +62,50 @@ mod tests {
         let cli = Cli::parse_from(["cazdo", "wi", "120"]);
 
         match cli.command {
-            Some(Commands::Wi { id }) => assert_eq!(id, Some(120)),
+            Some(Commands::Wi { id, long }) => {
+                assert_eq!(id, Some(120));
+                assert!(!long);
+            }
             _ => panic!("expected wi command with id"),
+        }
+    }
+
+    #[test]
+    fn parses_wi_with_long_flag() {
+        let cli = Cli::parse_from(["cazdo", "wi", "--long"]);
+
+        match cli.command {
+            Some(Commands::Wi { id, long }) => {
+                assert_eq!(id, None);
+                assert!(long);
+            }
+            _ => panic!("expected wi command with long flag"),
+        }
+    }
+
+    #[test]
+    fn parses_wi_with_id_and_long_flag() {
+        let cli = Cli::parse_from(["cazdo", "wi", "120", "--long"]);
+
+        match cli.command {
+            Some(Commands::Wi { id, long }) => {
+                assert_eq!(id, Some(120));
+                assert!(long);
+            }
+            _ => panic!("expected wi command with id and long flag"),
+        }
+    }
+
+    #[test]
+    fn parses_wi_with_long_flag_before_id() {
+        let cli = Cli::parse_from(["cazdo", "wi", "--long", "120"]);
+
+        match cli.command {
+            Some(Commands::Wi { id, long }) => {
+                assert_eq!(id, Some(120));
+                assert!(long);
+            }
+            _ => panic!("expected wi command with long flag before id"),
         }
     }
 }
