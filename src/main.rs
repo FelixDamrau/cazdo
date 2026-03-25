@@ -21,8 +21,8 @@ async fn main() -> Result<()> {
             ConfigAction::Show => commands::config_show()?,
             ConfigAction::Verify => commands::config_verify().await?,
         },
-        Some(Commands::Wi { id }) => {
-            commands::show_work_item(id).await?;
+        Some(Commands::Wi { id, long }) => {
+            commands::show_work_item(id, long).await?;
         }
         None => {
             // Default: launch interactive TUI
