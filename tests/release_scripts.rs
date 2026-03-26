@@ -148,6 +148,29 @@ fn extract_release_notes_returns_only_requested_section() {
 }
 
 #[test]
+fn extract_release_notes_does_not_match_prefix_versions() {
+    let temp = tempdir().expect("tempdir");
+    write_file(
+        &temp.path().join("CHANGELOG.md"),
+        "# Changelog\n\n## v0.1.16 - 2026-03-26\n\n- Sixteen\n\n## v0.1.1 - 2026-03-01\n\n- One\n",
+    );
+
+    let output = run_bash_script("extract-release-notes.sh", temp.path(), &["v0.1.1"]);
+
+    assert!(
+        output.status.success(),
+        "script failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let notes = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(notes.contains("## v0.1.1 - 2026-03-01"));
+    assert!(notes.contains("- One"));
+    assert!(!notes.contains("v0.1.16"));
+}
+
+#[test]
 fn check_release_pr_requires_matching_changelog_when_version_changes() {
     let temp = tempdir().expect("tempdir");
 
@@ -225,6 +248,11 @@ edition = "2024"
     assert!(
         !output.status.success(),
         "script should fail without matching changelog"
+    );
+    assert!(
+        !String::from_utf8_lossy(&output.stderr).contains("No such file or directory"),
+        "script failed because helper script was missing: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
     );
     assert!(String::from_utf8_lossy(&output.stderr)
         .contains("CHANGELOG.md must contain a section for v0.1.16"));

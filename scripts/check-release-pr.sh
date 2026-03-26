@@ -3,6 +3,7 @@ set -euo pipefail
 
 base_ref="${1:-}"
 head_ref="${2:-HEAD}"
+script_dir="$(cd -- "$(dirname -- "$0")" && pwd)"
 
 if [[ -z "$base_ref" ]]; then
   echo "usage: scripts/check-release-pr.sh <base-ref> [head-ref]" >&2
@@ -35,7 +36,7 @@ fi
 
 tag="v${head_version}"
 
-if ! scripts/extract-release-notes.sh "$tag" >/dev/null; then
+if ! "$script_dir/extract-release-notes.sh" "$tag" >/dev/null; then
   echo "CHANGELOG.md must contain a section for ${tag} when Cargo.toml version changes from ${base_version} to ${head_version}" >&2
   exit 1
 fi

@@ -15,9 +15,9 @@ fi
 
 notes="$({
   awk -v tag="$tag" '
-    index($0, "## " tag) == 1 { printing = 1 }
+    $0 ~ ("^## " tag "( |$)") { printing = 1 }
     printing {
-      if ($0 ~ /^## / && index($0, "## " tag) != 1) {
+      if ($0 ~ /^## / && $0 !~ ("^## " tag "( |$)")) {
         exit
       }
       print

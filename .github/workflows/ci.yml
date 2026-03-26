@@ -20,6 +20,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Rust cache
         uses: actions/cache@v3
@@ -71,14 +73,7 @@ jobs:
       - name: Verify release note extraction
         run: |
           chmod +x scripts/extract-release-notes.sh
-          version=$(python - <<'PY'
-from pathlib import Path
-for line in Path('Cargo.toml').read_text().splitlines():
-    if line.startswith('version = '):
-        print(line.split('"')[1])
-        break
-PY
-)
+          version=$(python -c "from pathlib import Path; import re; content = Path('Cargo.toml').read_text(); match = re.search(r'(?m)^version = \"([0-9]+\.[0-9]+\.[0-9]+)\"$', content); print(match.group(1))")
           scripts/extract-release-notes.sh "v${version}" > /tmp/release-notes.md
           test -s /tmp/release-notes.md
 
