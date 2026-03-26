@@ -254,8 +254,10 @@ edition = "2024"
         "script failed because helper script was missing: stderr={}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(String::from_utf8_lossy(&output.stderr)
-        .contains("CHANGELOG.md must contain a section for v0.1.16"));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("CHANGELOG.md must contain a section for v0.1.16")
+    );
 }
 
 #[test]
