@@ -50,3 +50,39 @@ jobs:
 
       - name: Run Clippy
         run: cargo clippy --locked -- -D warnings
+
+  release-tooling:
+    name: Release Tooling
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install git-cliff
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+
+      - name: Verify changelog generation
+        run: |
+          git-cliff --config cliff.toml --unreleased --tag v999.999.999 > /tmp/generated-changelog.md
+          test -s /tmp/generated-changelog.md
+
+      - name: Verify release note extraction
+        run: |
+          chmod +x scripts/extract-release-notes.sh
+          version=$(python - <<'PY'
+from pathlib import Path
+for line in Path('Cargo.toml').read_text().splitlines():
+    if line.startswith('version = '):
+        print(line.split('"')[1])
+        break
+PY
+)
+          scripts/extract-release-notes.sh "v${version}" > /tmp/release-notes.md
+          test -s /tmp/release-notes.md
+
+      - name: Verify release PR metadata when version changes
+        run: |
+          chmod +x scripts/check-release-pr.sh scripts/extract-release-notes.sh
+          scripts/check-release-pr.sh "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}"

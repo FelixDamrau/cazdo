@@ -1,0 +1,31 @@
+name: Release Notes
+
+on:
+  release:
+    types:
+      - published
+      - prereleased
+
+permissions:
+  contents: write
+
+jobs:
+  sync-release-notes:
+    name: Sync Release Notes From CHANGELOG
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ github.event.release.tag_name }}
+
+      - name: Update GitHub release notes from CHANGELOG
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          chmod +x scripts/extract-release-notes.sh
+          notes_file="$RUNNER_TEMP/release-notes.md"
+          scripts/extract-release-notes.sh "$TAG" > "$notes_file"
+          test -s "$notes_file"
+          gh release edit "$TAG" --notes-file "$notes_file"

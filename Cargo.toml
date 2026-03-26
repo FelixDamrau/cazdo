@@ -1,6 +1,6 @@
 [package]
 name = "cazdo"
-version = "0.1.15"
+version = "0.1.16"
 edition = "2024"
 description = "Azure DevOps CLI tool for work item and branch management"
 repository = "https://github.com/FelixDamrau/cazdo.git"
@@ -47,3 +47,6 @@ codegen-units = 1
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+[dev-dependencies]
+tempfile = "3"
