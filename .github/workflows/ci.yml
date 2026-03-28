@@ -89,11 +89,25 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Read dist version
+        id: dist-version
+        run: |
+          version=$(python -c "import tomllib; from pathlib import Path; print(tomllib.loads(Path('dist-workspace.toml').read_text())['dist']['cargo-dist-version'])")
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache dist
+        id: cache-dist
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/dist
+          key: cargo-dist-${{ runner.os }}-${{ steps.dist-version.outputs.version }}
+
       - name: Install dist
+        if: steps.cache-dist.outputs.cache-hit != 'true'
         # we specify bash to get pipefail; it guards against the `curl` command
         # failing. otherwise `sh` won't catch that `curl` returned non-0
         shell: bash
-        run: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.31.0/cargo-dist-installer.sh | sh"
+        run: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v${{ steps.dist-version.outputs.version }}/cargo-dist-installer.sh | sh"
 
       - name: Verify release.yml is up to date
         shell: bash
