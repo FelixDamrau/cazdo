@@ -10,7 +10,7 @@ jobs:
     name: Validate tag matches Cargo.toml version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Check tag matches Cargo.toml version
         run: |
