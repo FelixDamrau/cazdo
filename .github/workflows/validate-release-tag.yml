@@ -1,0 +1,29 @@
+name: Validate Release Tag
+
+on:
+  push:
+    tags:
+      - '**[0-9]+.[0-9]+.[0-9]+*'
+
+jobs:
+  validate-tag:
+    name: Validate tag matches Cargo.toml version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches Cargo.toml version
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version=$(python -c "
+import re, pathlib
+content = pathlib.Path('Cargo.toml').read_text()
+m = re.search(r'(?m)^version = \"([0-9]+\.[0-9]+\.[0-9]+)\"$', content)
+print(m.group(1) if m else '')
+")
+          expected="v${version}"
+          if [[ "$tag" != "$expected" ]]; then
+            echo "Tag '$tag' does not match Cargo.toml version '$expected'" >&2
+            exit 1
+          fi
+          echo "Tag $tag matches Cargo.toml version $version"

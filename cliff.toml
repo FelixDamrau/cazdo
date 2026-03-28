@@ -1,0 +1,48 @@
+[changelog]
+header = """
+# Changelog
+
+All notable changes to this project are documented in this file.
+"""
+body = """
+{% if version %}## {{ version }} - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}## unreleased
+{% endif %}
+
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | upper_first }}
+{% endfor %}
+
+{% endfor %}
+"""
+trim = true
+render_always = true
+postprocessors = [
+  { pattern = "\\n{3,}", replace = "\n\n" },
+]
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+protect_breaking_commits = false
+filter_commits = true
+tag_pattern = "v[0-9].*"
+topo_order = false
+topo_order_commits = true
+sort_commits = "oldest"
+commit_parsers = [
+  { message = "^feat", group = "<!-- 0 -->Features" },
+  { message = "^fix", group = "<!-- 1 -->Bug Fixes" },
+  { message = "^docs?", group = "<!-- 2 -->Documentation" },
+  { message = "^refactor", group = "<!-- 3 -->Refactoring" },
+  { message = "^perf", group = "<!-- 4 -->Performance" },
+  { message = "^test", group = "<!-- 5 -->Tests" },
+  { message = "^ci", group = "<!-- 6 -->CI" },
+  { message = "^build", group = "<!-- 7 -->Build" },
+  { message = "^chore\\(release\\)", skip = true },
+  { message = "^chore", group = "<!-- 8 -->Maintenance" },
+  { message = "^revert", group = "<!-- 9 -->Reverts" },
+]
