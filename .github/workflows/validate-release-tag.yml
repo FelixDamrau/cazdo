@@ -15,12 +15,7 @@ jobs:
       - name: Check tag matches Cargo.toml version
         run: |
           tag="${GITHUB_REF_NAME}"
-          version=$(python -c "
-import re, pathlib
-content = pathlib.Path('Cargo.toml').read_text()
-m = re.search(r'(?m)^version = \"([0-9]+\.[0-9]+\.[0-9]+)\"$', content)
-print(m.group(1) if m else '')
-")
+          version=$(python -c "import re, pathlib; content = pathlib.Path('Cargo.toml').read_text(); m = re.search(r'(?m)^version = \"([0-9]+\.[0-9]+\.[0-9]+)\"$', content); print(m.group(1) if m else '')")
           expected="v${version}"
           if [[ "$tag" != "$expected" ]]; then
             echo "Tag '$tag' does not match Cargo.toml version '$expected'" >&2
