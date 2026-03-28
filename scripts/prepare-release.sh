@@ -60,4 +60,6 @@ PY
 git-cliff --config cliff.toml --unreleased --tag "$tag" --prepend CHANGELOG.md
 cargo update
 
-echo "Prepared release $tag"
+echo "Prepared release $tag — Cargo.toml, Cargo.lock, and CHANGELOG.md updated."
+echo ""
+echo "  git add Cargo.toml Cargo.lock CHANGELOG.md && git commit -m 'chore(release): prepare $tag'"
