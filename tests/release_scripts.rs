@@ -94,6 +94,22 @@ mv "$tmp" "$prepend"
         fs::set_permissions(&git_cliff, perms).expect("chmod");
     }
 
+    let cargo_stub = bin_dir.join("cargo");
+    write_file(
+        &cargo_stub,
+        r#"#!/usr/bin/env bash
+exit 0
+"#,
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut perms = fs::metadata(&cargo_stub).expect("metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&cargo_stub, perms).expect("chmod");
+    }
+
     let mut paths = vec![bin_dir];
     paths.extend(std::env::split_paths(
         &std::env::var_os("PATH").unwrap_or_default(),
