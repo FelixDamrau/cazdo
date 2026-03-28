@@ -58,5 +58,6 @@ cargo_toml.write_text(updated)
 PY
 
 git-cliff --config cliff.toml --unreleased --tag "$tag" --prepend CHANGELOG.md
+cargo update
 
 echo "Prepared release $tag"
