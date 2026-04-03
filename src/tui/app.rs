@@ -356,8 +356,8 @@ impl App {
     pub fn apply_filter_input(&mut self) {
         let filter = self.filter_input.clone();
         self.filter_input_selected_key = None;
-        self.mode = AppMode::Normal;
         self.apply_branch_filter(filter);
+        self.mode = AppMode::Normal;
     }
 
     pub fn cancel_filter_input(&mut self) {
@@ -901,6 +901,48 @@ mod tests {
             app.selected_branch().unwrap().branch_name,
             "feature/alpha-login"
         );
+    }
+
+    #[test]
+    fn test_apply_filter_input_preserves_selected_branch_from_filtered_preview() {
+        let branches = vec![
+            branch(
+                "refs/heads/a",
+                "a",
+                "a",
+                BranchScope::Local,
+                false,
+                false,
+                None,
+            ),
+            branch(
+                "refs/heads/feature/1",
+                "feature/1",
+                "feature/1",
+                BranchScope::Local,
+                false,
+                false,
+                None,
+            ),
+            branch(
+                "refs/heads/feature/2",
+                "feature/2",
+                "feature/2",
+                BranchScope::Local,
+                false,
+                false,
+                None,
+            ),
+        ];
+        let mut app = App::new(branches, vec![]);
+        app.local_selected_index = 2;
+
+        app.enter_filter_input();
+        app.update_filter_input("feature".to_string());
+        app.apply_filter_input();
+
+        assert_eq!(app.selected_index(), 1);
+        assert_eq!(app.selected_branch().unwrap().branch_name, "feature/2");
     }
 
     #[test]
