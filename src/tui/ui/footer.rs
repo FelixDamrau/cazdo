@@ -1,94 +1,214 @@
 use ratatui::{
     Frame,
     layout::Rect,
-    style::Modifier,
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
 };
 
-use crate::tui::app::{App, BranchView};
+use crate::tui::app::{App, BranchView, StatusMessage};
 use crate::tui::theme;
+
+enum FooterVariant<'a> {
+    FilterInput,
+    Status(&'a StatusMessage),
+    Normal,
+}
 
 /// Render the footer bar with status messages or key hints
 pub fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
+    match footer_variant(app) {
+        FooterVariant::FilterInput => render_filter_footer(frame, area),
+        FooterVariant::Status(msg) => render_status_footer(frame, area, msg),
+        FooterVariant::Normal => render_normal_footer(frame, app, area),
+    }
+}
+
+fn footer_variant(app: &App) -> FooterVariant<'_> {
     if app.is_filter_input_mode() {
-        let help_text = Line::from(vec![
-            Span::styled(" type ", theme::styles::ACCENT),
-            Span::styled("filter  ", theme::styles::MUTED),
-            Span::styled("backspace", theme::styles::ACCENT),
-            Span::styled(" delete  ", theme::styles::MUTED),
-            Span::styled("ctrl+u", theme::styles::ACCENT),
-            Span::styled(" clear  ", theme::styles::MUTED),
-            Span::styled("enter", theme::styles::ACCENT),
-            Span::styled(" apply  ", theme::styles::MUTED),
-            Span::styled("esc", theme::styles::ACCENT),
-            Span::styled(" cancel", theme::styles::MUTED),
-        ]);
-        let paragraph = Paragraph::new(help_text).style(theme::styles::MUTED);
-        frame.render_widget(paragraph, area);
-        return;
-    }
-
-    // Check for active status message
-    if let Some(msg) = app.get_status_message() {
-        let style = if msg.is_error {
-            theme::styles::ERROR
-        } else {
-            theme::styles::SUCCESS.add_modifier(Modifier::BOLD)
-        };
-        let paragraph = Paragraph::new(Line::from(vec![Span::styled(&msg.text, style)]));
-        frame.render_widget(paragraph, area);
-        return;
-    }
-
-    let refresh_available = app.current_branch_has_work_item();
-    let refresh_style = if refresh_available {
-        theme::styles::ACCENT
+        FooterVariant::FilterInput
+    } else if let Some(msg) = app.get_status_message() {
+        FooterVariant::Status(msg)
     } else {
-        theme::styles::MUTED
-    };
-    let refresh_text_style = if refresh_available {
-        theme::styles::MUTED
+        FooterVariant::Normal
+    }
+}
+
+fn render_filter_footer(frame: &mut Frame, area: Rect) {
+    let help_text = Line::from(vec![
+        key_span(" type "),
+        label_span("filter  "),
+        key_span("backspace"),
+        label_span(" delete  "),
+        key_span("ctrl+u"),
+        label_span(" clear  "),
+        key_span("enter"),
+        label_span(" apply  "),
+        key_span("esc"),
+        label_span(" cancel"),
+    ]);
+
+    render_footer_line(frame, area, help_text, theme::styles::MUTED);
+}
+
+fn render_status_footer(frame: &mut Frame, area: Rect, msg: &StatusMessage) {
+    let style = if msg.is_error {
+        theme::styles::ERROR
     } else {
-        theme::styles::MUTED.add_modifier(Modifier::DIM)
+        theme::styles::SUCCESS.add_modifier(Modifier::BOLD)
     };
 
-    let protected_prefix = if app.show_protected { "hide " } else { "show " };
+    let paragraph = Paragraph::new(Line::from(vec![Span::styled(&msg.text, style)]));
+    frame.render_widget(paragraph, area);
+}
+
+fn render_normal_footer(frame: &mut Frame, app: &App, area: Rect) {
+    let spans = normal_footer_spans(app);
+
+    render_footer_line(frame, area, Line::from(spans), theme::styles::MUTED);
+}
+
+fn normal_footer_spans(app: &App) -> Vec<Span<'static>> {
     let toggle_label = match app.active_view {
         BranchView::Local => "remote",
         BranchView::Remote => "local",
     };
-    let mut spans = vec![
-        Span::styled(" j/k ", theme::styles::ACCENT),
-        Span::styled("navigate  ", theme::styles::MUTED),
-        Span::styled("/", theme::styles::ACCENT),
-        Span::styled(" filter  ", theme::styles::MUTED),
-        Span::styled("t", theme::styles::ACCENT),
-        Span::styled(format!("oggle {}  ", toggle_label), theme::styles::MUTED),
-        Span::styled("o", theme::styles::ACCENT),
-        Span::styled("pen  ", theme::styles::MUTED),
-        Span::styled("pg\u{2191}\u{2193} ", theme::styles::ACCENT),
-        Span::styled("scroll  ", theme::styles::MUTED),
-        Span::styled("d", theme::styles::ACCENT),
-        Span::styled("elete  ", theme::styles::MUTED),
-        Span::styled("r", refresh_style),
-        Span::styled("efresh  ", refresh_text_style),
-        Span::styled(protected_prefix, theme::styles::MUTED),
-        Span::styled("p", theme::styles::ACCENT),
-        Span::styled("rotected  ", theme::styles::MUTED),
-    ];
 
-    if app.has_active_filter() {
-        spans.push(Span::styled("esc", theme::styles::ACCENT));
-        spans.push(Span::styled(" clear filter  ", theme::styles::MUTED));
-        spans.push(Span::styled("q", theme::styles::ACCENT));
-        spans.push(Span::styled(" quit", theme::styles::MUTED));
+    let mut spans = Vec::new();
+    push_hint(&mut spans, " j/k ", "navigate  ");
+    push_hint(&mut spans, "/", " filter  ");
+    push_hint(&mut spans, "t", format!("oggle {}  ", toggle_label));
+    push_hint(&mut spans, "o", "pen  ");
+    push_hint(&mut spans, "pg↑↓ ", "scroll  ");
+    push_hint(&mut spans, "d", "elete  ");
+    if app.current_branch_has_work_item() {
+        push_hint(&mut spans, "r", "efresh  ");
+    }
+    push_hint(&mut spans, "p", "rotected  ");
+    spans.extend(normal_footer_tail(app.has_active_filter()));
+
+    spans
+}
+
+fn normal_footer_tail(has_active_filter: bool) -> Vec<Span<'static>> {
+    if has_active_filter {
+        vec![
+            key_span("esc"),
+            label_span(" clear filter  "),
+            key_span("q"),
+            label_span(" quit"),
+        ]
     } else {
-        spans.push(Span::styled("q/esc", theme::styles::ACCENT));
-        spans.push(Span::styled(" quit", theme::styles::MUTED));
+        vec![key_span("q/esc"), label_span(" quit")]
+    }
+}
+
+fn push_hint(spans: &mut Vec<Span<'static>>, key: &'static str, label: impl Into<String>) {
+    spans.push(key_span(key));
+    spans.push(label_span(label));
+}
+
+fn key_span(key: &'static str) -> Span<'static> {
+    Span::styled(key, theme::styles::ACCENT)
+}
+
+fn label_span(label: impl Into<String>) -> Span<'static> {
+    Span::styled(label.into(), theme::styles::MUTED)
+}
+
+fn render_footer_line(frame: &mut Frame, area: Rect, line: Line<'static>, style: Style) {
+    let paragraph = Paragraph::new(line).style(style);
+    frame.render_widget(paragraph, area);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::time::{Duration, Instant};
+
+    use crate::git::BranchScope;
+    use crate::tui::app::{AppMode, BranchInfo, DeletedBranch, RemoteFreshness, WorkItemStatus};
+
+    #[test]
+    fn test_footer_variant_prioritizes_filter_input_over_status() {
+        let mut app = test_app();
+        app.mode = AppMode::FilterInput;
+        app.status_message = Some(StatusMessage {
+            text: "Saved".to_string(),
+            is_error: false,
+            expires_at: Instant::now() + Duration::from_secs(5),
+        });
+
+        assert!(matches!(footer_variant(&app), FooterVariant::FilterInput));
     }
 
-    let help_text = Line::from(spans);
-    let paragraph = Paragraph::new(help_text).style(theme::styles::MUTED);
-    frame.render_widget(paragraph, area);
+    #[test]
+    fn test_normal_footer_tail_with_active_filter() {
+        assert_eq!(
+            spans_text(&normal_footer_tail(true)),
+            "esc clear filter  q quit"
+        );
+    }
+
+    #[test]
+    fn test_normal_footer_tail_without_active_filter() {
+        assert_eq!(spans_text(&normal_footer_tail(false)), "q/esc quit");
+    }
+
+    #[test]
+    fn test_normal_footer_omits_refresh_when_unavailable() {
+        let app = test_app();
+
+        assert!(!spans_text(&normal_footer_spans(&app)).contains("refresh"));
+    }
+
+    #[test]
+    fn test_normal_footer_includes_refresh_when_available() {
+        let mut app = test_app();
+        app.branches[0].work_item_id = Some(42);
+
+        assert!(spans_text(&normal_footer_spans(&app)).contains("refresh"));
+    }
+
+    fn spans_text(spans: &[Span<'static>]) -> String {
+        spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>()
+    }
+
+    fn test_app() -> App {
+        App {
+            branches: vec![BranchInfo {
+                key: "refs/heads/feature/1".to_string(),
+                display_name: "feature/1".to_string(),
+                branch_name: "feature/1".to_string(),
+                remote_name: None,
+                scope: BranchScope::Local,
+                work_item_id: None,
+                is_current: false,
+                is_protected: false,
+                is_stale: false,
+            }],
+            active_view: BranchView::Local,
+            local_selected_index: 0,
+            remote_selected_index: 0,
+            work_items: HashMap::<u32, WorkItemStatus>::new(),
+            branch_statuses: HashMap::new(),
+            should_quit: false,
+            scroll_offset: 0,
+            content_height: 0,
+            visible_height: 0,
+            mode: AppMode::Normal,
+            status_message: None,
+            deleted_branches: Vec::<DeletedBranch>::new(),
+            protected_patterns: vec![],
+            show_protected: false,
+            remote_freshness: RemoteFreshness::NotChecked,
+            branch_filter: String::new(),
+            filter_input: String::new(),
+            filter_input_selected_key: None,
+        }
+    }
 }
