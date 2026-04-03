@@ -98,6 +98,8 @@ The interface starts with your local branches and can toggle to `origin` remote 
   - Branches with found work items show the work item type and ID.
   - The current branch is highlighted.
   - Press `t` to toggle between local and remote (`origin`) branches.
+  - Press `/` to edit a shared branch filter. The filter matches all whitespace-separated terms against branch text.
+  - Press `Enter` to apply the edited filter, `/` again to refine it, and `Esc` to clear an active filter.
   - In remote view, branches marked with `⚠` no longer exist on `origin`; the cached remote-tracking ref is stale until you prune it yourself.
 - **Right Panel**: Details of the selected work item.
 
@@ -140,12 +142,14 @@ cazdo wi --long
 | `o`                      | Open work item in browser             |
 | `d`                      | Delete branch (with confirmation)     |
 | `D`                      | Force delete branch (no confirmation) |
+| `/`                      | Edit branch filter                    |
 | `r`                      | Refresh current work item             |
 | `t`                      | Toggle local / remote branch view     |
 | `p`                      | Toggle protected branches visibility  |
 | `PgUp` / `PgDn`          | Scroll work item details              |
 | `Ctrl+u` / `Ctrl+d`      | Scroll half page (vim-style)          |
-| `q` / `Esc`              | Quit                                  |
+| `Esc`                    | Clear active filter, otherwise quit   |
+| `q`                      | Quit                                  |
 
 ## Protected Branches
 

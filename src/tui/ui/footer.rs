@@ -11,6 +11,24 @@ use crate::tui::theme;
 
 /// Render the footer bar with status messages or key hints
 pub fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
+    if app.is_filter_input_mode() {
+        let help_text = Line::from(vec![
+            Span::styled(" type ", theme::styles::ACCENT),
+            Span::styled("filter  ", theme::styles::MUTED),
+            Span::styled("backspace", theme::styles::ACCENT),
+            Span::styled(" delete  ", theme::styles::MUTED),
+            Span::styled("ctrl+u", theme::styles::ACCENT),
+            Span::styled(" clear  ", theme::styles::MUTED),
+            Span::styled("enter", theme::styles::ACCENT),
+            Span::styled(" apply  ", theme::styles::MUTED),
+            Span::styled("esc", theme::styles::ACCENT),
+            Span::styled(" cancel", theme::styles::MUTED),
+        ]);
+        let paragraph = Paragraph::new(help_text).style(theme::styles::MUTED);
+        frame.render_widget(paragraph, area);
+        return;
+    }
+
     // Check for active status message
     if let Some(msg) = app.get_status_message() {
         let style = if msg.is_error {
@@ -40,9 +58,11 @@ pub fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
         BranchView::Local => "remote",
         BranchView::Remote => "local",
     };
-    let spans = vec![
+    let mut spans = vec![
         Span::styled(" j/k ", theme::styles::ACCENT),
         Span::styled("navigate  ", theme::styles::MUTED),
+        Span::styled("/", theme::styles::ACCENT),
+        Span::styled(" filter  ", theme::styles::MUTED),
         Span::styled("t", theme::styles::ACCENT),
         Span::styled(format!("oggle {}  ", toggle_label), theme::styles::MUTED),
         Span::styled("o", theme::styles::ACCENT),
@@ -56,9 +76,17 @@ pub fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
         Span::styled(protected_prefix, theme::styles::MUTED),
         Span::styled("p", theme::styles::ACCENT),
         Span::styled("rotected  ", theme::styles::MUTED),
-        Span::styled("q", theme::styles::ACCENT),
-        Span::styled("uit", theme::styles::MUTED),
     ];
+
+    if app.has_active_filter() {
+        spans.push(Span::styled("esc", theme::styles::ACCENT));
+        spans.push(Span::styled(" clear filter  ", theme::styles::MUTED));
+        spans.push(Span::styled("q", theme::styles::ACCENT));
+        spans.push(Span::styled(" quit", theme::styles::MUTED));
+    } else {
+        spans.push(Span::styled("q/esc", theme::styles::ACCENT));
+        spans.push(Span::styled(" quit", theme::styles::MUTED));
+    }
 
     let help_text = Line::from(spans);
     let paragraph = Paragraph::new(help_text).style(theme::styles::MUTED);
