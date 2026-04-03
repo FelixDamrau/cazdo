@@ -75,37 +75,38 @@ fn normal_footer_spans(app: &App) -> Vec<Span<'static>> {
     };
 
     let mut spans = Vec::new();
-    push_hint(&mut spans, " j/k ", "navigate  ");
-    push_hint(&mut spans, "/", " filter  ");
-    push_hint(&mut spans, "t", format!("oggle {}  ", toggle_label));
-    push_hint(&mut spans, "o", "pen  ");
-    push_hint(&mut spans, "pg↑↓ ", "scroll  ");
-    push_hint(&mut spans, "d", "elete  ");
+    spans.push(label_span(" "));
+    push_hint(&mut spans, "j/k", "navigate");
+    push_hint(&mut spans, "/", "filter");
+    push_hint(&mut spans, "t", format!("toggle {}", toggle_label));
+    push_hint(&mut spans, "o", "open");
+    push_hint(&mut spans, "pg↑↓", "scroll");
+    push_hint(&mut spans, "d", "delete");
     if app.current_branch_has_work_item() {
-        push_hint(&mut spans, "r", "efresh  ");
+        push_hint(&mut spans, "r", "refresh");
     }
-    push_hint(&mut spans, "p", "rotected  ");
+    push_hint(&mut spans, "p", "protected");
     spans.extend(normal_footer_tail(app.has_active_filter()));
 
     spans
 }
 
 fn normal_footer_tail(has_active_filter: bool) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
     if has_active_filter {
-        vec![
-            key_span("esc"),
-            label_span(" clear filter  "),
-            key_span("q"),
-            label_span(" quit"),
-        ]
+        push_hint(&mut spans, "esc", "clear filter");
+        push_hint(&mut spans, "q", "quit");
     } else {
-        vec![key_span("q/esc"), label_span(" quit")]
+        push_hint(&mut spans, "q/esc", "quit");
     }
+    spans
 }
 
 fn push_hint(spans: &mut Vec<Span<'static>>, key: &'static str, label: impl Into<String>) {
     spans.push(key_span(key));
+    spans.push(label_span(" "));
     spans.push(label_span(label));
+    spans.push(label_span("  "));
 }
 
 fn key_span(key: &'static str) -> Span<'static> {
@@ -147,13 +148,13 @@ mod tests {
     fn test_normal_footer_tail_with_active_filter() {
         assert_eq!(
             spans_text(&normal_footer_tail(true)),
-            "esc clear filter  q quit"
+            "esc clear filter  q quit  "
         );
     }
 
     #[test]
     fn test_normal_footer_tail_without_active_filter() {
-        assert_eq!(spans_text(&normal_footer_tail(false)), "q/esc quit");
+        assert_eq!(spans_text(&normal_footer_tail(false)), "q/esc quit  ");
     }
 
     #[test]
@@ -169,6 +170,17 @@ mod tests {
         app.branches[0].work_item_id = Some(42);
 
         assert!(spans_text(&normal_footer_spans(&app)).contains("refresh"));
+    }
+
+    #[test]
+    fn test_normal_footer_uses_explicit_action_labels() {
+        let mut app = test_app();
+        app.branches[0].work_item_id = Some(42);
+
+        assert_eq!(
+            spans_text(&normal_footer_spans(&app)),
+            " j/k navigate  / filter  t toggle remote  o open  pg↑↓ scroll  d delete  r refresh  p protected  q/esc quit  "
+        );
     }
 
     fn spans_text(spans: &[Span<'static>]) -> String {
