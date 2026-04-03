@@ -12,19 +12,32 @@ use crate::tui::theme;
 /// Render the branch list panel
 pub fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
     let visible = app.visible_branches();
+    let filter = app.effective_branch_filter().trim();
+    let title = if filter.is_empty() {
+        format!(" Branches ({}) ", app.active_view.label())
+    } else {
+        format!(" Branches ({}) / {} ", app.active_view.label(), filter)
+    };
+
     if visible.is_empty() {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(theme::ui::BORDER)
             .title(Line::from(vec![Span::styled(
-                format!(" Branches ({}) ", app.active_view.label()),
+                title.clone(),
                 theme::ui::TITLE,
             )]));
 
         let inner_area = block.inner(area);
         frame.render_widget(block, area);
 
-        let empty_text = if app.has_hidden_branches_in_active_view() {
+        let empty_text = if !filter.is_empty() {
+            format!(
+                "No {} branches match \"{}\".",
+                app.active_view.label().to_lowercase(),
+                filter
+            )
+        } else if app.has_hidden_branches_in_active_view() {
             format!(
                 "No {} branches shown. Press p to show protected branches.",
                 app.active_view.label().to_lowercase()
@@ -93,10 +106,7 @@ pub fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(theme::ui::BORDER)
-                .title(Line::from(vec![Span::styled(
-                    format!(" Branches ({}) ", app.active_view.label()),
-                    theme::ui::TITLE,
-                )])),
+                .title(Line::from(vec![Span::styled(title, theme::ui::TITLE)])),
         )
         .highlight_style(theme::ui::SELECTED.add_modifier(Modifier::BOLD))
         .highlight_symbol("\u{25BA} ");
