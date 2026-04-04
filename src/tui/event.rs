@@ -40,7 +40,11 @@ enum Action {
 const REMOTE_FRESHNESS_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub async fn run_app(mut app: App, git_repo: GitRepo) -> Result<()> {
-    let config = Config::load()?;
+    let config = match Config::load() {
+        Ok(config) => config,
+        Err(_) if std::env::var_os("CAZDO_DEMO_WORK_ITEMS").is_some() => Config::default(),
+        Err(error) => return Err(error),
+    };
     let client = AzureDevOpsClient::new(&config)?;
 
     enable_raw_mode()?;

@@ -105,13 +105,6 @@ The interface starts with your local branches and can toggle to `origin` remote 
 
 Use the **Keyboard Shortcuts** below to navigate and interact.
 
-Regenerate the animated demo:
-
-```bash
-cargo build --quiet
-vhs docs/tapes/cazdo-open-nav.tape
-```
-
 ### CLI Commands
 ```bash
 # Initialize config with defaults

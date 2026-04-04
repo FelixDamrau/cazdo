@@ -1,0 +1,62 @@
+[
+  {
+    "id": 101,
+    "title": "Record shared-term branch filtering in the TUI demo",
+    "work_item_type": "Task",
+    "state": "Committed",
+    "assigned_to": "Felix Damrau",
+    "tags": ["Docs", "Demo"],
+    "description": "<p>Demonstrate how shared filter terms narrow the branch list while keeping the selected work item context visible in the generated VHS assets.</p>",
+    "url": "https://demo.example.invalid/workitems/101"
+  },
+  {
+    "id": 102,
+    "title": "Keep matching feature branches visible while refining the filter",
+    "work_item_type": "User Story",
+    "state": "Active",
+    "assigned_to": "Felix Damrau",
+    "tags": ["UX", "Docs"],
+    "description": "<p>Use a second filterable branch so the tape clearly shows that multiple matching branches remain visible until the filter becomes more specific.</p>",
+    "url": "https://demo.example.invalid/workitems/102"
+  },
+  {
+    "id": 103,
+    "title": "Show parsed branch IDs resolving to Azure DevOps-style details",
+    "work_item_type": "Feature",
+    "state": "Committed",
+    "assigned_to": "Felix Damrau",
+    "tags": ["Azure DevOps", "Demo"],
+    "description": "<p>This synthetic item anchors the default branch selection so the details pane immediately shows a realistic title, state, assignee, and description for the parsed work item number.</p>",
+    "url": "https://demo.example.invalid/workitems/103"
+  },
+  {
+    "id": 104,
+    "title": "Demonstrate origin branch loading from a local demo remote",
+    "work_item_type": "Task",
+    "state": "New",
+    "assigned_to": "Other Person",
+    "tags": ["Remote", "Demo"],
+    "description": "<p>Used when toggling to the <code>origin</code> branch list so the GIF shows remote work item loading without relying on a real networked remote.</p>",
+    "url": "https://demo.example.invalid/workitems/104"
+  },
+  {
+    "id": 105,
+    "title": "Load remote branch details from local Azure DevOps fixtures",
+    "work_item_type": "Task",
+    "state": "Approved",
+    "assigned_to": "Felix Damrau",
+    "tags": ["Remote", "Azure DevOps"],
+    "description": "<p>Demonstrate that remote branch selections still resolve to Azure DevOps-style work items when the app runs in demo mode.</p>",
+    "url": "https://demo.example.invalid/workitems/105"
+  },
+  {
+    "id": 106,
+    "title": "Polish the reproducible VHS capture workflow",
+    "work_item_type": "Bug",
+    "state": "Resolved",
+    "assigned_to": "Felix Damrau",
+    "tags": ["Polish", "Release"],
+    "description": "<p>Reserve one more synthetic item for a release-style branch so the fixture set covers more than one work item type and state while still looking coherent in the demo.</p>",
+    "url": "https://demo.example.invalid/workitems/106"
+  }
+]
