@@ -6,7 +6,13 @@ Set Framerate 30
 Set Padding 24
 Set TypingSpeed 0.1s
 
-Type "./run-cazdo-demo.sh"
+Hide
+Type "export PATH=.:$PATH"
+Enter
+Ctrl+L
+Show 
+
+Type "cazdo"
 Sleep 0.5s
 Enter
 Sleep 2s
@@ -19,7 +25,7 @@ Type "j"
 Sleep 1.2s
 Type "/"
 Sleep 0.5s
-Type "filter"
+Type "feature"
 Sleep 1s
 Enter
 Sleep 1s

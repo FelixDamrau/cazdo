@@ -8,7 +8,7 @@ origin_dir="$demo_root/origin.git"
 repo_dir="$demo_root/repo"
 fixture_path="$workspace_root/docs/tapes/demo-work-items.json"
 binary_path="$workspace_root/target/debug/cazdo"
-wrapper_path="$repo_dir/run-cazdo-demo.sh"
+launcher_path="$repo_dir/cazdo"
 
 git init --bare --quiet "$origin_dir"
 git init --initial-branch=main --quiet "$repo_dir"
@@ -43,28 +43,28 @@ create_branch() {
   fi
 }
 
-create_branch "feature/101-branch-filtering" "feat: add filtering demo branch" "feature-101.txt" push
-create_branch "feature/102-filter-shared-terms" "feat: add shared-term filter branch" "feature-102.txt" local
-create_branch "feature/103-work-item-preview" "feat: add default preview branch" "feature-103.txt" push
+create_branch "feature/wi101" "feat: add filtering demo branch" "feature-101.txt" push
+create_branch "feature/102" "feat: add shared-term filter branch" "feature-102.txt" local
+create_branch "feature/wi103" "feat: add default preview branch" "feature-103.txt" push
 create_branch "chore/docs-refresh" "docs: add no-work-item branch" "docs-refresh.txt" local
-create_branch "bugfix/999-missing-demo-item" "fix: add missing item branch" "bugfix-999.txt" local
-create_branch "feature/104-filter-origin-view" "feat: add remote filtering branch" "feature-104.txt" remote-only
-create_branch "feature/105-remote-loading" "feat: add remote loading branch" "feature-105.txt" remote-only
-create_branch "release/106-demo-polish" "chore: add release demo branch" "release-106.txt" remote-only
+create_branch "bugfix/999" "fix: add missing item branch" "bugfix-999.txt" local
+create_branch "feature/104" "feat: add remote filtering branch" "feature-104.txt" remote-only
+create_branch "feature/wi105" "feat: add remote loading branch" "feature-105.txt" remote-only
+create_branch "release/106" "chore: add release demo branch" "release-106.txt" remote-only
 
-git -C "$repo_dir" checkout -q feature/103-work-item-preview
+git -C "$repo_dir" checkout -q feature/wi103
 
-cat > "$wrapper_path" <<EOF
+cat > "$launcher_path" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 export CAZDO_DEMO_WORK_ITEMS="$fixture_path"
 exec "$binary_path" "\$@"
 EOF
-chmod +x "$wrapper_path"
+chmod +x "$launcher_path"
 
 printf 'DEMO_ROOT=%s\n' "$demo_root"
 printf 'DEMO_REPO=%s\n' "$repo_dir"
 printf 'DEMO_ORIGIN=%s\n' "$origin_dir"
 printf 'DEMO_WORK_ITEMS=%s\n' "$fixture_path"
-printf 'DEMO_LAUNCHER=%s\n' "$wrapper_path"
+printf 'DEMO_LAUNCHER=%s\n' "$launcher_path"
 printf 'WORKSPACE_ROOT=%s\n' "$workspace_root"

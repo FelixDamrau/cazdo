@@ -6,32 +6,33 @@ See [vhs](https://github.com/charmbracelet/vhs) for the tape recording tool.
 
 ## Render Demo
 
-```bash
+```fish
 # Build the local binary used by the demo wrapper
 cargo build --quiet
 
 # Create a deterministic temp repo with a local bare origin
-eval "$(./scripts/setup-vhs-demo-repo.sh)"
+for line in (./scripts/setup-vhs-demo-repo.sh)
+    set parts (string split -m1 '=' $line)
+    set -gx $parts[1] $parts[2]
+end
 
 # Render GIF for README animation from the generated demo repo
-(
-  cd "$DEMO_REPO"
-  vhs "$WORKSPACE_ROOT/docs/tapes/cazdo-open-nav.tape" \
-    -o "$WORKSPACE_ROOT/docs/images/cazdo-open-nav.gif"
-)
+pushd $DEMO_REPO
+vhs $WORKSPACE_ROOT/docs/tapes/cazdo-open-nav.tape \
+    -o $WORKSPACE_ROOT/docs/images/cazdo-open-nav.gif
+popd
 
 # Render MP4 for better quality
-(
-  cd "$DEMO_REPO"
-  vhs "$WORKSPACE_ROOT/docs/tapes/cazdo-open-nav.tape" \
-    -o "$WORKSPACE_ROOT/docs/images/cazdo-open-nav.mp4"
-)
+pushd $DEMO_REPO
+vhs $WORKSPACE_ROOT/docs/tapes/cazdo-open-nav.tape \
+    -o $WORKSPACE_ROOT/docs/images/cazdo-open-nav.mp4
+popd
 
-# Capture a still screenshot from 7.0s in the MP4
-ffmpeg -ss 00:00:07.0 -i "$WORKSPACE_ROOT/docs/images/cazdo-open-nav.mp4" -frames:v 1 -update 1 "$WORKSPACE_ROOT/docs/images/cazdo-open-nav-still.png"
+# Capture a still screenshot while work item #103 and its description are visible
+ffmpeg -ss 00:00:02.2 -i $WORKSPACE_ROOT/docs/images/cazdo-open-nav.mp4 -frames:v 1 -update 1 $WORKSPACE_ROOT/docs/images/cazdo-open-nav-still.png
 
 # Cleanup mp4
-rm "$WORKSPACE_ROOT/docs/images/cazdo-open-nav.mp4"
+rm $WORKSPACE_ROOT/docs/images/cazdo-open-nav.mp4
 ```
 
 The generated repo uses a local bare `origin` plus `CAZDO_DEMO_WORK_ITEMS`, so the tape stays independent from your current branch layout, PAT, and network access.
