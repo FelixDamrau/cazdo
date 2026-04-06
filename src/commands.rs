@@ -353,7 +353,9 @@ mod tests {
         let result = work_item_client_config(Err(error), false);
 
         assert_eq!(
-            result.expect_err("normal mode should keep config errors").to_string(),
+            result
+                .expect_err("normal mode should keep config errors")
+                .to_string(),
             "missing config"
         );
     }

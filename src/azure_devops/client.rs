@@ -274,10 +274,13 @@ impl LiveAzureDevOpsClient {
 
 impl FixtureAzureDevOpsClient {
     fn from_path(path: &Path) -> Result<Self> {
-        let content = std::fs::read_to_string(path)
-            .with_context(|| format!("Failed to read demo work item fixture: {}", path.display()))?;
-        let fixture_items: Vec<FixtureWorkItem> = serde_json::from_str(&content)
-            .with_context(|| format!("Failed to parse demo work item fixture: {}", path.display()))?;
+        let content = std::fs::read_to_string(path).with_context(|| {
+            format!("Failed to read demo work item fixture: {}", path.display())
+        })?;
+        let fixture_items: Vec<FixtureWorkItem> =
+            serde_json::from_str(&content).with_context(|| {
+                format!("Failed to parse demo work item fixture: {}", path.display())
+            })?;
 
         let work_items = fixture_items
             .into_iter()
@@ -426,7 +429,11 @@ mod tests {
             .err()
             .expect("malformed fixture should fail to load");
 
-        assert!(error.to_string().contains("Failed to parse demo work item fixture"));
+        assert!(
+            error
+                .to_string()
+                .contains("Failed to parse demo work item fixture")
+        );
     }
 
     #[test]
