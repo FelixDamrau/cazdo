@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Clone)]
 pub struct AzureDevOpsClient {
@@ -26,7 +26,6 @@ struct LiveAzureDevOpsClient {
 
 #[derive(Clone)]
 struct FixtureAzureDevOpsClient {
-    fixture_path: PathBuf,
     work_items: HashMap<u32, WorkItem>,
 }
 
@@ -273,10 +272,7 @@ impl FixtureAzureDevOpsClient {
             .map(|item| Ok((item.id, item.into_work_item()?)))
             .collect::<Result<HashMap<_, _>>>()?;
 
-        Ok(Self {
-            fixture_path: path.to_path_buf(),
-            work_items,
-        })
+        Ok(Self { work_items })
     }
 
     fn get_work_item(&self, id: u32) -> Result<WorkItem> {
@@ -287,14 +283,7 @@ impl FixtureAzureDevOpsClient {
     }
 
     fn verify_connection(&self) -> Result<()> {
-        if self.fixture_path.exists() {
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!(
-                "Demo work item fixture is missing: {}",
-                self.fixture_path.display()
-            ))
-        }
+        Ok(())
     }
 }
 
@@ -434,5 +423,31 @@ mod tests {
             .expect("fixture-backed client should initialize");
 
         assert!(client.uses_demo_fixture());
+    }
+
+    #[tokio::test]
+    async fn fixture_verify_connection_does_not_depend_on_file_after_load() {
+        let temp_dir = TempDir::new().expect("temp dir should be created");
+        let fixture_path = write_fixture(
+            &temp_dir,
+            r#"[
+  {
+    "id": 101,
+    "title": "Improve branch filtering UX",
+    "work_item_type": "Task",
+    "state": "Committed",
+    "description": "<p>Visible in the fixture.</p>"
+  }
+]"#,
+        );
+
+        let client = AzureDevOpsClient::new_fixture(&fixture_path)
+            .expect("fixture-backed client should initialize");
+        std::fs::remove_file(&fixture_path).expect("fixture file should be removed");
+
+        client
+            .verify_connection()
+            .await
+            .expect("loaded fixture client should still verify");
     }
 }
