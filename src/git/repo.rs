@@ -838,7 +838,7 @@ mod tests {
         let result = repo.current_branch_tracks_remote("origin/main");
 
         let _ = fs::remove_dir_all(repo_path);
-        assert_eq!(result.expect("detached head should not error"), false);
+        assert!(!result.expect("detached head should not error"));
     }
 
     #[test]
