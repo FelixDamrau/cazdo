@@ -1,4 +1,4 @@
-use crate::azure_devops::AzureDevOpsClient;
+use crate::azure_devops::{AzureDevOpsClient, work_item_client};
 use crate::config::{Config, PatSource};
 use crate::git::{GitRepo, RepoBranch, extract_work_item_number};
 use crate::pattern::is_protected;
@@ -189,8 +189,7 @@ pub async fn show_work_item(id: Option<u32>, long: bool) -> Result<()> {
         }
     };
 
-    let config = work_item_client_config(Config::load(), demo_fixture_enabled())?;
-    let client = AzureDevOpsClient::new(&config)?;
+    let client = work_item_client()?;
     let wi = client.get_work_item(wi_id).await?;
 
     let wi_label = format!("#{}", wi.id);
@@ -229,23 +228,11 @@ pub async fn show_work_item(id: Option<u32>, long: bool) -> Result<()> {
     Ok(())
 }
 
-fn demo_fixture_enabled() -> bool {
-    std::env::var_os("CAZDO_DEMO_WORK_ITEMS").is_some()
-}
-
 fn wi_preview_char_limit(long: bool) -> usize {
     if long {
         WI_LONG_PREVIEW_CHAR_LIMIT
     } else {
         WI_PREVIEW_CHAR_LIMIT
-    }
-}
-
-fn work_item_client_config(config: Result<Config>, demo_fixture_enabled: bool) -> Result<Config> {
-    match config {
-        Ok(config) => Ok(config),
-        Err(_) if demo_fixture_enabled => Ok(Config::default()),
-        Err(error) => Err(error),
     }
 }
 
@@ -332,33 +319,6 @@ fn is_pat_assignment(line_without_newline: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn uses_default_config_for_work_item_client_in_demo_mode() {
-        let error = anyhow::anyhow!("missing config");
-
-        let config = work_item_client_config(Err(error), true)
-            .expect("demo mode should fall back to default config");
-
-        assert_eq!(
-            config.azure_devops.organization_url,
-            Config::default().azure_devops.organization_url
-        );
-    }
-
-    #[test]
-    fn keeps_config_error_when_demo_mode_is_disabled() {
-        let error = anyhow::anyhow!("missing config");
-
-        let result = work_item_client_config(Err(error), false);
-
-        assert_eq!(
-            result
-                .expect_err("normal mode should keep config errors")
-                .to_string(),
-            "missing config"
-        );
-    }
 
     #[test]
     fn compact_text_preview_keeps_short_text() {

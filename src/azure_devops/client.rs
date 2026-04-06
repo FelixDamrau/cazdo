@@ -47,13 +47,6 @@ struct FixtureWorkItem {
 }
 
 impl AzureDevOpsClient {
-    pub fn new(config: &Config) -> Result<Self> {
-        Self::new_with_demo_fixture(
-            config,
-            std::env::var_os("CAZDO_DEMO_WORK_ITEMS").map(PathBuf::from),
-        )
-    }
-
     pub fn new_live(config: &Config) -> Result<Self> {
         let pat = config.get_pat()?;
 
@@ -77,19 +70,12 @@ impl AzureDevOpsClient {
         })
     }
 
-    fn new_with_demo_fixture<T>(config: &Config, fixture_path: Option<T>) -> Result<Self>
-    where
-        T: AsRef<Path>,
-    {
-        if let Some(path) = fixture_path {
-            return Ok(Self {
-                provider: WorkItemProvider::Fixture(FixtureAzureDevOpsClient::from_path(
-                    path.as_ref(),
-                )?),
-            });
-        }
-
-        Self::new_live(config)
+    pub fn new_fixture(path: impl AsRef<Path>) -> Result<Self> {
+        Ok(Self {
+            provider: WorkItemProvider::Fixture(FixtureAzureDevOpsClient::from_path(
+                path.as_ref(),
+            )?),
+        })
     }
 
     #[cfg(test)]
@@ -340,15 +326,7 @@ impl FixtureWorkItem {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config;
     use tempfile::TempDir;
-
-    fn test_config() -> Config {
-        let mut config = Config::default();
-        config.azure_devops.organization_url = "https://dev.azure.com/test-org".to_string();
-        config.azure_devops.pat = Some("test-pat".to_string());
-        config
-    }
 
     fn write_fixture(temp_dir: &TempDir, content: &str) -> std::path::PathBuf {
         let path = temp_dir.path().join("demo-work-items.json");
@@ -375,7 +353,7 @@ mod tests {
 ]"#,
         );
 
-        let client = AzureDevOpsClient::new_with_demo_fixture(&test_config(), Some(&fixture_path))
+        let client = AzureDevOpsClient::new_fixture(&fixture_path)
             .expect("fixture-backed client should initialize");
 
         let work_item = client
@@ -409,7 +387,7 @@ mod tests {
 ]"#,
         );
 
-        let client = AzureDevOpsClient::new_with_demo_fixture(&test_config(), Some(&fixture_path))
+        let client = AzureDevOpsClient::new_fixture(&fixture_path)
             .expect("fixture-backed client should initialize");
 
         let error = client
@@ -425,7 +403,7 @@ mod tests {
         let temp_dir = TempDir::new().expect("temp dir should be created");
         let fixture_path = write_fixture(&temp_dir, r#"{ "broken": true }"#);
 
-        let error = AzureDevOpsClient::new_with_demo_fixture(&test_config(), Some(&fixture_path))
+        let error = AzureDevOpsClient::new_fixture(&fixture_path)
             .err()
             .expect("malformed fixture should fail to load");
 
@@ -437,7 +415,7 @@ mod tests {
     }
 
     #[test]
-    fn selects_demo_fixture_provider_when_env_var_is_set() {
+    fn new_fixture_uses_fixture_provider() {
         let temp_dir = TempDir::new().expect("temp dir should be created");
         let fixture_path = write_fixture(
             &temp_dir,
@@ -452,7 +430,7 @@ mod tests {
 ]"#,
         );
 
-        let client = AzureDevOpsClient::new_with_demo_fixture(&test_config(), Some(&fixture_path))
+        let client = AzureDevOpsClient::new_fixture(&fixture_path)
             .expect("fixture-backed client should initialize");
 
         assert!(client.uses_demo_fixture());
