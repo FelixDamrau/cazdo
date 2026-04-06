@@ -1,4 +1,4 @@
-use crate::azure_devops::AzureDevOpsClient;
+use crate::azure_devops::{AzureDevOpsClient, work_item_client};
 use crate::config::{Config, PatSource};
 use crate::git::{GitRepo, RepoBranch, extract_work_item_number};
 use crate::pattern::is_protected;
@@ -154,7 +154,7 @@ pub async fn config_verify() -> Result<()> {
         PatSource::Config => println!("  PAT source: config ([azure_devops].pat)"),
     }
 
-    let client = AzureDevOpsClient::new(&config)?;
+    let client = AzureDevOpsClient::new_live(&config)?;
     client.verify_connection().await?;
 
     println!("Verification successful: URL and PAT are working.");
@@ -189,8 +189,7 @@ pub async fn show_work_item(id: Option<u32>, long: bool) -> Result<()> {
         }
     };
 
-    let config = Config::load()?;
-    let client = AzureDevOpsClient::new(&config)?;
+    let client = work_item_client()?;
     let wi = client.get_work_item(wi_id).await?;
 
     let wi_label = format!("#{}", wi.id);

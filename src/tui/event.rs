@@ -18,8 +18,7 @@ use tokio::sync::mpsc;
 use super::app::{App, AppMode, BranchInfo, BranchView, WorkItemStatus};
 use super::theme::{scroll, timing};
 use super::ui;
-use crate::azure_devops::{AzureDevOpsClient, WorkItem};
-use crate::config::Config;
+use crate::azure_devops::{AzureDevOpsClient, WorkItem, work_item_client};
 use crate::git::{BranchScope, DeleteResult, GitRepo, list_origin_remote_heads_in_dir, short_sha};
 
 enum FetchResult {
@@ -40,8 +39,7 @@ enum Action {
 const REMOTE_FRESHNESS_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub async fn run_app(mut app: App, git_repo: GitRepo) -> Result<()> {
-    let config = Config::load()?;
-    let client = AzureDevOpsClient::new(&config)?;
+    let client = work_item_client()?;
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
