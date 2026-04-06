@@ -6,6 +6,8 @@ See [vhs](https://github.com/charmbracelet/vhs) for the tape recording tool.
 
 ## Render Demo
 
+These commands assume Fish shell.
+
 ```fish
 # Build the local binary used by the demo wrapper
 cargo build --quiet
@@ -33,6 +35,9 @@ ffmpeg -ss 00:00:02.2 -i $WORKSPACE_ROOT/docs/images/cazdo-open-nav.mp4 -frames:
 
 # Cleanup mp4
 rm $WORKSPACE_ROOT/docs/images/cazdo-open-nav.mp4
+
+# Remove temporary demo repos when you no longer need them
+./scripts/cleanup-vhs-demo-repos.sh
 ```
 
 The generated repo uses a local bare `origin` plus `CAZDO_DEMO_WORK_ITEMS`, so the tape stays independent from your current branch layout, PAT, and network access.
