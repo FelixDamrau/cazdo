@@ -164,28 +164,31 @@ pub async fn config_verify() -> Result<()> {
 const WI_PREVIEW_CHAR_LIMIT: usize = 320;
 const WI_LONG_PREVIEW_CHAR_LIMIT: usize = 600;
 
+fn current_branch_work_item_id(branch_name: Option<&str>) -> Result<u32> {
+    let Some(branch_name) = branch_name else {
+        bail!(
+            "No local branch is currently checked out. Pass a work item id explicitly or check out a branch."
+        );
+    };
+
+    match extract_work_item_number(branch_name) {
+        Some(id) => Ok(id),
+        None => {
+            bail!(
+                "No work item number found in current branch '{}'.",
+                branch_name
+            );
+        }
+    }
+}
+
 pub async fn show_work_item(id: Option<u32>, long: bool) -> Result<()> {
     let wi_id = match id {
         Some(id) => id,
         None => {
             let repo = GitRepo::open_current_dir().context("Failed to open git repository")?;
 
-            let branch_name = match repo.current_branch() {
-                Ok(branch) => branch,
-                Err(_) => {
-                    bail!("No current branch found.");
-                }
-            };
-
-            match extract_work_item_number(&branch_name) {
-                Some(id) => id,
-                None => {
-                    bail!(
-                        "No work item number found in current branch '{}'.",
-                        branch_name
-                    );
-                }
-            }
+            current_branch_work_item_id(repo.current_local_branch_name()?.as_deref())?
         }
     };
 
@@ -319,6 +322,36 @@ fn is_pat_assignment(line_without_newline: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn current_branch_work_item_id_requires_local_branch() {
+        let error = current_branch_work_item_id(None).expect_err("detached head should error");
+
+        assert_eq!(
+            error.to_string(),
+            "No local branch is currently checked out. Pass a work item id explicitly or check out a branch."
+        );
+    }
+
+    #[test]
+    fn current_branch_work_item_id_extracts_work_item_from_branch_name() {
+        assert_eq!(
+            current_branch_work_item_id(Some("feature/12345-login"))
+                .expect("branch name should yield work item id"),
+            12345
+        );
+    }
+
+    #[test]
+    fn current_branch_work_item_id_reports_missing_work_item_number() {
+        let error = current_branch_work_item_id(Some("main"))
+            .expect_err("branch without work item should error");
+
+        assert_eq!(
+            error.to_string(),
+            "No work item number found in current branch 'main'."
+        );
+    }
 
     #[test]
     fn compact_text_preview_keeps_short_text() {

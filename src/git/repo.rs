@@ -116,21 +116,9 @@ impl GitRepo {
         Ok(Self { repo })
     }
 
-    /// Get the name of the current branch
-    pub fn current_branch(&self) -> Result<String> {
-        if let Some(branch_name) = self.current_local_branch_name()? {
-            Ok(branch_name)
-        } else {
-            let head = self.repo.head().context("Failed to get HEAD reference")?;
-            let commit = head.peel_to_commit().context("Failed to get HEAD commit")?;
-            let short_id = commit.id().to_string();
-            Ok(format!("(detached HEAD at {})", short_sha(&short_id)))
-        }
-    }
-
     /// Get all local branches plus origin remote branches.
     pub fn list_branches(&self) -> Result<Vec<RepoBranch>> {
-        let current = self.current_branch().ok();
+        let current = self.current_local_branch_name().ok().flatten();
         let mut branches: Vec<RepoBranch> = Vec::new();
 
         let local_iter = self
@@ -371,8 +359,7 @@ impl GitRepo {
     }
 
     fn checkout_local_branch(&self, branch_name: &str) -> Result<()> {
-        let current = self.current_branch()?;
-        if current == branch_name {
+        if self.current_local_branch_name()?.as_deref() == Some(branch_name) {
             anyhow::bail!("Already on branch '{}'", branch_name);
         }
 
@@ -394,7 +381,7 @@ impl GitRepo {
         let remote_ref_name = format!("{remote_name}/{branch_name}");
 
         if let Ok(local_branch) = self.repo.find_branch(branch_name, BranchType::Local) {
-            let current = self.current_branch()?;
+            let current = self.current_local_branch_name()?;
             let upstream_name_result = match local_branch.upstream() {
                 Ok(upstream) => upstream
                     .name()
@@ -407,7 +394,7 @@ impl GitRepo {
             match existing_local_branch_action(
                 branch_name,
                 &remote_ref_name,
-                &current,
+                current.as_deref(),
                 upstream_name_result,
             )? {
                 ExistingLocalBranchAction::CheckoutLocal => {
@@ -475,8 +462,7 @@ impl GitRepo {
     }
 
     fn delete_local_branch(&self, branch_name: &str) -> Result<DeleteResult> {
-        let current = self.current_branch()?;
-        if current == branch_name {
+        if self.current_local_branch_name()?.as_deref() == Some(branch_name) {
             anyhow::bail!("Cannot delete the current branch");
         }
 
@@ -557,7 +543,7 @@ impl GitRepo {
         Ok(upstream.name().ok().flatten() == Some(remote_ref_name))
     }
 
-    fn current_local_branch_name(&self) -> Result<Option<String>> {
+    pub(crate) fn current_local_branch_name(&self) -> Result<Option<String>> {
         let head = self.repo.head().context("Failed to get HEAD reference")?;
         if !head.is_branch() {
             return Ok(None);
@@ -643,7 +629,7 @@ fn remote_branch_status(
 fn existing_local_branch_action(
     branch_name: &str,
     remote_ref_name: &str,
-    current_branch: &str,
+    current_branch: Option<&str>,
     upstream_name_result: Result<Option<String>>,
 ) -> Result<ExistingLocalBranchAction> {
     let upstream_name = upstream_name_result?;
@@ -652,7 +638,7 @@ fn existing_local_branch_action(
         return Ok(ExistingLocalBranchAction::CheckoutLocal);
     }
 
-    if current_branch == branch_name {
+    if current_branch == Some(branch_name) {
         anyhow::bail!("Already on branch '{}'", branch_name);
     }
 
@@ -792,7 +778,7 @@ mod tests {
         let action = existing_local_branch_action(
             "feature/test",
             "origin/feature/test",
-            "main",
+            Some("main"),
             Ok(Some("origin/feature/test".to_string())),
         )
         .expect("matching upstream should reuse local branch");
@@ -805,7 +791,7 @@ mod tests {
         let error = existing_local_branch_action(
             "feature/test",
             "origin/feature/test",
-            "main",
+            Some("main"),
             Ok(Some("origin/other".to_string())),
         )
         .expect_err("different upstream should error");
@@ -821,7 +807,7 @@ mod tests {
         let error = existing_local_branch_action(
             "feature/test",
             "origin/feature/test",
-            "feature/test",
+            Some("feature/test"),
             Ok(None),
         )
         .expect_err("current branch should error");
@@ -834,7 +820,7 @@ mod tests {
         let error = existing_local_branch_action(
             "feature/test",
             "origin/feature/test",
-            "main",
+            Some("main"),
             Err(git2::Error::from_str("upstream name failure").into()),
         )
         .expect_err("upstream name failure should propagate");
@@ -852,7 +838,22 @@ mod tests {
         let result = repo.current_branch_tracks_remote("origin/main");
 
         let _ = fs::remove_dir_all(repo_path);
-        assert_eq!(result.expect("detached head should not error"), false);
+        assert!(!result.expect("detached head should not error"));
+    }
+
+    #[test]
+    fn test_current_local_branch_name_returns_none_in_detached_head() {
+        let (repo, repo_path, oid) = init_test_repo("detached-head-local-name");
+        repo.repo
+            .set_head_detached(oid)
+            .expect("detached head should be set");
+
+        let branch_name = repo
+            .current_local_branch_name()
+            .expect("branch lookup should succeed");
+
+        let _ = fs::remove_dir_all(repo_path);
+        assert_eq!(branch_name, None);
     }
 
     fn init_test_repo(name: &str) -> (GitRepo, PathBuf, git2::Oid) {
