@@ -88,7 +88,7 @@ pub struct App {
     pub local_selected_index: usize,
     pub remote_selected_index: usize,
     pub work_items: HashMap<u32, WorkItemStatus>,
-    pub branch_statuses: HashMap<String, BranchStatus>,
+    pub branch_statuses: HashMap<String, Result<BranchStatus, String>>,
     pub should_quit: bool,
     pub scroll_offset: u16,
     pub content_height: u16,
@@ -292,15 +292,28 @@ impl App {
     }
 
     pub fn get_branch_status(&self, key: &str) -> Option<&BranchStatus> {
-        self.branch_statuses.get(key)
+        self.branch_statuses
+            .get(key)
+            .and_then(|status| status.as_ref().ok())
+    }
+
+    pub fn get_branch_status_error(&self, key: &str) -> Option<&str> {
+        self.branch_statuses
+            .get(key)
+            .and_then(|status| status.as_ref().err())
+            .map(String::as_str)
     }
 
     pub fn set_branch_status(&mut self, key: String, status: BranchStatus) {
-        self.branch_statuses.insert(key, status);
+        self.branch_statuses.insert(key, Ok(status));
+    }
+
+    pub fn set_branch_status_error(&mut self, key: String, error: String) {
+        self.branch_statuses.insert(key, Err(error));
     }
 
     pub fn needs_branch_status(&self, key: &str) -> bool {
-        !self.branch_statuses.contains_key(key)
+        !matches!(self.branch_statuses.get(key), Some(Ok(_)))
     }
 
     pub fn enter_confirm_mode(&mut self) {
@@ -554,6 +567,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::git::RemoteStatus;
 
     fn branch(
         key: &str,
@@ -1405,5 +1419,34 @@ mod tests {
         app.toggle_view();
 
         assert!(!app.should_check_remote_freshness());
+    }
+
+    #[test]
+    fn test_needs_branch_status_retries_after_cached_error() {
+        let mut app = App::new(vec![], vec![]);
+
+        assert!(app.needs_branch_status("refs/heads/feature/1"));
+
+        app.set_branch_status_error(
+            "refs/heads/feature/1".to_string(),
+            "temporary failure".to_string(),
+        );
+
+        assert!(app.needs_branch_status("refs/heads/feature/1"));
+    }
+
+    #[test]
+    fn test_needs_branch_status_stops_retrying_after_success() {
+        let mut app = App::new(vec![], vec![]);
+        app.set_branch_status(
+            "refs/heads/feature/1".to_string(),
+            BranchStatus {
+                remote_status: RemoteStatus::UpToDate,
+                last_commit_author: None,
+                last_commit_time: None,
+            },
+        );
+
+        assert!(!app.needs_branch_status("refs/heads/feature/1"));
     }
 }

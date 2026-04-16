@@ -119,6 +119,11 @@ pub fn render_branch_info(frame: &mut Frame, app: &App, area: Rect) {
                     lines.extend(remote_branch_lines(app, branch, status));
                 }
             }
+        } else if let Some(error) = app.get_branch_status_error(&branch.key) {
+            lines.push(Line::from(vec![Span::styled(
+                format!("  Error: {error}"),
+                theme::styles::ERROR,
+            )]));
         } else {
             lines.push(Line::from(vec![Span::styled(
                 "  Loading...",
@@ -246,5 +251,19 @@ mod tests {
         let status = remote_status();
 
         assert!(matches!(status.remote_status, RemoteStatus::RemoteTracking));
+    }
+
+    #[test]
+    fn test_branch_info_shows_cached_status_error() {
+        let branch = remote_branch(false);
+        let mut app = App::new(vec![branch.clone()], vec![]);
+        app.active_view = BranchView::Remote;
+        app.set_branch_status_error(branch.key.clone(), "status unavailable".to_string());
+
+        assert!(app.get_branch_status(&branch.key).is_none());
+        assert_eq!(
+            app.get_branch_status_error(&branch.key),
+            Some("status unavailable")
+        );
     }
 }
