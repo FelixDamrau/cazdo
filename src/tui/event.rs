@@ -228,14 +228,37 @@ fn trigger_work_item_fetch(
 fn fetch_branch_status_if_needed(app: &mut App, git_repo: &GitRepo) {
     if let Some(branch) = app.selected_branch() {
         let branch_key = branch.key.clone();
-        if app.needs_branch_status(&branch_key)
-            && let Ok(status) = git_repo.get_branch_status(
+        let branch_display_name = branch.display_name.clone();
+
+        if app.needs_branch_status(&branch_key) {
+            let result = git_repo.get_branch_status(
                 branch.scope,
                 &branch.branch_name,
                 branch.remote_name.as_deref(),
-            )
-        {
-            app.set_branch_status(branch_key, status);
+            );
+            apply_branch_status_result(app, &branch_key, &branch_display_name, result);
+        }
+    }
+}
+
+fn apply_branch_status_result(
+    app: &mut App,
+    branch_key: &str,
+    branch_display_name: &str,
+    result: Result<crate::git::BranchStatus>,
+) {
+    match result {
+        Ok(status) => app.set_branch_status(branch_key.to_string(), status),
+        Err(error) => {
+            app.set_branch_status_error(branch_key.to_string(), error.to_string());
+            app.set_status_message(
+                format!(
+                    "Could not load branch info for '{}': {}",
+                    branch_display_name, error
+                ),
+                true,
+                timing::STATUS_DURATION_SECS,
+            );
         }
     }
 }
@@ -432,12 +455,24 @@ fn handle_mouse_event(app: &mut App, mouse_event: MouseEvent) {
     }
 }
 
-fn open_current_work_item(app: &App) {
+fn open_current_work_item(app: &mut App) {
+    open_current_work_item_with(app, open_url);
+}
+
+fn open_current_work_item_with<F>(app: &mut App, open: F)
+where
+    F: FnOnce(&str) -> Result<()>,
+{
     if let Some(wi_id) = app.selected_work_item_id()
         && let WorkItemStatus::Loaded(wi) = app.get_work_item_status(wi_id)
         && let Some(ref url) = wi.url
+        && let Err(error) = open(url)
     {
-        let _ = open_url(url);
+        app.set_status_message(
+            format!("Could not open work item in browser: {}", error),
+            true,
+            timing::STATUS_DURATION_SECS,
+        );
     }
 }
 
@@ -876,6 +911,71 @@ mod tests {
         assert!(matches!(app.mode, AppMode::FilterInput));
         assert_eq!(app.active_view, BranchView::Local);
         assert_eq!(app.filter_input, "t");
+    }
+
+    #[test]
+    fn test_apply_branch_status_result_caches_error_and_sets_status_message() {
+        let mut app = App::new(vec![remote_branch(false)], vec![]);
+
+        apply_branch_status_result(
+            &mut app,
+            "refs/remotes/origin/feature/1",
+            "origin/feature/1",
+            Err(anyhow::anyhow!("git lookup failed")),
+        );
+
+        assert_eq!(
+            app.get_branch_status_error("refs/remotes/origin/feature/1"),
+            Some("git lookup failed")
+        );
+
+        let status = app
+            .get_status_message()
+            .expect("status message should be set");
+        assert!(status.is_error);
+        assert!(status.text.contains("origin/feature/1"));
+    }
+
+    #[test]
+    fn test_open_current_work_item_reports_browser_open_error() {
+        let mut app = App::new(
+            vec![BranchInfo {
+                key: "refs/heads/feature/1".to_string(),
+                display_name: "feature/1".to_string(),
+                branch_name: "feature/1".to_string(),
+                remote_name: None,
+                scope: BranchScope::Local,
+                work_item_id: Some(42),
+                is_current: false,
+                is_protected: false,
+                is_stale: false,
+            }],
+            vec![],
+        );
+        app.set_work_item_loaded(
+            42,
+            WorkItem {
+                id: 42,
+                title: "Open me".to_string(),
+                work_item_type: crate::azure_devops::WorkItemType::Task,
+                state: crate::azure_devops::WorkItemState::Active,
+                assigned_to: None,
+                url: Some("https://example.test/items/42".to_string()),
+                tags: vec![],
+                rich_text_fields: vec![],
+            },
+        );
+
+        open_current_work_item_with(&mut app, |_| Err(anyhow::anyhow!("xdg-open missing")));
+
+        let status = app
+            .get_status_message()
+            .expect("status message should be set");
+        assert!(status.is_error);
+        assert_eq!(
+            status.text,
+            "Could not open work item in browser: xdg-open missing"
+        );
     }
 
     #[test]

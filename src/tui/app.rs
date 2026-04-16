@@ -88,7 +88,7 @@ pub struct App {
     pub local_selected_index: usize,
     pub remote_selected_index: usize,
     pub work_items: HashMap<u32, WorkItemStatus>,
-    pub branch_statuses: HashMap<String, BranchStatus>,
+    pub branch_statuses: HashMap<String, Result<BranchStatus, String>>,
     pub should_quit: bool,
     pub scroll_offset: u16,
     pub content_height: u16,
@@ -292,11 +292,24 @@ impl App {
     }
 
     pub fn get_branch_status(&self, key: &str) -> Option<&BranchStatus> {
-        self.branch_statuses.get(key)
+        self.branch_statuses
+            .get(key)
+            .and_then(|status| status.as_ref().ok())
+    }
+
+    pub fn get_branch_status_error(&self, key: &str) -> Option<&str> {
+        self.branch_statuses
+            .get(key)
+            .and_then(|status| status.as_ref().err())
+            .map(String::as_str)
     }
 
     pub fn set_branch_status(&mut self, key: String, status: BranchStatus) {
-        self.branch_statuses.insert(key, status);
+        self.branch_statuses.insert(key, Ok(status));
+    }
+
+    pub fn set_branch_status_error(&mut self, key: String, error: String) {
+        self.branch_statuses.insert(key, Err(error));
     }
 
     pub fn needs_branch_status(&self, key: &str) -> bool {

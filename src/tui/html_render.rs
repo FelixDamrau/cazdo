@@ -14,10 +14,27 @@ enum ListType {
     Ordered(usize), // current item number
 }
 
+#[derive(Clone, Copy)]
+enum TextStyle {
+    Bold,
+    Underlined,
+    CrossedOut,
+}
+
+impl TextStyle {
+    fn modifier(self) -> Modifier {
+        match self {
+            Self::Bold => Modifier::BOLD,
+            Self::Underlined => Modifier::UNDERLINED,
+            Self::CrossedOut => Modifier::CROSSED_OUT,
+        }
+    }
+}
+
 /// Parser state for HTML rendering
 struct HtmlParser {
     /// Stack of active style modifiers (bold, italic)
-    style_stack: Vec<Modifier>,
+    style_stack: Vec<TextStyle>,
     /// Stack of active lists for nesting
     list_stack: Vec<ListType>,
     /// Current line being built
@@ -63,8 +80,8 @@ impl HtmlParser {
     /// Compute current style from style stack
     fn compute_style(&self) -> Style {
         let mut style = Style::default();
-        for modifier in &self.style_stack {
-            style = style.add_modifier(*modifier);
+        for text_style in &self.style_stack {
+            style = style.add_modifier(text_style.modifier());
         }
         if self.in_anchor {
             style = style.fg(Color::Cyan);
@@ -119,6 +136,12 @@ impl HtmlParser {
     fn add_text(&mut self, text: &str) {
         let text = decode_html_entities(text);
 
+        if self.max_width == 0 {
+            self.current_text.push_str(&text);
+            self.current_line_width += text.chars().count();
+            return;
+        }
+
         // Handle word wrapping
         for word in text.split_inclusive(char::is_whitespace) {
             let word_width = word.chars().count();
@@ -162,24 +185,24 @@ impl HtmlParser {
                 }
                 self.flush_text();
                 self.current_style = self.compute_style();
-                self.style_stack.push(Modifier::BOLD);
+                self.style_stack.push(TextStyle::Bold);
                 self.current_style = self.compute_style();
             }
 
             // Inline formatting
             "b" | "strong" => {
                 self.flush_text();
-                self.style_stack.push(Modifier::BOLD);
+                self.style_stack.push(TextStyle::Bold);
                 self.current_style = self.compute_style();
             }
             "u" => {
                 self.flush_text();
-                self.style_stack.push(Modifier::UNDERLINED);
+                self.style_stack.push(TextStyle::Underlined);
                 self.current_style = self.compute_style();
             }
             "s" | "strike" | "del" => {
                 self.flush_text();
-                self.style_stack.push(Modifier::CROSSED_OUT);
+                self.style_stack.push(TextStyle::CrossedOut);
                 self.current_style = self.compute_style();
             }
 
@@ -268,15 +291,25 @@ impl HtmlParser {
             }
             "h1" | "h2" | "h3" => {
                 self.flush_text();
-                self.style_stack.pop();
+                self.pop_style(TextStyle::Bold);
                 self.current_style = self.compute_style();
                 self.flush_line();
             }
 
             // Inline formatting
-            "b" | "strong" | "u" | "s" | "strike" | "del" => {
+            "b" | "strong" => {
                 self.flush_text();
-                self.style_stack.pop();
+                self.pop_style(TextStyle::Bold);
+                self.current_style = self.compute_style();
+            }
+            "u" => {
+                self.flush_text();
+                self.pop_style(TextStyle::Underlined);
+                self.current_style = self.compute_style();
+            }
+            "s" | "strike" | "del" => {
+                self.flush_text();
+                self.pop_style(TextStyle::CrossedOut);
                 self.current_style = self.compute_style();
             }
 
@@ -391,6 +424,16 @@ impl HtmlParser {
             // Opening tag
             let tag_name = tag_content.split_whitespace().next().unwrap_or("");
             self.handle_open_tag(tag_name);
+        }
+    }
+
+    fn pop_style(&mut self, text_style: TextStyle) {
+        if let Some(index) = self
+            .style_stack
+            .iter()
+            .rposition(|style| std::mem::discriminant(style) == std::mem::discriminant(&text_style))
+        {
+            self.style_stack.remove(index);
         }
     }
 }
@@ -519,5 +562,47 @@ mod tests {
 
         assert!(content.contains("  code"));
         assert!(content.contains("    indent"));
+    }
+
+    #[test]
+    fn test_zero_max_width_disables_wrapping() {
+        let lines = render_html("alpha beta gamma", 0);
+
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].spans[0].content.as_ref(), "alpha beta gamma");
+    }
+
+    #[test]
+    fn test_mismatched_closing_tags_remove_matching_style() {
+        let lines = render_html("<b><u>x</b>y</u>", 80);
+
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].spans.len(), 2);
+        assert_eq!(lines[0].spans[0].content.as_ref(), "x");
+        assert_eq!(lines[0].spans[1].content.as_ref(), "y");
+        assert!(
+            lines[0].spans[0]
+                .style
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+        assert!(
+            lines[0].spans[0]
+                .style
+                .add_modifier
+                .contains(Modifier::UNDERLINED)
+        );
+        assert!(
+            !lines[0].spans[1]
+                .style
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+        assert!(
+            lines[0].spans[1]
+                .style
+                .add_modifier
+                .contains(Modifier::UNDERLINED)
+        );
     }
 }

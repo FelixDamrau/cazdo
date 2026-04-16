@@ -9,6 +9,8 @@ use crate::config::Config;
 
 pub use client::AzureDevOpsClient;
 pub use work_item::WorkItem;
+#[cfg(test)]
+pub use work_item::{WorkItemState, WorkItemType};
 
 pub fn work_item_client() -> Result<AzureDevOpsClient> {
     if let Some(path) = std::env::var_os("CAZDO_DEMO_WORK_ITEMS") {

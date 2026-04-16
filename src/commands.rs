@@ -316,7 +316,19 @@ fn is_pat_assignment(line_without_newline: &str) -> bool {
     !trimmed_start.starts_with('#')
         && trimmed_start
             .split_once('=')
-            .is_some_and(|(key, _)| key.trim() == "pat")
+            .is_some_and(|(key, _)| toml_key_name(key.trim()) == Some("pat"))
+}
+
+fn toml_key_name(key: &str) -> Option<&str> {
+    if let Some(stripped) = key.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+        return Some(stripped);
+    }
+
+    if let Some(stripped) = key.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) {
+        return Some(stripped);
+    }
+
+    if key.is_empty() { None } else { Some(key) }
 }
 
 #[cfg(test)]
@@ -443,6 +455,22 @@ mod tests {
     fn redact_config_for_display_handles_inline_comment_on_section_header() {
         let input = "[azure_devops] # local settings\npat = \"secret-token\"\n";
         let expected = "[azure_devops] # local settings\npat = \"***redacted***\"\n";
+
+        assert_eq!(redact_config_for_display(input), expected);
+    }
+
+    #[test]
+    fn redact_config_for_display_redacts_double_quoted_pat_key() {
+        let input = "[azure_devops]\n\"pat\" = \"secret-token\"\n";
+        let expected = "[azure_devops]\npat = \"***redacted***\"\n";
+
+        assert_eq!(redact_config_for_display(input), expected);
+    }
+
+    #[test]
+    fn redact_config_for_display_redacts_single_quoted_pat_key() {
+        let input = "[azure_devops]\n'pat' = \"secret-token\"\n";
+        let expected = "[azure_devops]\npat = \"***redacted***\"\n";
 
         assert_eq!(redact_config_for_display(input), expected);
     }

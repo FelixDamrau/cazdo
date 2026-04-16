@@ -236,3 +236,81 @@ impl WorkItem {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn from_json_extracts_core_fields_and_rich_text() {
+        let json = json!({
+            "fields": {
+                "System.Title": "Fix login flow",
+                "System.WorkItemType": "Bug",
+                "System.State": "Active",
+                "System.AssignedTo": {
+                    "displayName": "Ada Lovelace"
+                },
+                "System.Tags": "Auth; Urgent ; ;",
+                "System.Description": "<p>Broken on mobile</p>",
+                "Microsoft.VSTS.Common.AcceptanceCriteria": "<p>Works again</p>"
+            },
+            "_links": {
+                "html": {
+                    "href": "https://example.test/items/123"
+                }
+            }
+        });
+
+        let work_item = WorkItem::from_json(&json, 123).expect("work item should parse");
+
+        assert_eq!(work_item.id, 123);
+        assert_eq!(work_item.title, "Fix login flow");
+        assert_eq!(work_item.work_item_type.display_name(), "Bug");
+        assert_eq!(work_item.state.display_name(), "Active");
+        assert_eq!(work_item.assigned_to.as_deref(), Some("Ada Lovelace"));
+        assert_eq!(
+            work_item.url.as_deref(),
+            Some("https://example.test/items/123")
+        );
+        assert_eq!(work_item.tags, vec!["Auth", "Urgent"]);
+        assert_eq!(work_item.rich_text_fields.len(), 2);
+        assert_eq!(work_item.rich_text_fields[0].name, "Description");
+        assert_eq!(work_item.rich_text_fields[1].name, "Acceptance Criteria");
+    }
+
+    #[test]
+    fn from_json_ignores_missing_optional_fields_and_blank_rich_text() {
+        let json = json!({
+            "fields": {
+                "System.Title": "Add reporting",
+                "System.WorkItemType": "Feature",
+                "System.State": "New",
+                "System.Description": "   ",
+                "Microsoft.VSTS.Common.AcceptanceCriteria": ""
+            }
+        });
+
+        let work_item = WorkItem::from_json(&json, 55).expect("work item should parse");
+
+        assert_eq!(work_item.assigned_to, None);
+        assert_eq!(work_item.url, None);
+        assert!(work_item.tags.is_empty());
+        assert!(work_item.rich_text_fields.is_empty());
+    }
+
+    #[test]
+    fn from_json_requires_title() {
+        let json = json!({
+            "fields": {
+                "System.WorkItemType": "Task",
+                "System.State": "Committed"
+            }
+        });
+
+        let error = WorkItem::from_json(&json, 9).expect_err("missing title should fail");
+
+        assert_eq!(error.to_string(), "Missing 'System.Title' field");
+    }
+}

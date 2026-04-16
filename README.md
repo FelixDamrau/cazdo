@@ -133,8 +133,8 @@ cazdo wi --long
 | `j` / `k` / `Arrow keys` | Navigate branches                     |
 | `Enter`                  | Checkout selected branch              |
 | `o`                      | Open work item in browser             |
-| `d`                      | Delete branch (with confirmation)     |
-| `D`                      | Force delete branch (no confirmation) |
+| `d`                      | Delete or prune (with confirmation)   |
+| `D`                      | Delete or prune immediately           |
 | `/`                      | Edit branch filter                    |
 | `r`                      | Refresh current work item             |
 | `t`                      | Toggle local / remote branch view     |
