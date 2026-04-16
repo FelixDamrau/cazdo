@@ -1,4 +1,6 @@
+mod actions;
 mod app;
+mod background;
 mod event;
 mod html_render;
 pub mod theme;

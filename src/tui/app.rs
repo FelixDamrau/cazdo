@@ -191,10 +191,10 @@ impl App {
         let selected_key = self.selected_branch().map(|b| b.key.clone());
         self.show_protected = !self.show_protected;
 
-        if let Some(key) = selected_key
-            && let Some(new_idx) = self.visible_branches().iter().position(|b| b.key == key)
+        if selected_key
+            .as_deref()
+            .is_some_and(|key| self.select_visible_branch_by_key(key))
         {
-            self.set_selected_index(new_idx);
             return;
         }
 
@@ -377,10 +377,12 @@ impl App {
         self.filter_input = self.branch_filter.clone();
         self.mode = AppMode::Normal;
         self.scroll_offset = 0;
-        if let Some(key) = self.filter_input_selected_key.take()
-            && let Some(new_idx) = self.visible_branches().iter().position(|b| b.key == key)
+        if self
+            .filter_input_selected_key
+            .take()
+            .as_deref()
+            .is_some_and(|key| self.select_visible_branch_by_key(key))
         {
-            self.set_selected_index(new_idx);
         } else {
             self.clamp_selected_index();
         }
@@ -552,14 +554,27 @@ impl App {
 
         self.scroll_offset = 0;
 
-        if let Some(key) = selected_key
-            && let Some(new_idx) = self.visible_branches().iter().position(|b| b.key == key)
+        if selected_key
+            .as_deref()
+            .is_some_and(|key| self.select_visible_branch_by_key(key))
         {
-            self.set_selected_index(new_idx);
         } else if self.visible_count() > 0 {
             self.set_selected_index(0);
         } else {
             self.clamp_selected_index();
+        }
+    }
+
+    fn select_visible_branch_by_key(&mut self, key: &str) -> bool {
+        if let Some(new_idx) = self
+            .visible_branches()
+            .iter()
+            .position(|branch| branch.key == key)
+        {
+            self.set_selected_index(new_idx);
+            true
+        } else {
+            false
         }
     }
 }

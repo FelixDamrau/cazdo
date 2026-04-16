@@ -1,4 +1,4 @@
-use super::work_item::WorkItem;
+use super::work_item::{WorkItem, WorkItemParts};
 use crate::config::Config;
 use anyhow::{Context, Result};
 use reqwest::Client;
@@ -299,16 +299,16 @@ impl FixtureWorkItem {
             });
         }
 
-        Ok(WorkItem {
+        Ok(WorkItem::from_parts(WorkItemParts {
             id: self.id,
             title: self.title,
-            work_item_type: self.work_item_type.parse().unwrap(),
-            state: self.state.parse().unwrap(),
+            work_item_type: &self.work_item_type,
+            state: &self.state,
             assigned_to: self.assigned_to,
             url: self.url,
             tags: self.tags,
             rich_text_fields,
-        })
+        }))
     }
 }
 

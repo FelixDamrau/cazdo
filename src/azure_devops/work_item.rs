@@ -24,6 +24,17 @@ pub struct WorkItem {
     pub rich_text_fields: Vec<RichTextField>,
 }
 
+pub(crate) struct WorkItemParts<'a> {
+    pub id: u32,
+    pub title: String,
+    pub work_item_type: &'a str,
+    pub state: &'a str,
+    pub assigned_to: Option<String>,
+    pub url: Option<String>,
+    pub tags: Vec<String>,
+    pub rich_text_fields: Vec<RichTextField>,
+}
+
 #[derive(Debug, Clone)]
 pub enum WorkItemType {
     Bug,
@@ -224,16 +235,29 @@ impl WorkItem {
             }
         }
 
-        Ok(Self {
+        Ok(Self::from_parts(WorkItemParts {
             id,
             title,
-            work_item_type: work_item_type_str.parse().unwrap(),
-            state: state_str.parse().unwrap(),
+            work_item_type: work_item_type_str,
+            state: state_str,
             assigned_to,
             url,
             tags,
             rich_text_fields,
-        })
+        }))
+    }
+
+    pub(crate) fn from_parts(parts: WorkItemParts<'_>) -> Self {
+        Self {
+            id: parts.id,
+            title: parts.title,
+            work_item_type: parts.work_item_type.parse().unwrap(),
+            state: parts.state.parse().unwrap(),
+            assigned_to: parts.assigned_to,
+            url: parts.url,
+            tags: parts.tags,
+            rich_text_fields: parts.rich_text_fields,
+        }
     }
 }
 
