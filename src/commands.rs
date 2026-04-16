@@ -321,11 +321,11 @@ fn is_pat_assignment(line_without_newline: &str) -> bool {
 
 fn toml_key_name(key: &str) -> Option<&str> {
     if let Some(stripped) = key.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
-        return Some(stripped);
+        return Some(stripped.trim());
     }
 
     if let Some(stripped) = key.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) {
-        return Some(stripped);
+        return Some(stripped.trim());
     }
 
     if key.is_empty() { None } else { Some(key) }
@@ -470,6 +470,14 @@ mod tests {
     #[test]
     fn redact_config_for_display_redacts_single_quoted_pat_key() {
         let input = "[azure_devops]\n'pat' = \"secret-token\"\n";
+        let expected = "[azure_devops]\npat = \"***redacted***\"\n";
+
+        assert_eq!(redact_config_for_display(input), expected);
+    }
+
+    #[test]
+    fn redact_config_for_display_redacts_quoted_pat_key_with_inner_whitespace() {
+        let input = "[azure_devops]\n\" pat \" = \"secret-token\"\n";
         let expected = "[azure_devops]\npat = \"***redacted***\"\n";
 
         assert_eq!(redact_config_for_display(input), expected);
