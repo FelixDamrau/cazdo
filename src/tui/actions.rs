@@ -377,6 +377,63 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_remove_branch_keeps_selection_on_previous_visible_branch() {
+        let mut app = App::new(
+            vec![
+                BranchInfo {
+                    key: "refs/heads/feature/1".to_string(),
+                    display_name: "feature/1".to_string(),
+                    branch_name: "feature/1".to_string(),
+                    remote_name: None,
+                    scope: BranchScope::Local,
+                    work_item_id: None,
+                    is_current: false,
+                    is_protected: false,
+                    is_stale: false,
+                },
+                BranchInfo {
+                    key: "refs/heads/feature/2".to_string(),
+                    display_name: "feature/2".to_string(),
+                    branch_name: "feature/2".to_string(),
+                    remote_name: None,
+                    scope: BranchScope::Local,
+                    work_item_id: None,
+                    is_current: false,
+                    is_protected: false,
+                    is_stale: false,
+                },
+            ],
+            vec![],
+        );
+        app.active_view = BranchView::Local;
+        app.local_selected_index = 1;
+
+        app.remove_branch("refs/heads/feature/2");
+
+        assert_eq!(app.local_selected_index, 0);
+        assert_eq!(
+            app.selected_branch().expect("remaining branch").branch_name,
+            "feature/1"
+        );
+    }
+
+    #[test]
+    fn test_ensure_local_branch_exists_creates_checkout_target_branch() {
+        let remote_branch = remote_branch(false);
+        let mut app = App::new(vec![remote_branch.clone()], vec![]);
+
+        app.ensure_local_branch_exists(&remote_branch);
+
+        let local_branch = app
+            .branch_by_key("refs/heads/feature/1")
+            .expect("local branch should be created");
+        assert_eq!(local_branch.scope, BranchScope::Local);
+        assert_eq!(local_branch.display_name, "feature/1");
+        assert_eq!(local_branch.remote_name, None);
+        assert!(!local_branch.is_stale);
+    }
+
     fn remote_branch(is_stale: bool) -> BranchInfo {
         BranchInfo {
             key: "refs/remotes/origin/feature/1".to_string(),
