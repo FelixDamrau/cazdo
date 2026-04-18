@@ -339,6 +339,46 @@ mod tests {
         assert_eq!(app.filter_input, "t");
     }
 
+    #[test]
+    fn test_delete_shortcut_sets_status_when_branch_cannot_be_deleted() {
+        let mut app = App::new(
+            vec![BranchInfo {
+                key: "refs/heads/main".to_string(),
+                display_name: "main".to_string(),
+                branch_name: "main".to_string(),
+                remote_name: None,
+                scope: BranchScope::Local,
+                work_item_id: None,
+                is_current: true,
+                is_protected: true,
+                is_stale: false,
+            }],
+            vec![],
+        );
+
+        let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('d')));
+
+        assert!(action.is_none());
+        let status = app
+            .get_status_message()
+            .expect("delete failure should set a status");
+        assert!(status.is_error);
+        assert_eq!(status.text, "Cannot delete the current branch");
+    }
+
+    #[test]
+    fn test_immediate_delete_shortcut_prunes_stale_branch() {
+        let mut app = App::new(vec![remote_branch(true)], vec![]);
+        app.active_view = BranchView::Remote;
+
+        let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('D')));
+
+        match action {
+            Some(Action::Prune(branch)) => assert_eq!(branch.key, "refs/remotes/origin/feature/1"),
+            _ => panic!("expected stale branch to trigger prune action"),
+        }
+    }
+
     fn remote_branch(is_stale: bool) -> BranchInfo {
         BranchInfo {
             key: "refs/remotes/origin/feature/1".to_string(),

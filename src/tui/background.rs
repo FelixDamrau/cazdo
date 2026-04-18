@@ -182,6 +182,7 @@ fn apply_branch_status_result(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::azure_devops::{WorkItem, WorkItemState, WorkItemType};
     use crate::git::BranchScope;
     use crate::tui::app::BranchInfo;
 
@@ -268,6 +269,57 @@ mod tests {
             .expect("updated error message should be visible");
         assert!(status.is_error);
         assert!(status.text.contains("repo locked"));
+    }
+
+    #[test]
+    fn test_process_fetch_results_loads_work_item_and_clears_pending_fetch() {
+        let mut app = App::new(vec![remote_branch(false)], vec![]);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut pending_fetches = HashSet::from([42]);
+
+        tx.send(FetchResult::Success {
+            id: 42,
+            work_item: WorkItem {
+                id: 42,
+                title: "Loaded item".to_string(),
+                work_item_type: WorkItemType::Task,
+                state: WorkItemState::Active,
+                assigned_to: None,
+                url: None,
+                tags: vec![],
+                rich_text_fields: vec![],
+            },
+        })
+        .expect("send should succeed");
+
+        process_fetch_results(&mut rx, &mut app, &mut pending_fetches);
+
+        assert!(pending_fetches.is_empty());
+        match app.get_work_item_status(42) {
+            WorkItemStatus::Loaded(work_item) => assert_eq!(work_item.title, "Loaded item"),
+            _ => panic!("expected loaded work item"),
+        }
+    }
+
+    #[test]
+    fn test_process_fetch_results_sets_remote_freshness_error_and_status() {
+        let mut app = App::new(vec![remote_branch(false)], vec![]);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut pending_fetches = HashSet::new();
+
+        tx.send(FetchResult::RemoteFreshnessError {
+            error: "origin unreachable".to_string(),
+        })
+        .expect("send should succeed");
+
+        process_fetch_results(&mut rx, &mut app, &mut pending_fetches);
+
+        assert_eq!(app.remote_freshness_error(), Some("origin unreachable"));
+        let status = app
+            .get_status_message()
+            .expect("remote freshness error should surface in footer");
+        assert!(status.is_error);
+        assert_eq!(status.text, "Could not verify origin branches");
     }
 
     fn remote_branch(is_stale: bool) -> BranchInfo {
