@@ -3,6 +3,7 @@ mod app;
 mod background;
 mod event;
 mod html_render;
+mod input;
 pub mod theme;
 mod ui;
 
