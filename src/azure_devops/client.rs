@@ -1,4 +1,4 @@
-use super::work_item::WorkItem;
+use super::work_item::{WorkItem, WorkItemParts};
 use crate::config::Config;
 use anyhow::{Context, Result};
 use reqwest::Client;
@@ -299,22 +299,23 @@ impl FixtureWorkItem {
             });
         }
 
-        Ok(WorkItem {
+        Ok(WorkItem::from_parts(WorkItemParts {
             id: self.id,
             title: self.title,
-            work_item_type: self.work_item_type.parse().unwrap(),
-            state: self.state.parse().unwrap(),
+            work_item_type: &self.work_item_type,
+            state: &self.state,
             assigned_to: self.assigned_to,
             url: self.url,
             tags: self.tags,
             rich_text_fields,
-        })
+        }))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use tempfile::TempDir;
 
     fn write_fixture(temp_dir: &TempDir, content: &str) -> std::path::PathBuf {
@@ -449,5 +450,68 @@ mod tests {
             .verify_connection()
             .await
             .expect("loaded fixture client should still verify");
+    }
+
+    #[test]
+    fn fixture_and_live_mapping_produce_matching_work_items() {
+        let fixture_work_item = FixtureWorkItem {
+            id: 321,
+            title: "Keep fixture and live parsing aligned".to_string(),
+            work_item_type: "Feature".to_string(),
+            state: "Committed".to_string(),
+            assigned_to: Some("Demo User".to_string()),
+            url: Some("https://example.test/items/321".to_string()),
+            tags: vec!["Demo".to_string(), "Parity".to_string()],
+            description: Some("<p>Shared description</p>".to_string()),
+        }
+        .into_work_item()
+        .expect("fixture item should parse");
+
+        let live_json = json!({
+            "fields": {
+                "System.Title": "Keep fixture and live parsing aligned",
+                "System.WorkItemType": "Feature",
+                "System.State": "Committed",
+                "System.AssignedTo": {
+                    "displayName": "Demo User"
+                },
+                "System.Tags": "Demo; Parity",
+                "System.Description": "<p>Shared description</p>"
+            },
+            "_links": {
+                "html": {
+                    "href": "https://example.test/items/321"
+                }
+            }
+        });
+
+        let live_work_item = WorkItem::from_json(&live_json, 321).expect("live item should parse");
+
+        assert_eq!(fixture_work_item.id, live_work_item.id);
+        assert_eq!(fixture_work_item.title, live_work_item.title);
+        assert_eq!(
+            fixture_work_item.work_item_type.display_name(),
+            live_work_item.work_item_type.display_name()
+        );
+        assert_eq!(
+            fixture_work_item.state.display_name(),
+            live_work_item.state.display_name()
+        );
+        assert_eq!(fixture_work_item.assigned_to, live_work_item.assigned_to);
+        assert_eq!(fixture_work_item.url, live_work_item.url);
+        assert_eq!(fixture_work_item.tags, live_work_item.tags);
+        assert_eq!(
+            fixture_work_item.rich_text_fields.len(),
+            live_work_item.rich_text_fields.len()
+        );
+        assert_eq!(fixture_work_item.rich_text_fields[0].name, "Description");
+        assert_eq!(
+            fixture_work_item.rich_text_fields[0].name,
+            live_work_item.rich_text_fields[0].name
+        );
+        assert_eq!(
+            fixture_work_item.rich_text_fields[0].value,
+            live_work_item.rich_text_fields[0].value
+        );
     }
 }

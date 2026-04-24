@@ -145,6 +145,21 @@ mod tests {
     }
 
     #[test]
+    fn test_footer_variant_prioritizes_status_over_normal_hints() {
+        let mut app = test_app();
+        app.status_message = Some(StatusMessage {
+            text: "Deleted branch".to_string(),
+            is_error: false,
+            expires_at: Instant::now() + Duration::from_secs(5),
+        });
+
+        match footer_variant(&app) {
+            FooterVariant::Status(status) => assert_eq!(status.text, "Deleted branch"),
+            _ => panic!("expected status footer"),
+        }
+    }
+
+    #[test]
     fn test_normal_footer_tail_with_active_filter() {
         assert_eq!(
             spans_text(&normal_footer_tail(true)),

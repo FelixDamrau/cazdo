@@ -16,6 +16,46 @@ fn write_file(path: &Path, contents: &str) {
     fs::write(path, contents).expect("write file");
 }
 
+fn assert_success(output: &std::process::Output, context: &str) {
+    assert!(
+        output.status.success(),
+        "{} failed: stdout={} stderr={}",
+        context,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn init_test_git_repo(path: &Path) {
+    let init = Command::new("git")
+        .args(["init"])
+        .current_dir(path)
+        .output()
+        .expect("git init");
+    assert_success(&init, "git init");
+
+    let config_name = Command::new("git")
+        .args(["config", "user.name", "Test User"])
+        .current_dir(path)
+        .output()
+        .expect("git config user.name");
+    assert_success(&config_name, "git config user.name");
+
+    let config_email = Command::new("git")
+        .args(["config", "user.email", "test@example.com"])
+        .current_dir(path)
+        .output()
+        .expect("git config user.email");
+    assert_success(&config_email, "git config user.email");
+
+    let config_signing = Command::new("git")
+        .args(["config", "commit.gpgsign", "false"])
+        .current_dir(path)
+        .output()
+        .expect("git config commit.gpgsign");
+    assert_success(&config_signing, "git config commit.gpgsign");
+}
+
 fn run_bash_script(script: &str, working_dir: &Path, args: &[&str]) -> std::process::Output {
     let mut command = Command::new("bash");
     command.arg(script_path(script));
@@ -189,27 +229,7 @@ fn extract_release_notes_does_not_match_prefix_versions() {
 #[test]
 fn check_release_pr_requires_matching_changelog_when_version_changes() {
     let temp = tempdir().expect("tempdir");
-
-    let init = Command::new("git")
-        .args(["init"])
-        .current_dir(temp.path())
-        .output()
-        .expect("git init");
-    assert!(init.status.success());
-
-    let config_name = Command::new("git")
-        .args(["config", "user.name", "Test User"])
-        .current_dir(temp.path())
-        .output()
-        .expect("git config user.name");
-    assert!(config_name.status.success());
-
-    let config_email = Command::new("git")
-        .args(["config", "user.email", "test@example.com"])
-        .current_dir(temp.path())
-        .output()
-        .expect("git config user.email");
-    assert!(config_email.status.success());
+    init_test_git_repo(temp.path());
 
     write_file(
         &temp.path().join("Cargo.toml"),
@@ -229,14 +249,14 @@ edition = "2024"
         .current_dir(temp.path())
         .output()
         .expect("git add");
-    assert!(add.status.success());
+    assert_success(&add, "git add");
 
     let commit = Command::new("git")
         .args(["commit", "-m", "base"])
         .current_dir(temp.path())
         .output()
         .expect("git commit");
-    assert!(commit.status.success());
+    assert_success(&commit, "git commit");
 
     let base_sha = String::from_utf8(
         Command::new("git")
@@ -279,27 +299,7 @@ edition = "2024"
 #[test]
 fn check_release_pr_skips_when_version_is_unchanged() {
     let temp = tempdir().expect("tempdir");
-
-    let init = Command::new("git")
-        .args(["init"])
-        .current_dir(temp.path())
-        .output()
-        .expect("git init");
-    assert!(init.status.success());
-
-    let config_name = Command::new("git")
-        .args(["config", "user.name", "Test User"])
-        .current_dir(temp.path())
-        .output()
-        .expect("git config user.name");
-    assert!(config_name.status.success());
-
-    let config_email = Command::new("git")
-        .args(["config", "user.email", "test@example.com"])
-        .current_dir(temp.path())
-        .output()
-        .expect("git config user.email");
-    assert!(config_email.status.success());
+    init_test_git_repo(temp.path());
 
     write_file(
         &temp.path().join("Cargo.toml"),
@@ -319,14 +319,14 @@ edition = "2024"
         .current_dir(temp.path())
         .output()
         .expect("git add");
-    assert!(add.status.success());
+    assert_success(&add, "git add");
 
     let commit = Command::new("git")
         .args(["commit", "-m", "base"])
         .current_dir(temp.path())
         .output()
         .expect("git commit");
-    assert!(commit.status.success());
+    assert_success(&commit, "git commit");
 
     let base_sha = String::from_utf8(
         Command::new("git")

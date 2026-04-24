@@ -3,6 +3,11 @@ use crate::git::{BranchScope, BranchStatus, compare_branch_order};
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
+mod filtering;
+mod load_state;
+mod selection;
+mod status;
+
 /// Branch info with optional work item
 #[derive(Debug, Clone)]
 pub struct BranchInfo {
@@ -129,120 +134,8 @@ impl App {
         }
     }
 
-    pub fn selected_branch(&self) -> Option<&BranchInfo> {
-        let visible = self.visible_branches();
-        visible.get(self.selected_index()).copied()
-    }
-
     pub fn selected_work_item_id(&self) -> Option<u32> {
         self.selected_branch().and_then(|b| b.work_item_id)
-    }
-
-    pub fn visible_branches(&self) -> Vec<&BranchInfo> {
-        self.branches
-            .iter()
-            .filter(|b| self.matches_active_view(b))
-            .filter(|b| self.show_protected || b.is_current || !b.is_protected)
-            .filter(|b| self.branch_matches_filter(b, self.effective_branch_filter()))
-            .collect()
-    }
-
-    pub fn visible_count(&self) -> usize {
-        self.visible_branches().len()
-    }
-
-    pub fn has_hidden_branches_in_active_view(&self) -> bool {
-        self.branches
-            .iter()
-            .filter(|b| self.matches_active_view(b))
-            .any(|b| !self.show_protected && !b.is_current && b.is_protected)
-    }
-
-    pub fn selected_index(&self) -> usize {
-        match self.active_view {
-            BranchView::Local => self.local_selected_index,
-            BranchView::Remote => self.remote_selected_index,
-        }
-    }
-
-    pub fn next(&mut self) {
-        let count = self.visible_count();
-        if count > 0 {
-            let next = (self.selected_index() + 1) % count;
-            self.set_selected_index(next);
-            self.scroll_offset = 0;
-        }
-    }
-
-    pub fn previous(&mut self) {
-        let count = self.visible_count();
-        if count > 0 {
-            let next = if self.selected_index() == 0 {
-                count - 1
-            } else {
-                self.selected_index() - 1
-            };
-            self.set_selected_index(next);
-            self.scroll_offset = 0;
-        }
-    }
-
-    pub fn toggle_show_protected(&mut self) {
-        let selected_key = self.selected_branch().map(|b| b.key.clone());
-        self.show_protected = !self.show_protected;
-
-        if let Some(key) = selected_key
-            && let Some(new_idx) = self.visible_branches().iter().position(|b| b.key == key)
-        {
-            self.set_selected_index(new_idx);
-            return;
-        }
-
-        self.clamp_selected_index();
-    }
-
-    pub fn toggle_view(&mut self) {
-        self.active_view = self.active_view.toggle();
-        if self.active_view == BranchView::Remote
-            && matches!(self.remote_freshness, RemoteFreshness::Error(_))
-        {
-            self.remote_freshness = RemoteFreshness::NotChecked;
-        }
-        self.scroll_offset = 0;
-        self.clamp_selected_index();
-    }
-
-    pub fn should_check_remote_freshness(&self) -> bool {
-        self.active_view == BranchView::Remote
-            && matches!(self.remote_freshness, RemoteFreshness::NotChecked)
-    }
-
-    pub fn set_remote_freshness_checking(&mut self) {
-        self.remote_freshness = RemoteFreshness::Checking;
-    }
-
-    pub fn set_remote_freshness(&mut self, live_branches: HashSet<String>) {
-        for branch in &mut self.branches {
-            if branch.scope == BranchScope::Remote {
-                branch.is_stale = !live_branches.contains(&branch.branch_name);
-            }
-        }
-        self.remote_freshness = RemoteFreshness::Checked;
-    }
-
-    pub fn set_remote_freshness_error(&mut self, error: String) {
-        self.remote_freshness = RemoteFreshness::Error(error);
-    }
-
-    pub fn remote_freshness_is_checking(&self) -> bool {
-        matches!(self.remote_freshness, RemoteFreshness::Checking)
-    }
-
-    pub fn remote_freshness_error(&self) -> Option<&str> {
-        match &self.remote_freshness {
-            RemoteFreshness::Error(error) => Some(error.as_str()),
-            _ => None,
-        }
     }
 
     pub fn scroll_down(&mut self, amount: u16) {
@@ -256,160 +149,6 @@ impl App {
 
     pub fn set_content_height(&mut self, height: u16) {
         self.content_height = height;
-    }
-
-    pub fn quit(&mut self) {
-        self.should_quit = true;
-    }
-
-    pub fn get_work_item_status(&self, id: u32) -> &WorkItemStatus {
-        self.work_items
-            .get(&id)
-            .unwrap_or(&WorkItemStatus::NotFetched)
-    }
-
-    pub fn set_work_item_loading(&mut self, id: u32) {
-        self.work_items.insert(id, WorkItemStatus::Loading);
-    }
-
-    pub fn set_work_item_loaded(&mut self, id: u32, work_item: WorkItem) {
-        self.work_items
-            .insert(id, WorkItemStatus::Loaded(work_item));
-    }
-
-    pub fn set_work_item_error(&mut self, id: u32, error: String) {
-        self.work_items.insert(id, WorkItemStatus::Error(error));
-    }
-
-    pub fn reset_work_item(&mut self, id: u32) {
-        self.work_items.remove(&id);
-    }
-
-    pub fn current_branch_has_work_item(&self) -> bool {
-        self.selected_branch()
-            .and_then(|b| b.work_item_id)
-            .is_some()
-    }
-
-    pub fn get_branch_status(&self, key: &str) -> Option<&BranchStatus> {
-        self.branch_statuses
-            .get(key)
-            .and_then(|status| status.as_ref().ok())
-    }
-
-    pub fn get_branch_status_error(&self, key: &str) -> Option<&str> {
-        self.branch_statuses
-            .get(key)
-            .and_then(|status| status.as_ref().err())
-            .map(String::as_str)
-    }
-
-    pub fn set_branch_status(&mut self, key: String, status: BranchStatus) {
-        self.branch_statuses.insert(key, Ok(status));
-    }
-
-    pub fn set_branch_status_error(&mut self, key: String, error: String) {
-        self.branch_statuses.insert(key, Err(error));
-    }
-
-    pub fn needs_branch_status(&self, key: &str) -> bool {
-        !matches!(self.branch_statuses.get(key), Some(Ok(_)))
-    }
-
-    pub fn enter_confirm_mode(&mut self) {
-        if let Some(branch) = self.selected_branch() {
-            self.mode = AppMode::ConfirmDelete {
-                branch_key: branch.key.clone(),
-            };
-        }
-    }
-
-    pub fn show_error_popup(&mut self, message: String) {
-        self.mode = AppMode::ErrorPopup(message);
-    }
-
-    pub fn cancel_mode(&mut self) {
-        self.mode = AppMode::Normal;
-    }
-
-    pub fn is_normal_mode(&self) -> bool {
-        matches!(self.mode, AppMode::Normal)
-    }
-
-    pub fn is_filter_input_mode(&self) -> bool {
-        matches!(self.mode, AppMode::FilterInput)
-    }
-
-    pub fn has_active_filter(&self) -> bool {
-        !self.branch_filter.trim().is_empty()
-    }
-
-    pub fn effective_branch_filter(&self) -> &str {
-        if self.is_filter_input_mode() {
-            &self.filter_input
-        } else {
-            &self.branch_filter
-        }
-    }
-
-    pub fn enter_filter_input(&mut self) {
-        self.filter_input_selected_key = self.selected_branch().map(|branch| branch.key.clone());
-        self.filter_input = self.branch_filter.clone();
-        self.mode = AppMode::FilterInput;
-    }
-
-    pub fn update_filter_input(&mut self, filter_input: String) {
-        self.update_filter_query(filter_input, false);
-    }
-
-    pub fn apply_branch_filter(&mut self, filter: String) {
-        self.update_filter_query(filter, true);
-    }
-
-    pub fn apply_filter_input(&mut self) {
-        let filter = self.filter_input.clone();
-        self.filter_input_selected_key = None;
-        self.apply_branch_filter(filter);
-        self.mode = AppMode::Normal;
-    }
-
-    pub fn cancel_filter_input(&mut self) {
-        self.filter_input = self.branch_filter.clone();
-        self.mode = AppMode::Normal;
-        self.scroll_offset = 0;
-        if let Some(key) = self.filter_input_selected_key.take()
-            && let Some(new_idx) = self.visible_branches().iter().position(|b| b.key == key)
-        {
-            self.set_selected_index(new_idx);
-        } else {
-            self.clamp_selected_index();
-        }
-    }
-
-    pub fn clear_branch_filter(&mut self) {
-        self.apply_branch_filter(String::new());
-    }
-
-    pub fn set_status_message(&mut self, text: String, is_error: bool, duration_secs: u64) {
-        self.status_message = Some(StatusMessage {
-            text,
-            is_error,
-            expires_at: Instant::now() + std::time::Duration::from_secs(duration_secs),
-        });
-    }
-
-    pub fn get_status_message(&self) -> Option<&StatusMessage> {
-        self.status_message
-            .as_ref()
-            .filter(|m| m.expires_at > Instant::now())
-    }
-
-    pub fn clear_expired_status(&mut self) {
-        if let Some(ref msg) = self.status_message
-            && msg.expires_at <= Instant::now()
-        {
-            self.status_message = None;
-        }
     }
 
     pub fn record_deleted_branch(&mut self, name: String, restore_hint: Option<String>) {
@@ -491,33 +230,6 @@ impl App {
             .is_some_and(|branch| branch.is_stale)
     }
 
-    fn matches_active_view(&self, branch: &BranchInfo) -> bool {
-        matches!(
-            (self.active_view, branch.scope),
-            (BranchView::Local, BranchScope::Local) | (BranchView::Remote, BranchScope::Remote)
-        )
-    }
-
-    fn branch_matches_filter(&self, branch: &BranchInfo, filter: &str) -> bool {
-        let filter = filter.trim();
-        if filter.is_empty() {
-            return true;
-        }
-
-        let branch_name = branch.display_name.to_ascii_lowercase();
-        filter
-            .split_whitespace()
-            .map(|token| token.to_ascii_lowercase())
-            .all(|token| branch_name.contains(&token))
-    }
-
-    fn set_selected_index(&mut self, index: usize) {
-        match self.active_view {
-            BranchView::Local => self.local_selected_index = index,
-            BranchView::Remote => self.remote_selected_index = index,
-        }
-    }
-
     pub fn sort_branches(&mut self) {
         self.branches.sort_by(|a, b| {
             compare_branch_order(
@@ -529,38 +241,6 @@ impl App {
                 &b.display_name,
             )
         });
-    }
-
-    fn clamp_selected_index(&mut self) {
-        let count = self.visible_count();
-        let next = if count == 0 {
-            0
-        } else {
-            self.selected_index().min(count - 1)
-        };
-        self.set_selected_index(next);
-    }
-
-    fn update_filter_query(&mut self, filter: String, applied: bool) {
-        let selected_key = self.selected_branch().map(|branch| branch.key.clone());
-
-        if applied {
-            self.branch_filter = filter;
-        } else {
-            self.filter_input = filter;
-        }
-
-        self.scroll_offset = 0;
-
-        if let Some(key) = selected_key
-            && let Some(new_idx) = self.visible_branches().iter().position(|b| b.key == key)
-        {
-            self.set_selected_index(new_idx);
-        } else if self.visible_count() > 0 {
-            self.set_selected_index(0);
-        } else {
-            self.clamp_selected_index();
-        }
     }
 }
 
