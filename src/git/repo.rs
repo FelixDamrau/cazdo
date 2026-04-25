@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result};
-use git2::{BranchType, Repository, build::CheckoutBuilder};
+use git2::{BranchType, Oid, Repository, build::CheckoutBuilder};
 
 use crate::pattern::is_protected;
 
@@ -106,6 +106,24 @@ pub fn compare_branch_order(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExistingLocalBranchAction {
     CheckoutLocal,
+}
+
+enum HeadTarget {
+    Symbolic(String),
+    Detached(Oid),
+}
+
+impl HeadTarget {
+    fn restore(&self, repo: &Repository) -> Result<()> {
+        match self {
+            Self::Symbolic(name) => repo
+                .set_head(name)
+                .with_context(|| format!("Failed to restore HEAD to '{}'", name)),
+            Self::Detached(oid) => repo
+                .set_head_detached(*oid)
+                .with_context(|| format!("Failed to restore detached HEAD to '{}'", oid)),
+        }
+    }
 }
 
 impl GitRepo {
@@ -438,7 +456,24 @@ impl GitRepo {
             },
         )?;
 
-        self.switch_to_local_branch(branch_name)
+        if let Err(error) = self.switch_to_local_branch(branch_name) {
+            if let Err(cleanup_error) = local_branch.delete().with_context(|| {
+                format!(
+                    "Failed to clean up local branch '{}' after checkout failure",
+                    branch_name
+                )
+            }) {
+                anyhow::bail!(
+                    "{}; additionally, failed to clean up orphaned local branch: {}",
+                    error,
+                    cleanup_error
+                );
+            }
+
+            return Err(error);
+        }
+
+        Ok(())
     }
 
     fn switch_to_local_branch(&self, branch_name: &str) -> Result<()> {
@@ -450,15 +485,41 @@ impl GitRepo {
             );
         }
 
+        let previous_head = self.head_target()?;
+
         self.repo
             .set_head(&format!("refs/heads/{}", branch_name))
             .with_context(|| format!("Failed to set HEAD to branch '{}'", branch_name))?;
 
-        self.repo
+        if let Err(error) = self
+            .repo
             .checkout_head(Some(CheckoutBuilder::new().safe()))
-            .with_context(|| format!("Failed to checkout branch '{}'", branch_name))?;
+            .with_context(|| format!("Failed to checkout branch '{}'", branch_name))
+        {
+            if let Err(restore_error) = previous_head.restore(&self.repo) {
+                anyhow::bail!(
+                    "{}; additionally, failed to restore previous HEAD: {}",
+                    error,
+                    restore_error
+                );
+            }
+
+            return Err(error);
+        }
 
         Ok(())
+    }
+
+    fn head_target(&self) -> Result<HeadTarget> {
+        let head = self.repo.head().context("Failed to get HEAD reference")?;
+        if let Some(name) = head.name() {
+            return Ok(HeadTarget::Symbolic(name.to_string()));
+        }
+        if let Some(oid) = head.target() {
+            return Ok(HeadTarget::Detached(oid));
+        }
+
+        anyhow::bail!("Failed to determine current HEAD target");
     }
 
     fn checked_out_worktree_path(&self, branch_name: &str) -> Result<Option<PathBuf>> {
@@ -475,13 +536,12 @@ impl GitRepo {
             let Some(name) = name else {
                 continue;
             };
-            let worktree = self
-                .repo
-                .find_worktree(name)
-                .with_context(|| format!("Failed to open worktree '{}'", name))?;
-            worktree
-                .validate()
-                .with_context(|| format!("Failed to validate worktree '{}'", name))?;
+            let Ok(worktree) = self.repo.find_worktree(name) else {
+                continue;
+            };
+            if worktree.validate().is_err() {
+                continue;
+            }
 
             let worktree_path = worktree.path().to_path_buf();
             let Ok(canonical_worktree_path) = worktree_path.canonicalize() else {
@@ -900,6 +960,34 @@ mod tests {
         assert_eq!(branch_name, None);
     }
 
+    #[test]
+    fn test_checked_out_worktree_path_reports_linked_worktree() {
+        let (repo, repo_path, oid) = init_test_repo("linked-worktree");
+        let worktree_path = add_worktree_for_branch(&repo, &repo_path, oid, "feature/test");
+
+        let checked_out_path = repo
+            .checked_out_worktree_path("feature/test")
+            .expect("worktree lookup should succeed");
+
+        let _ = fs::remove_dir_all(&worktree_path);
+        let _ = fs::remove_dir_all(repo_path);
+        assert_eq!(checked_out_path, Some(worktree_path));
+    }
+
+    #[test]
+    fn test_checked_out_worktree_path_skips_invalid_worktree() {
+        let (repo, repo_path, oid) = init_test_repo("invalid-worktree");
+        let worktree_path = add_worktree_for_branch(&repo, &repo_path, oid, "feature/test");
+        fs::remove_dir_all(&worktree_path).expect("worktree dir should be removed");
+
+        let checked_out_path = repo
+            .checked_out_worktree_path("feature/test")
+            .expect("worktree lookup should succeed");
+
+        let _ = fs::remove_dir_all(repo_path);
+        assert_eq!(checked_out_path, None);
+    }
+
     fn init_test_repo(name: &str) -> (GitRepo, PathBuf, git2::Oid) {
         let repo_path = std::env::temp_dir().join(format!(
             "cazdo-{name}-{}-{}",
@@ -929,5 +1017,28 @@ mod tests {
         drop(tree);
 
         (GitRepo { repo }, repo_path, oid)
+    }
+
+    fn add_worktree_for_branch(
+        repo: &GitRepo,
+        repo_path: &Path,
+        oid: git2::Oid,
+        branch_name: &str,
+    ) -> PathBuf {
+        let commit = repo.repo.find_commit(oid).expect("commit should be found");
+        let branch = repo
+            .repo
+            .branch(branch_name, &commit, false)
+            .expect("branch should be created");
+        let reference = branch.into_reference();
+        let mut options = git2::WorktreeAddOptions::new();
+        options.reference(Some(&reference));
+
+        let worktree_path = repo_path.with_extension("wt");
+        repo.repo
+            .worktree("linked-worktree", &worktree_path, Some(&options))
+            .expect("worktree should be added");
+
+        worktree_path
     }
 }
