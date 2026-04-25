@@ -446,6 +446,14 @@ impl GitRepo {
         branch_name: &str,
         commit: &git2::Commit,
     ) -> Result<()> {
+        if let Some(path) = self.checked_out_worktree_path(branch_name)? {
+            anyhow::bail!(
+                "Branch '{}' is already used by worktree at '{}'",
+                branch_name,
+                path.display()
+            );
+        }
+
         let tree = commit
             .tree()
             .with_context(|| format!("Failed to get tree for branch '{}'", branch_name))?;
@@ -459,6 +467,51 @@ impl GitRepo {
             .with_context(|| format!("Failed to set HEAD to branch '{}'", branch_name))?;
 
         Ok(())
+    }
+
+    fn checked_out_worktree_path(&self, branch_name: &str) -> Result<Option<PathBuf>> {
+        let command_dir = self.command_dir()?;
+        let current_dir = command_dir.canonicalize().with_context(|| {
+            format!(
+                "Failed to resolve repository working directory '{}'",
+                command_dir.display()
+            )
+        })?;
+
+        let worktrees = self.repo.worktrees().context("Failed to list worktrees")?;
+        for name in &worktrees {
+            let Some(name) = name else {
+                continue;
+            };
+            let Ok(worktree) = self.repo.find_worktree(name) else {
+                continue;
+            };
+            if worktree.validate().is_err() {
+                continue;
+            }
+
+            let worktree_path = worktree.path().to_path_buf();
+            let Ok(canonical_worktree_path) = worktree_path.canonicalize() else {
+                continue;
+            };
+            if canonical_worktree_path == current_dir {
+                continue;
+            }
+
+            let Ok(worktree_repo) = Repository::open_from_worktree(&worktree) else {
+                continue;
+            };
+            if current_local_branch_name(&worktree_repo)
+                .ok()
+                .flatten()
+                .as_deref()
+                == Some(branch_name)
+            {
+                return Ok(Some(worktree_path));
+            }
+        }
+
+        Ok(None)
     }
 
     fn delete_local_branch(&self, branch_name: &str) -> Result<DeleteResult> {
@@ -544,17 +597,21 @@ impl GitRepo {
     }
 
     pub(crate) fn current_local_branch_name(&self) -> Result<Option<String>> {
-        let head = self.repo.head().context("Failed to get HEAD reference")?;
-        if !head.is_branch() {
-            return Ok(None);
-        }
-
-        let branch_name = head
-            .shorthand()
-            .context("Failed to get branch name")?
-            .to_string();
-        Ok(Some(branch_name))
+        current_local_branch_name(&self.repo)
     }
+}
+
+fn current_local_branch_name(repo: &Repository) -> Result<Option<String>> {
+    let head = repo.head().context("Failed to get HEAD reference")?;
+    if !head.is_branch() {
+        return Ok(None);
+    }
+
+    let branch_name = head
+        .shorthand()
+        .context("Failed to get branch name")?
+        .to_string();
+    Ok(Some(branch_name))
 }
 
 pub fn list_origin_remote_heads_in_dir(dir: &Path) -> Result<HashSet<String>> {
@@ -856,6 +913,34 @@ mod tests {
         assert_eq!(branch_name, None);
     }
 
+    #[test]
+    fn test_checked_out_worktree_path_reports_linked_worktree() {
+        let (repo, repo_path, oid) = init_test_repo("linked-worktree");
+        let worktree_path = add_worktree_for_branch(&repo, &repo_path, oid, "feature/test");
+
+        let checked_out_path = repo
+            .checked_out_worktree_path("feature/test")
+            .expect("worktree lookup should succeed");
+
+        let _ = fs::remove_dir_all(&worktree_path);
+        let _ = fs::remove_dir_all(repo_path);
+        assert_eq!(checked_out_path, Some(worktree_path));
+    }
+
+    #[test]
+    fn test_checked_out_worktree_path_skips_invalid_worktree() {
+        let (repo, repo_path, oid) = init_test_repo("invalid-worktree");
+        let worktree_path = add_worktree_for_branch(&repo, &repo_path, oid, "feature/test");
+        fs::remove_dir_all(&worktree_path).expect("worktree dir should be removed");
+
+        let checked_out_path = repo
+            .checked_out_worktree_path("feature/test")
+            .expect("worktree lookup should succeed");
+
+        let _ = fs::remove_dir_all(repo_path);
+        assert_eq!(checked_out_path, None);
+    }
+
     fn init_test_repo(name: &str) -> (GitRepo, PathBuf, git2::Oid) {
         let repo_path = std::env::temp_dir().join(format!(
             "cazdo-{name}-{}-{}",
@@ -885,5 +970,28 @@ mod tests {
         drop(tree);
 
         (GitRepo { repo }, repo_path, oid)
+    }
+
+    fn add_worktree_for_branch(
+        repo: &GitRepo,
+        repo_path: &Path,
+        oid: git2::Oid,
+        branch_name: &str,
+    ) -> PathBuf {
+        let commit = repo.repo.find_commit(oid).expect("commit should be found");
+        let branch = repo
+            .repo
+            .branch(branch_name, &commit, false)
+            .expect("branch should be created");
+        let reference = branch.into_reference();
+        let mut options = git2::WorktreeAddOptions::new();
+        options.reference(Some(&reference));
+
+        let worktree_path = repo_path.with_extension("wt");
+        repo.repo
+            .worktree("linked-worktree", &worktree_path, Some(&options))
+            .expect("worktree should be added");
+
+        worktree_path
     }
 }
