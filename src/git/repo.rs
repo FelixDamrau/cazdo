@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result};
-use git2::{BranchType, Repository};
+use git2::{BranchType, Repository, build::CheckoutBuilder};
 
 use crate::pattern::is_protected;
 
@@ -368,12 +368,12 @@ impl GitRepo {
             .find_branch(branch_name, BranchType::Local)
             .with_context(|| format!("Branch '{}' not found", branch_name))?;
 
-        let commit = branch
+        branch
             .get()
             .peel_to_commit()
             .with_context(|| format!("Failed to resolve branch '{}' to a commit", branch_name))?;
 
-        self.checkout_commit_to_local_branch(branch_name, &commit)
+        self.switch_to_local_branch(branch_name)
     }
 
     fn checkout_remote_branch(&self, branch_name: &str, remote_name: Option<&str>) -> Result<()> {
@@ -438,27 +438,67 @@ impl GitRepo {
             },
         )?;
 
-        self.checkout_commit_to_local_branch(branch_name, &commit)
+        self.switch_to_local_branch(branch_name)
     }
 
-    fn checkout_commit_to_local_branch(
-        &self,
-        branch_name: &str,
-        commit: &git2::Commit,
-    ) -> Result<()> {
-        let tree = commit
-            .tree()
-            .with_context(|| format!("Failed to get tree for branch '{}'", branch_name))?;
-
-        self.repo
-            .checkout_tree(tree.as_object(), None)
-            .with_context(|| format!("Failed to checkout tree for branch '{}'", branch_name))?;
+    fn switch_to_local_branch(&self, branch_name: &str) -> Result<()> {
+        if let Some(path) = self.checked_out_worktree_path(branch_name)? {
+            anyhow::bail!(
+                "Branch '{}' is already used by worktree at '{}'",
+                branch_name,
+                path.display()
+            );
+        }
 
         self.repo
             .set_head(&format!("refs/heads/{}", branch_name))
             .with_context(|| format!("Failed to set HEAD to branch '{}'", branch_name))?;
 
+        self.repo
+            .checkout_head(Some(CheckoutBuilder::new().safe()))
+            .with_context(|| format!("Failed to checkout branch '{}'", branch_name))?;
+
         Ok(())
+    }
+
+    fn checked_out_worktree_path(&self, branch_name: &str) -> Result<Option<PathBuf>> {
+        let command_dir = self.command_dir()?;
+        let current_dir = command_dir.canonicalize().with_context(|| {
+            format!(
+                "Failed to resolve repository working directory '{}'",
+                command_dir.display()
+            )
+        })?;
+
+        let worktrees = self.repo.worktrees().context("Failed to list worktrees")?;
+        for name in &worktrees {
+            let Some(name) = name else {
+                continue;
+            };
+            let worktree = self
+                .repo
+                .find_worktree(name)
+                .with_context(|| format!("Failed to open worktree '{}'", name))?;
+            worktree
+                .validate()
+                .with_context(|| format!("Failed to validate worktree '{}'", name))?;
+
+            let worktree_path = worktree.path().to_path_buf();
+            let Ok(canonical_worktree_path) = worktree_path.canonicalize() else {
+                continue;
+            };
+            if canonical_worktree_path == current_dir {
+                continue;
+            }
+
+            let worktree_repo = Repository::open_from_worktree(&worktree)
+                .with_context(|| format!("Failed to open repository for worktree '{}'", name))?;
+            if current_local_branch_name(&worktree_repo)?.as_deref() == Some(branch_name) {
+                return Ok(Some(worktree_path));
+            }
+        }
+
+        Ok(None)
     }
 
     fn delete_local_branch(&self, branch_name: &str) -> Result<DeleteResult> {
@@ -544,17 +584,21 @@ impl GitRepo {
     }
 
     pub(crate) fn current_local_branch_name(&self) -> Result<Option<String>> {
-        let head = self.repo.head().context("Failed to get HEAD reference")?;
-        if !head.is_branch() {
-            return Ok(None);
-        }
-
-        let branch_name = head
-            .shorthand()
-            .context("Failed to get branch name")?
-            .to_string();
-        Ok(Some(branch_name))
+        current_local_branch_name(&self.repo)
     }
+}
+
+fn current_local_branch_name(repo: &Repository) -> Result<Option<String>> {
+    let head = repo.head().context("Failed to get HEAD reference")?;
+    if !head.is_branch() {
+        return Ok(None);
+    }
+
+    let branch_name = head
+        .shorthand()
+        .context("Failed to get branch name")?
+        .to_string();
+    Ok(Some(branch_name))
 }
 
 pub fn list_origin_remote_heads_in_dir(dir: &Path) -> Result<HashSet<String>> {
