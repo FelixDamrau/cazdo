@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result};
-use git2::{BranchType, Oid, Repository, build::CheckoutBuilder};
+use git2::{BranchType, Repository};
 
 use crate::pattern::is_protected;
 
@@ -106,24 +106,6 @@ pub fn compare_branch_order(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExistingLocalBranchAction {
     CheckoutLocal,
-}
-
-enum HeadTarget {
-    Symbolic(String),
-    Detached(Oid),
-}
-
-impl HeadTarget {
-    fn restore(&self, repo: &Repository) -> Result<()> {
-        match self {
-            Self::Symbolic(name) => repo
-                .set_head(name)
-                .with_context(|| format!("Failed to restore HEAD to '{}'", name)),
-            Self::Detached(oid) => repo
-                .set_head_detached(*oid)
-                .with_context(|| format!("Failed to restore detached HEAD to '{}'", oid)),
-        }
-    }
 }
 
 impl GitRepo {
@@ -386,12 +368,12 @@ impl GitRepo {
             .find_branch(branch_name, BranchType::Local)
             .with_context(|| format!("Branch '{}' not found", branch_name))?;
 
-        branch
+        let commit = branch
             .get()
             .peel_to_commit()
             .with_context(|| format!("Failed to resolve branch '{}' to a commit", branch_name))?;
 
-        self.switch_to_local_branch(branch_name)
+        self.checkout_commit_to_local_branch(branch_name, &commit)
     }
 
     fn checkout_remote_branch(&self, branch_name: &str, remote_name: Option<&str>) -> Result<()> {
@@ -456,27 +438,14 @@ impl GitRepo {
             },
         )?;
 
-        if let Err(error) = self.switch_to_local_branch(branch_name) {
-            if let Err(cleanup_error) = local_branch.delete().with_context(|| {
-                format!(
-                    "Failed to clean up local branch '{}' after checkout failure",
-                    branch_name
-                )
-            }) {
-                anyhow::bail!(
-                    "{}; additionally, failed to clean up orphaned local branch: {}",
-                    error,
-                    cleanup_error
-                );
-            }
-
-            return Err(error);
-        }
-
-        Ok(())
+        self.checkout_commit_to_local_branch(branch_name, &commit)
     }
 
-    fn switch_to_local_branch(&self, branch_name: &str) -> Result<()> {
+    fn checkout_commit_to_local_branch(
+        &self,
+        branch_name: &str,
+        commit: &git2::Commit,
+    ) -> Result<()> {
         if let Some(path) = self.checked_out_worktree_path(branch_name)? {
             anyhow::bail!(
                 "Branch '{}' is already used by worktree at '{}'",
@@ -485,41 +454,19 @@ impl GitRepo {
             );
         }
 
-        let previous_head = self.head_target()?;
+        let tree = commit
+            .tree()
+            .with_context(|| format!("Failed to get tree for branch '{}'", branch_name))?;
+
+        self.repo
+            .checkout_tree(tree.as_object(), None)
+            .with_context(|| format!("Failed to checkout tree for branch '{}'", branch_name))?;
 
         self.repo
             .set_head(&format!("refs/heads/{}", branch_name))
             .with_context(|| format!("Failed to set HEAD to branch '{}'", branch_name))?;
 
-        if let Err(error) = self
-            .repo
-            .checkout_head(Some(CheckoutBuilder::new().safe()))
-            .with_context(|| format!("Failed to checkout branch '{}'", branch_name))
-        {
-            if let Err(restore_error) = previous_head.restore(&self.repo) {
-                anyhow::bail!(
-                    "{}; additionally, failed to restore previous HEAD: {}",
-                    error,
-                    restore_error
-                );
-            }
-
-            return Err(error);
-        }
-
         Ok(())
-    }
-
-    fn head_target(&self) -> Result<HeadTarget> {
-        let head = self.repo.head().context("Failed to get HEAD reference")?;
-        if let Some(name) = head.name() {
-            return Ok(HeadTarget::Symbolic(name.to_string()));
-        }
-        if let Some(oid) = head.target() {
-            return Ok(HeadTarget::Detached(oid));
-        }
-
-        anyhow::bail!("Failed to determine current HEAD target");
     }
 
     fn checked_out_worktree_path(&self, branch_name: &str) -> Result<Option<PathBuf>> {
@@ -551,9 +498,15 @@ impl GitRepo {
                 continue;
             }
 
-            let worktree_repo = Repository::open_from_worktree(&worktree)
-                .with_context(|| format!("Failed to open repository for worktree '{}'", name))?;
-            if current_local_branch_name(&worktree_repo)?.as_deref() == Some(branch_name) {
+            let Ok(worktree_repo) = Repository::open_from_worktree(&worktree) else {
+                continue;
+            };
+            if current_local_branch_name(&worktree_repo)
+                .ok()
+                .flatten()
+                .as_deref()
+                == Some(branch_name)
+            {
                 return Ok(Some(worktree_path));
             }
         }
