@@ -172,10 +172,10 @@ impl HtmlParser {
             "br" => {
                 self.flush_line();
             }
-            "p" | "div" | "h4" | "h5" | "h6" => {
-                if !self.current_spans.is_empty() || !self.current_text.is_empty() {
-                    self.flush_line();
-                }
+            "p" | "div" | "h4" | "h5" | "h6"
+                if !self.current_spans.is_empty() || !self.current_text.is_empty() =>
+            {
+                self.flush_line();
             }
             "h1" | "h2" | "h3" => {
                 self.flush_line();
@@ -261,10 +261,8 @@ impl HtmlParser {
             "tr" => {
                 self.flush_line();
             }
-            "td" | "th" => {
-                if !self.current_text.is_empty() || !self.current_spans.is_empty() {
-                    self.add_text(" | ");
-                }
+            "td" | "th" if !self.current_text.is_empty() || !self.current_spans.is_empty() => {
+                self.add_text(" | ");
             }
 
             // Code

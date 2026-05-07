@@ -21,6 +21,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Set up Rust toolchain
+        run: rustup show
+
       - name: Set up Rust cache
         uses: actions/cache@v5
         with:
@@ -30,7 +33,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
 
       - name: Build
         run: cargo build --locked --verbose
@@ -44,6 +47,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+
+      - name: Set up Rust toolchain
+        run: rustup show
 
       - name: Check Formatting
         run: cargo fmt -- --check
