@@ -1,6 +1,24 @@
 # Changelog
 
 All notable changes to this project are documented in this file.
+## v0.2.0 - 2026-05-07
+
+### Bug Fixes
+
+- Harden redaction and TUI error feedback (#50)
+
+- **git:** Prevent partial branch switches (#52)
+
+### Refactoring
+
+- **tui:** Split event handling by concern (#51)
+
+### CI
+
+- **release:** Add Linux ARM64 artifacts (#55)
+
+- Pin Rust toolchain (#56)
+
 ## v0.1.17 - 2026-04-09
 
 ### Features
