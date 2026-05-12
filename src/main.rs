@@ -23,10 +23,12 @@ async fn main() -> Result<()> {
             ConfigAction::Verify => commands::config_verify().await?,
         },
         Some(Commands::Wi { id, long, json }) => {
-            let output = match (long, json) {
-                (_, true) => WorkItemOutput::Json,
-                (true, false) => WorkItemOutput::Long,
-                (false, false) => WorkItemOutput::Preview,
+            let output = if json {
+                WorkItemOutput::Json
+            } else if long {
+                WorkItemOutput::Long
+            } else {
+                WorkItemOutput::Preview
             };
             commands::show_work_item(id, output).await?;
         }
