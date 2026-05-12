@@ -1,4 +1,6 @@
 mod client;
+mod fixture;
+mod live;
 mod work_item;
 
 use std::path::PathBuf;
