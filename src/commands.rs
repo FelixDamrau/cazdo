@@ -164,6 +164,12 @@ pub async fn config_verify() -> Result<()> {
 const WI_PREVIEW_CHAR_LIMIT: usize = 320;
 const WI_LONG_PREVIEW_CHAR_LIMIT: usize = 600;
 
+pub enum WorkItemOutput {
+    Preview,
+    Long,
+    Json,
+}
+
 fn current_branch_work_item_id(branch_name: Option<&str>) -> Result<u32> {
     let Some(branch_name) = branch_name else {
         bail!(
@@ -182,17 +188,17 @@ fn current_branch_work_item_id(branch_name: Option<&str>) -> Result<u32> {
     }
 }
 
-pub async fn show_work_item(id: Option<u32>, long: bool) -> Result<()> {
-    let wi_id = match id {
-        Some(id) => id,
-        None => {
-            let repo = GitRepo::open_current_dir().context("Failed to open git repository")?;
-
-            current_branch_work_item_id(repo.current_local_branch_name()?.as_deref())?
-        }
-    };
+pub async fn show_work_item(id: Option<u32>, output: WorkItemOutput) -> Result<()> {
+    let wi_id = resolve_work_item_id(id)?;
 
     let client = work_item_client()?;
+
+    if matches!(output, WorkItemOutput::Json) {
+        let json = client.get_work_item_json(wi_id).await?;
+        println!("{}", serde_json::to_string_pretty(&json)?);
+        return Ok(());
+    }
+
     let wi = client.get_work_item(wi_id).await?;
 
     let wi_label = format!("#{}", wi.id);
@@ -222,6 +228,7 @@ pub async fn show_work_item(id: Option<u32>, long: bool) -> Result<()> {
         .find(|field| field.name == "Description")
         .map(|field| field.value.as_str());
 
+    let long = matches!(output, WorkItemOutput::Long);
     let description = description_html
         .map(|html| compact_text_preview(html, wi_preview_char_limit(long)))
         .unwrap_or_else(|| "(none)".to_string());
@@ -229,6 +236,17 @@ pub async fn show_work_item(id: Option<u32>, long: bool) -> Result<()> {
     println!("{} {}", "Description:".bold(), description);
 
     Ok(())
+}
+
+fn resolve_work_item_id(id: Option<u32>) -> Result<u32> {
+    match id {
+        Some(id) => Ok(id),
+        None => {
+            let repo = GitRepo::open_current_dir().context("Failed to open git repository")?;
+
+            current_branch_work_item_id(repo.current_local_branch_name()?.as_deref())
+        }
+    }
 }
 
 fn wi_preview_char_limit(long: bool) -> usize {
