@@ -124,6 +124,9 @@ cazdo wi 120
 
 # Show a longer but still bounded WI preview
 cazdo wi --long
+
+# Show full Azure DevOps WI JSON
+cazdo wi 120 --json
 ```
 
 ## Keyboard Shortcuts

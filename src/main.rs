@@ -10,6 +10,7 @@ mod tui;
 use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Commands, ConfigAction};
+use commands::WorkItemOutput;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -21,8 +22,13 @@ async fn main() -> Result<()> {
             ConfigAction::Show => commands::config_show()?,
             ConfigAction::Verify => commands::config_verify().await?,
         },
-        Some(Commands::Wi { id, long }) => {
-            commands::show_work_item(id, long).await?;
+        Some(Commands::Wi { id, long, json }) => {
+            let output = match (long, json) {
+                (_, true) => WorkItemOutput::Json,
+                (true, false) => WorkItemOutput::Long,
+                (false, false) => WorkItemOutput::Preview,
+            };
+            commands::show_work_item(id, output).await?;
         }
         None => {
             // Default: launch interactive TUI

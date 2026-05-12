@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use reqwest::Client;
+use serde_json::Value;
 
 use super::work_item::WorkItem;
 use crate::config::Config;
@@ -34,10 +35,22 @@ impl LiveAzureDevOpsClient {
     }
 
     pub(super) async fn get_work_item(&self, id: u32) -> Result<WorkItem> {
-        let url = format!(
-            "{}/_apis/wit/workitems/{}?api-version=7.0",
-            self.base_url, id
-        );
+        let json = self.request_work_item_json(id, false).await?;
+
+        WorkItem::from_json(&json, id)
+    }
+
+    pub(super) async fn get_work_item_json(&self, id: u32) -> Result<Value> {
+        self.request_work_item_json(id, true).await
+    }
+
+    async fn request_work_item_json(&self, id: u32, expand_all: bool) -> Result<Value> {
+        let query = if expand_all {
+            "?$expand=all&api-version=7.0"
+        } else {
+            "?api-version=7.0"
+        };
+        let url = format!("{}/_apis/wit/workitems/{}{}", self.base_url, id, query);
 
         let response = self
             .client
@@ -52,12 +65,10 @@ impl LiveAzureDevOpsClient {
             return Err(self.extract_api_error(response, id).await);
         }
 
-        let json: serde_json::Value = response
+        response
             .json()
             .await
-            .context("Failed to parse work item response")?;
-
-        WorkItem::from_json(&json, id)
+            .context("Failed to parse work item response")
     }
 
     pub(super) async fn verify_connection(&self) -> Result<()> {

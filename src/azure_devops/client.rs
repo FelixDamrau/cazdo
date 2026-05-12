@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::Result;
+use serde_json::Value;
 
 use super::fixture::FixtureAzureDevOpsClient;
 use super::live::LiveAzureDevOpsClient;
@@ -42,6 +43,13 @@ impl AzureDevOpsClient {
         match &self.provider {
             WorkItemProvider::Live(client) => client.get_work_item(id).await,
             WorkItemProvider::Fixture(client) => client.get_work_item(id),
+        }
+    }
+
+    pub async fn get_work_item_json(&self, id: u32) -> Result<Value> {
+        match &self.provider {
+            WorkItemProvider::Live(client) => client.get_work_item_json(id).await,
+            WorkItemProvider::Fixture(client) => client.get_work_item_json(id),
         }
     }
 

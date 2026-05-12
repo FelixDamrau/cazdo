@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 
 use super::work_item::{WorkItem, WorkItemParts};
 
@@ -11,7 +12,7 @@ pub(super) struct FixtureAzureDevOpsClient {
     work_items: HashMap<u32, FixtureWorkItem>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 struct FixtureWorkItem {
     id: u32,
     title: String,
@@ -53,6 +54,13 @@ impl FixtureAzureDevOpsClient {
             .into_work_item()
     }
 
+    pub(super) fn get_work_item_json(&self, id: u32) -> Result<Value> {
+        self.work_items
+            .get(&id)
+            .ok_or_else(|| anyhow::anyhow!("Work Item #{} not found", id))?
+            .to_azure_json()
+    }
+
     pub(super) fn verify_connection(&self) -> Result<()> {
         Ok(())
     }
@@ -80,6 +88,49 @@ impl FixtureWorkItem {
             tags: self.tags,
             rich_text_fields,
         }))
+    }
+
+    fn to_azure_json(&self) -> Result<Value> {
+        let mut fields = serde_json::Map::new();
+        fields.insert("System.Title".to_string(), json!(self.title));
+        fields.insert(
+            "System.WorkItemType".to_string(),
+            json!(self.work_item_type),
+        );
+        fields.insert("System.State".to_string(), json!(self.state));
+
+        if let Some(assigned_to) = self.assigned_to.as_ref() {
+            fields.insert(
+                "System.AssignedTo".to_string(),
+                json!({ "displayName": assigned_to }),
+            );
+        }
+
+        if !self.tags.is_empty() {
+            fields.insert("System.Tags".to_string(), json!(self.tags.join("; ")));
+        }
+
+        if let Some(description) = self.description.as_ref()
+            && !description.trim().is_empty()
+        {
+            fields.insert("System.Description".to_string(), json!(description));
+        }
+
+        let mut value = json!({
+            "id": self.id,
+            "fields": Value::Object(fields),
+            "relations": []
+        });
+
+        if let Some(url) = self.url.as_ref() {
+            value["_links"] = json!({
+                "html": {
+                    "href": url
+                }
+            });
+        }
+
+        Ok(value)
     }
 }
 
@@ -158,6 +209,55 @@ mod tests {
             .expect_err("missing fixture item should error");
 
         assert_eq!(error.to_string(), "Work Item #999 not found");
+    }
+
+    #[tokio::test]
+    async fn returns_azure_shaped_json_from_demo_fixture_file() {
+        let temp_dir = TempDir::new().expect("temp dir should be created");
+        let fixture_path = write_fixture(
+            &temp_dir,
+            r#"[
+  {
+    "id": 101,
+    "title": "Show filter behavior in the demo",
+    "work_item_type": "Task",
+    "state": "Committed",
+    "assigned_to": "Demo User",
+    "tags": ["Docs", "Demo"],
+    "description": "<p>Use this item to show JSON output.</p>",
+    "url": "https://example.test/items/101"
+  }
+]"#,
+        );
+
+        let client = AzureDevOpsClient::new_fixture(&fixture_path)
+            .expect("fixture-backed client should initialize");
+
+        let json = client
+            .get_work_item_json(101)
+            .await
+            .expect("fixture item json should load");
+
+        assert_eq!(json["id"], 101);
+        assert_eq!(
+            json["fields"]["System.Title"],
+            "Show filter behavior in the demo"
+        );
+        assert_eq!(json["fields"]["System.WorkItemType"], "Task");
+        assert_eq!(json["fields"]["System.State"], "Committed");
+        assert_eq!(
+            json["fields"]["System.AssignedTo"]["displayName"],
+            "Demo User"
+        );
+        assert_eq!(json["fields"]["System.Tags"], "Docs; Demo");
+        assert_eq!(
+            json["fields"]["System.Description"],
+            "<p>Use this item to show JSON output.</p>"
+        );
+        assert_eq!(
+            json["_links"]["html"]["href"],
+            "https://example.test/items/101"
+        );
     }
 
     #[test]
