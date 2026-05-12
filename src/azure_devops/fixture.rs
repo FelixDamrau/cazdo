@@ -260,6 +260,33 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn returns_not_found_for_missing_demo_fixture_json_item() {
+        let temp_dir = TempDir::new().expect("temp dir should be created");
+        let fixture_path = write_fixture(
+            &temp_dir,
+            r#"[
+  {
+    "id": 101,
+    "title": "Show filter behavior in the demo",
+    "work_item_type": "Task",
+    "state": "Committed",
+    "description": "<p>Visible in the fixture.</p>"
+  }
+]"#,
+        );
+
+        let client = AzureDevOpsClient::new_fixture(&fixture_path)
+            .expect("fixture-backed client should initialize");
+
+        let error = client
+            .get_work_item_json(999)
+            .await
+            .expect_err("missing fixture item json should error");
+
+        assert_eq!(error.to_string(), "Work Item #999 not found");
+    }
+
     #[test]
     fn rejects_malformed_demo_fixture_file() {
         let temp_dir = TempDir::new().expect("temp dir should be created");
