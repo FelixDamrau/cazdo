@@ -64,7 +64,7 @@ fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Command> {
             if key.modifiers.contains(event::KeyModifiers::SHIFT) {
                 app.scroll_down(scroll::LINE_SCROLL_AMOUNT);
             } else {
-                app.next();
+                app.update(Msg::NextBranch);
             }
             None
         }
@@ -72,7 +72,7 @@ fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Command> {
             if key.modifiers.contains(event::KeyModifiers::SHIFT) {
                 app.scroll_up(scroll::LINE_SCROLL_AMOUNT);
             } else {
-                app.previous();
+                app.update(Msg::PreviousBranch);
             }
             None
         }
@@ -113,7 +113,7 @@ fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Command> {
         KeyCode::Char('o') => Some(Command::OpenWorkItem),
         KeyCode::Enter => app.selected_branch().cloned().map(Command::Checkout),
         KeyCode::Char('t') => {
-            app.toggle_view();
+            app.update(Msg::ToggleView);
             None
         }
         KeyCode::Char('/') => {
@@ -122,7 +122,7 @@ fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Command> {
         }
         KeyCode::Char('r') => app.selected_work_item_id().map(Command::Refresh),
         KeyCode::Char('p') => {
-            app.toggle_show_protected();
+            app.update(Msg::ToggleShowProtected);
             None
         }
         _ => None,

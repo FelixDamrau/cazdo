@@ -93,6 +93,10 @@ pub enum RemoteFreshness {
 /// `App::update` and feed the resulting state change back through a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Msg {
+    NextBranch,
+    PreviousBranch,
+    ToggleView,
+    ToggleShowProtected,
     Quit,
 }
 
@@ -146,6 +150,10 @@ impl App {
 
     pub fn update(&mut self, msg: Msg) {
         match msg {
+            Msg::NextBranch => self.next(),
+            Msg::PreviousBranch => self.previous(),
+            Msg::ToggleView => self.toggle_view(),
+            Msg::ToggleShowProtected => self.toggle_show_protected(),
             Msg::Quit => self.quit(),
         }
     }
@@ -326,6 +334,36 @@ mod tests {
         app.update(Msg::Quit);
 
         assert!(app.should_quit);
+    }
+
+    #[test]
+    fn test_update_handles_navigation_messages() {
+        let mut branches = create_test_branches();
+        branches.push(branch(
+            "refs/heads/feature/789",
+            "feature/789",
+            "feature/789",
+            BranchScope::Local,
+            false,
+            false,
+            Some(789),
+        ));
+        let mut app = App::new(branches, vec![]);
+
+        app.update(Msg::NextBranch);
+        assert_eq!(app.selected_index(), 1);
+
+        app.update(Msg::NextBranch);
+        assert_eq!(app.selected_index(), 2);
+
+        app.update(Msg::PreviousBranch);
+        assert_eq!(app.selected_index(), 1);
+
+        app.update(Msg::ToggleView);
+        assert_eq!(app.active_view, BranchView::Remote);
+
+        app.update(Msg::ToggleShowProtected);
+        assert!(app.show_protected);
     }
 
     #[test]

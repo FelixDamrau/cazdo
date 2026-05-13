@@ -33,7 +33,7 @@ impl App {
         }
     }
 
-    pub fn next(&mut self) {
+    pub(super) fn next(&mut self) {
         let count = self.visible_count();
         if count > 0 {
             let next = (self.selected_index() + 1) % count;
@@ -42,7 +42,7 @@ impl App {
         }
     }
 
-    pub fn previous(&mut self) {
+    pub(super) fn previous(&mut self) {
         let count = self.visible_count();
         if count > 0 {
             let next = if self.selected_index() == 0 {
@@ -55,7 +55,7 @@ impl App {
         }
     }
 
-    pub fn toggle_show_protected(&mut self) {
+    pub(super) fn toggle_show_protected(&mut self) {
         let selected_key = self.selected_branch().map(|branch| branch.key.clone());
         self.show_protected = !self.show_protected;
 
@@ -69,7 +69,7 @@ impl App {
         self.clamp_selected_index();
     }
 
-    pub fn toggle_view(&mut self) {
+    pub(super) fn toggle_view(&mut self) {
         self.active_view = self.active_view.toggle();
         if self.active_view == BranchView::Remote
             && matches!(self.remote_freshness, RemoteFreshness::Error(_))
