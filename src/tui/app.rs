@@ -86,6 +86,16 @@ pub enum RemoteFreshness {
     Error(String),
 }
 
+/// Message handled by the TUI update loop.
+///
+/// `Msg` is for pure `App` state transitions. Work that needs external side
+/// effects, such as git operations or opening a browser, should stay outside
+/// `App::update` and feed the resulting state change back through a message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Msg {
+    Quit,
+}
+
 /// Application state
 pub struct App {
     pub branches: Vec<BranchInfo>,
@@ -131,6 +141,12 @@ impl App {
             branch_filter: String::new(),
             filter_input: String::new(),
             filter_input_selected_key: None,
+        }
+    }
+
+    pub fn update(&mut self, msg: Msg) {
+        match msg {
+            Msg::Quit => self.quit(),
         }
     }
 
@@ -301,6 +317,15 @@ mod tests {
                 Some(456),
             ),
         ]
+    }
+
+    #[test]
+    fn test_update_handles_quit_action() {
+        let mut app = App::new(create_test_branches(), vec![]);
+
+        app.update(Msg::Quit);
+
+        assert!(app.should_quit);
     }
 
     #[test]

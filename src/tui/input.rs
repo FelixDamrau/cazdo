@@ -1,10 +1,10 @@
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, MouseEvent, MouseEventKind};
 
-use super::app::{App, AppMode, BranchInfo};
+use super::app::{App, AppMode, BranchInfo, Msg};
 use super::theme::{scroll, timing};
 
-pub(super) enum Action {
+pub(super) enum Command {
     Delete(BranchInfo),
     Prune(BranchInfo),
     Refresh(u32),
@@ -12,7 +12,7 @@ pub(super) enum Action {
     Checkout(BranchInfo),
 }
 
-pub(super) fn handle_input(app: &mut App) -> Result<Option<Action>> {
+pub(super) fn handle_input(app: &mut App) -> Result<Option<Command>> {
     if !event::poll(timing::POLL_INTERVAL)? {
         return Ok(None);
     }
@@ -27,7 +27,7 @@ pub(super) fn handle_input(app: &mut App) -> Result<Option<Action>> {
     }
 }
 
-fn handle_key_event(app: &mut App, key: KeyEvent) -> Option<Action> {
+fn handle_key_event(app: &mut App, key: KeyEvent) -> Option<Command> {
     match &app.mode {
         AppMode::Normal => handle_normal_mode_key(app, key),
         AppMode::FilterInput => handle_filter_input_key(app, key),
@@ -42,22 +42,22 @@ fn handle_key_event(app: &mut App, key: KeyEvent) -> Option<Action> {
     }
 }
 
-fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Action> {
+fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Command> {
     match key.code {
         KeyCode::Esc => {
             if app.has_active_filter() {
                 app.clear_branch_filter();
             } else {
-                app.quit();
+                app.update(Msg::Quit);
             }
             None
         }
         KeyCode::Char('q') => {
-            app.quit();
+            app.update(Msg::Quit);
             None
         }
         KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
-            app.quit();
+            app.update(Msg::Quit);
             None
         }
         KeyCode::Down | KeyCode::Char('j') => {
@@ -105,13 +105,13 @@ fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Action> {
                 app.set_status_message(error, true, timing::STATUS_DURATION_SECS);
                 None
             } else if app.selected_branch().is_some_and(|branch| branch.is_stale) {
-                app.selected_branch().cloned().map(Action::Prune)
+                app.selected_branch().cloned().map(Command::Prune)
             } else {
-                app.selected_branch().cloned().map(Action::Delete)
+                app.selected_branch().cloned().map(Command::Delete)
             }
         }
-        KeyCode::Char('o') => Some(Action::OpenWorkItem),
-        KeyCode::Enter => app.selected_branch().cloned().map(Action::Checkout),
+        KeyCode::Char('o') => Some(Command::OpenWorkItem),
+        KeyCode::Enter => app.selected_branch().cloned().map(Command::Checkout),
         KeyCode::Char('t') => {
             app.toggle_view();
             None
@@ -120,7 +120,7 @@ fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Action> {
             app.enter_filter_input();
             None
         }
-        KeyCode::Char('r') => app.selected_work_item_id().map(Action::Refresh),
+        KeyCode::Char('r') => app.selected_work_item_id().map(Command::Refresh),
         KeyCode::Char('p') => {
             app.toggle_show_protected();
             None
@@ -129,7 +129,7 @@ fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Action> {
     }
 }
 
-fn handle_filter_input_key(app: &mut App, key: KeyEvent) -> Option<Action> {
+fn handle_filter_input_key(app: &mut App, key: KeyEvent) -> Option<Command> {
     match key.code {
         KeyCode::Enter => {
             app.apply_filter_input();
@@ -163,14 +163,14 @@ fn handle_filter_input_key(app: &mut App, key: KeyEvent) -> Option<Action> {
     }
 }
 
-fn handle_confirm_delete_key(app: &mut App, key: KeyEvent, branch_key: &str) -> Option<Action> {
+fn handle_confirm_delete_key(app: &mut App, key: KeyEvent, branch_key: &str) -> Option<Command> {
     match key.code {
         KeyCode::Char('y') | KeyCode::Enter => {
             let branch = app.branch_by_key(branch_key)?.clone();
             let action = if branch.is_stale {
-                Action::Prune(branch)
+                Command::Prune(branch)
             } else {
-                Action::Delete(branch)
+                Command::Delete(branch)
             };
             app.cancel_mode();
             Some(action)
@@ -218,7 +218,9 @@ mod tests {
         let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Enter));
 
         match action {
-            Some(Action::Prune(branch)) => assert_eq!(branch.key, "refs/remotes/origin/feature/1"),
+            Some(Command::Prune(branch)) => {
+                assert_eq!(branch.key, "refs/remotes/origin/feature/1")
+            }
             _ => panic!("expected prune action after branch became stale"),
         }
     }
@@ -374,7 +376,9 @@ mod tests {
         let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('D')));
 
         match action {
-            Some(Action::Prune(branch)) => assert_eq!(branch.key, "refs/remotes/origin/feature/1"),
+            Some(Command::Prune(branch)) => {
+                assert_eq!(branch.key, "refs/remotes/origin/feature/1")
+            }
             _ => panic!("expected stale branch to trigger prune action"),
         }
     }
