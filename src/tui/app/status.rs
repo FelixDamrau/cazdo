@@ -1,7 +1,7 @@
 use super::*;
 
 impl App {
-    pub fn quit(&mut self) {
+    pub(super) fn quit(&mut self) {
         self.should_quit = true;
     }
 
