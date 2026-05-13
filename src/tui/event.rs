@@ -21,7 +21,7 @@ use super::{
         FetchResult, fetch_branch_status_if_needed, process_fetch_results,
         trigger_remote_freshness_check, trigger_work_item_fetch,
     },
-    input::{Action, handle_input},
+    input::{Command, handle_input},
 };
 use crate::azure_devops::{AzureDevOpsClient, work_item_client};
 use crate::git::GitRepo;
@@ -80,14 +80,14 @@ async fn run_loop(
 
         if let Some(action) = handle_input(app)? {
             match action {
-                Action::Delete(branch) => execute_delete_branch(app, git_repo, &branch),
-                Action::Prune(branch) => execute_prune_branch(app, git_repo, &branch),
-                Action::Refresh(wi_id) => {
+                Command::Delete(branch) => execute_delete_branch(app, git_repo, &branch),
+                Command::Prune(branch) => execute_prune_branch(app, git_repo, &branch),
+                Command::Refresh(wi_id) => {
                     pending_fetches.remove(&wi_id);
                     app.reset_work_item(wi_id);
                 }
-                Action::OpenWorkItem => open_current_work_item(app),
-                Action::Checkout(branch) => execute_checkout_branch(app, git_repo, &branch),
+                Command::OpenWorkItem => open_current_work_item(app),
+                Command::Checkout(branch) => execute_checkout_branch(app, git_repo, &branch),
             }
         }
 
