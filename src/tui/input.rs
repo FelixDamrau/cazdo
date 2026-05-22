@@ -46,7 +46,7 @@ fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Command> {
     match key.code {
         KeyCode::Esc => {
             if app.has_active_filter() {
-                app.clear_branch_filter();
+                app.update(Msg::ClearFilter);
             } else {
                 app.update(Msg::Quit);
             }
@@ -117,7 +117,7 @@ fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Command> {
             None
         }
         KeyCode::Char('/') => {
-            app.enter_filter_input();
+            app.update(Msg::StartFilter);
             None
         }
         KeyCode::Char('r') => app.selected_work_item_id().map(Command::Refresh),
@@ -132,21 +132,21 @@ fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Command> {
 fn handle_filter_input_key(app: &mut App, key: KeyEvent) -> Option<Command> {
     match key.code {
         KeyCode::Enter => {
-            app.apply_filter_input();
+            app.update(Msg::ApplyFilter);
             None
         }
         KeyCode::Esc => {
-            app.cancel_filter_input();
+            app.update(Msg::CancelFilter);
             None
         }
         KeyCode::Backspace => {
             let mut filter_input = app.filter_input.clone();
             filter_input.pop();
-            app.update_filter_input(filter_input);
+            app.update(Msg::SetFilterInput(filter_input));
             None
         }
         KeyCode::Char('u') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
-            app.update_filter_input(String::new());
+            app.update(Msg::SetFilterInput(String::new()));
             None
         }
         KeyCode::Char(c)
@@ -156,7 +156,7 @@ fn handle_filter_input_key(app: &mut App, key: KeyEvent) -> Option<Command> {
         {
             let mut filter_input = app.filter_input.clone();
             filter_input.push(c);
-            app.update_filter_input(filter_input);
+            app.update(Msg::SetFilterInput(filter_input));
             None
         }
         _ => None,
