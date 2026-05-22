@@ -97,6 +97,11 @@ pub enum Msg {
     PreviousBranch,
     ToggleView,
     ToggleShowProtected,
+    StartFilter,
+    SetFilterInput(String),
+    ApplyFilter,
+    ClearFilter,
+    CancelFilter,
     Quit,
 }
 
@@ -154,6 +159,11 @@ impl App {
             Msg::PreviousBranch => self.previous(),
             Msg::ToggleView => self.toggle_view(),
             Msg::ToggleShowProtected => self.toggle_show_protected(),
+            Msg::StartFilter => self.enter_filter_input(),
+            Msg::SetFilterInput(filter_input) => self.update_filter_input(filter_input),
+            Msg::ApplyFilter => self.apply_filter_input(),
+            Msg::ClearFilter => self.clear_branch_filter(),
+            Msg::CancelFilter => self.cancel_filter_input(),
             Msg::Quit => self.quit(),
         }
     }
@@ -615,6 +625,102 @@ mod tests {
             app.selected_branch().unwrap().branch_name,
             "feature/beta-login"
         );
+    }
+
+    #[test]
+    fn test_update_start_filter_enters_filter_input_with_active_filter() {
+        let mut app = App::new(
+            vec![branch(
+                "refs/heads/feature/login",
+                "feature/login",
+                "feature/login",
+                BranchScope::Local,
+                false,
+                false,
+                None,
+            )],
+            vec![],
+        );
+        app.branch_filter = "feature".to_string();
+
+        app.update(Msg::StartFilter);
+
+        assert!(matches!(app.mode, AppMode::FilterInput));
+        assert_eq!(app.filter_input, "feature");
+    }
+
+    #[test]
+    fn test_update_set_filter_input_keeps_applied_filter_separate() {
+        let mut app = App::new(
+            vec![
+                branch(
+                    "refs/heads/feature/login",
+                    "feature/login",
+                    "feature/login",
+                    BranchScope::Local,
+                    false,
+                    false,
+                    None,
+                ),
+                branch(
+                    "refs/heads/chore/docs",
+                    "chore/docs",
+                    "chore/docs",
+                    BranchScope::Local,
+                    false,
+                    false,
+                    None,
+                ),
+            ],
+            vec![],
+        );
+        app.branch_filter = "feature".to_string();
+        app.update(Msg::StartFilter);
+
+        app.update(Msg::SetFilterInput("docs".to_string()));
+
+        assert_eq!(app.branch_filter, "feature");
+        assert_eq!(app.filter_input, "docs");
+        assert_eq!(app.visible_branches()[0].branch_name, "chore/docs");
+    }
+
+    #[test]
+    fn test_update_apply_filter_applies_draft_and_exits_filter_input() {
+        let mut app = App::new(vec![create_test_branches()[1].clone()], vec![]);
+        app.update(Msg::StartFilter);
+        app.update(Msg::SetFilterInput("feature login".to_string()));
+
+        app.update(Msg::ApplyFilter);
+
+        assert!(matches!(app.mode, AppMode::Normal));
+        assert_eq!(app.branch_filter, "feature login");
+        assert_eq!(app.filter_input, "feature login");
+    }
+
+    #[test]
+    fn test_update_clear_filter_clears_applied_filter_and_resets_scroll() {
+        let mut app = App::new(vec![create_test_branches()[1].clone()], vec![]);
+        app.apply_branch_filter("feature".to_string());
+        app.scroll_offset = 3;
+
+        app.update(Msg::ClearFilter);
+
+        assert!(app.branch_filter.is_empty());
+        assert_eq!(app.scroll_offset, 0);
+    }
+
+    #[test]
+    fn test_update_cancel_filter_discards_draft_without_changing_applied_filter() {
+        let mut app = App::new(vec![create_test_branches()[1].clone()], vec![]);
+        app.branch_filter = "feature".to_string();
+        app.update(Msg::StartFilter);
+        app.update(Msg::SetFilterInput("docs".to_string()));
+
+        app.update(Msg::CancelFilter);
+
+        assert!(matches!(app.mode, AppMode::Normal));
+        assert_eq!(app.branch_filter, "feature");
+        assert_eq!(app.filter_input, "feature");
     }
 
     #[test]
