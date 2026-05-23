@@ -34,7 +34,12 @@ impl App {
     }
 
     pub(super) fn apply_background_error(&mut self, error: String) {
-        self.set_status_message(error, true, crate::tui::theme::timing::STATUS_DURATION_SECS);
+        self.status_message = Some(StatusMessage {
+            text: error,
+            is_error: true,
+            expires_at: Instant::now()
+                + std::time::Duration::from_secs(crate::tui::theme::timing::STATUS_DURATION_SECS),
+        });
     }
 
     pub fn get_status_message(&self) -> Option<&StatusMessage> {
