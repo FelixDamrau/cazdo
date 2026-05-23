@@ -14,6 +14,15 @@ impl App {
         self.update(Msg::SetRemoteFreshnessChecked(live_branches));
     }
 
+    pub(super) fn apply_remote_freshness_checked(&mut self, live_branches: HashSet<String>) {
+        for branch in &mut self.branches {
+            if branch.scope == BranchScope::Remote {
+                branch.is_stale = !live_branches.contains(&branch.branch_name);
+            }
+        }
+        self.remote_freshness = RemoteFreshness::Checked;
+    }
+
     pub fn set_remote_freshness_error(&mut self, error: String) {
         self.update(Msg::SetRemoteFreshness(RemoteFreshness::Error(error)));
     }
@@ -39,12 +48,25 @@ impl App {
         self.update(Msg::SetWorkItemLoading(id));
     }
 
+    pub(super) fn apply_work_item_loading(&mut self, id: u32) {
+        self.work_items.insert(id, WorkItemStatus::Loading);
+    }
+
     pub fn set_work_item_loaded(&mut self, id: u32, work_item: WorkItem) {
         self.update(Msg::SetWorkItemLoaded { id, work_item });
     }
 
+    pub(super) fn apply_work_item_loaded(&mut self, id: u32, work_item: WorkItem) {
+        self.work_items
+            .insert(id, WorkItemStatus::Loaded(work_item));
+    }
+
     pub fn set_work_item_error(&mut self, id: u32, error: String) {
         self.update(Msg::SetWorkItemError { id, error });
+    }
+
+    pub(super) fn apply_work_item_error(&mut self, id: u32, error: String) {
+        self.work_items.insert(id, WorkItemStatus::Error(error));
     }
 
     pub fn reset_work_item(&mut self, id: u32) {
@@ -74,8 +96,16 @@ impl App {
         self.update(Msg::SetBranchStatus { key, status });
     }
 
+    pub(super) fn apply_branch_status(&mut self, key: String, status: BranchStatus) {
+        self.branch_statuses.insert(key, Ok(status));
+    }
+
     pub fn set_branch_status_error(&mut self, key: String, error: String) {
         self.update(Msg::SetBranchStatusError { key, error });
+    }
+
+    pub(super) fn apply_branch_status_error(&mut self, key: String, error: String) {
+        self.branch_statuses.insert(key, Err(error));
     }
 
     pub fn needs_branch_status(&self, key: &str) -> bool {

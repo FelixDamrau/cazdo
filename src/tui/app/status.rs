@@ -33,6 +33,10 @@ impl App {
         }));
     }
 
+    pub(super) fn apply_background_error(&mut self, error: String) {
+        self.set_status_message(error, true, crate::tui::theme::timing::STATUS_DURATION_SECS);
+    }
+
     pub fn get_status_message(&self) -> Option<&StatusMessage> {
         self.status_message
             .as_ref()

@@ -185,34 +185,14 @@ impl App {
             Msg::ClearStatus => self.status_message = None,
             Msg::SetRemoteFreshness(remote_freshness) => self.remote_freshness = remote_freshness,
             Msg::SetRemoteFreshnessChecked(live_branches) => {
-                for branch in &mut self.branches {
-                    if branch.scope == BranchScope::Remote {
-                        branch.is_stale = !live_branches.contains(&branch.branch_name);
-                    }
-                }
-                self.remote_freshness = RemoteFreshness::Checked;
+                self.apply_remote_freshness_checked(live_branches)
             }
-            Msg::SetWorkItemLoading(id) => {
-                self.work_items.insert(id, WorkItemStatus::Loading);
-            }
-            Msg::SetWorkItemLoaded { id, work_item } => {
-                self.work_items
-                    .insert(id, WorkItemStatus::Loaded(work_item));
-            }
-            Msg::SetWorkItemError { id, error } => {
-                self.work_items.insert(id, WorkItemStatus::Error(error));
-            }
-            Msg::SetBranchStatus { key, status } => {
-                self.branch_statuses.insert(key, Ok(status));
-            }
-            Msg::SetBranchStatusError { key, error } => {
-                self.branch_statuses.insert(key, Err(error));
-            }
-            Msg::SetBackgroundError(error) => self.set_status_message(
-                error,
-                true,
-                crate::tui::theme::timing::STATUS_DURATION_SECS,
-            ),
+            Msg::SetWorkItemLoading(id) => self.apply_work_item_loading(id),
+            Msg::SetWorkItemLoaded { id, work_item } => self.apply_work_item_loaded(id, work_item),
+            Msg::SetWorkItemError { id, error } => self.apply_work_item_error(id, error),
+            Msg::SetBranchStatus { key, status } => self.apply_branch_status(key, status),
+            Msg::SetBranchStatusError { key, error } => self.apply_branch_status_error(key, error),
+            Msg::SetBackgroundError(error) => self.apply_background_error(error),
         }
     }
 
