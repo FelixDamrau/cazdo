@@ -1,11 +1,11 @@
 use super::*;
 
 impl App {
-    pub(super) fn quit(&mut self) {
-        self.should_quit = true;
+    pub fn enter_confirm_mode(&mut self) {
+        self.update(Msg::EnterDeleteConfirmMode);
     }
 
-    pub fn enter_confirm_mode(&mut self) {
+    pub(super) fn apply_enter_confirm_mode(&mut self) {
         if let Some(branch) = self.selected_branch() {
             self.mode = AppMode::ConfirmDelete {
                 branch_key: branch.key.clone(),
@@ -14,11 +14,11 @@ impl App {
     }
 
     pub fn show_error_popup(&mut self, message: String) {
-        self.mode = AppMode::ErrorPopup(message);
+        self.update(Msg::ShowErrorPopup(message));
     }
 
     pub fn cancel_mode(&mut self) {
-        self.mode = AppMode::Normal;
+        self.update(Msg::EnterNormalMode);
     }
 
     pub fn is_normal_mode(&self) -> bool {
@@ -26,11 +26,11 @@ impl App {
     }
 
     pub fn set_status_message(&mut self, text: String, is_error: bool, duration_secs: u64) {
-        self.status_message = Some(StatusMessage {
+        self.update(Msg::SetStatus(StatusMessage {
             text,
             is_error,
             expires_at: Instant::now() + std::time::Duration::from_secs(duration_secs),
-        });
+        }));
     }
 
     pub fn get_status_message(&self) -> Option<&StatusMessage> {
@@ -43,7 +43,7 @@ impl App {
         if let Some(ref message) = self.status_message
             && message.expires_at <= Instant::now()
         {
-            self.status_message = None;
+            self.update(Msg::ClearStatus);
         }
     }
 }

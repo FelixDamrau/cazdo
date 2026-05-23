@@ -5,7 +5,7 @@ use std::time::Duration;
 use anyhow::Result;
 use tokio::sync::mpsc;
 
-use super::app::{App, WorkItemStatus};
+use super::app::{App, Msg, WorkItemStatus};
 use super::theme::timing;
 use crate::azure_devops::{AzureDevOpsClient, WorkItem};
 use crate::git::{GitRepo, list_origin_remote_heads_in_dir};
@@ -39,11 +39,9 @@ pub(super) fn process_fetch_results(
             }
             FetchResult::RemoteFreshnessError { error } => {
                 app.set_remote_freshness_error(error);
-                app.set_status_message(
+                app.update(Msg::SetBackgroundError(
                     "Could not verify origin branches".to_string(),
-                    true,
-                    timing::STATUS_DURATION_SECS,
-                );
+                ));
             }
         }
     }
