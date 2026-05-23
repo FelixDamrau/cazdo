@@ -7,10 +7,14 @@ impl App {
     }
 
     pub fn set_remote_freshness_checking(&mut self) {
-        self.remote_freshness = RemoteFreshness::Checking;
+        self.update(Msg::SetRemoteFreshness(RemoteFreshness::Checking));
     }
 
     pub fn set_remote_freshness(&mut self, live_branches: HashSet<String>) {
+        self.update(Msg::SetRemoteFreshnessChecked(live_branches));
+    }
+
+    pub(super) fn apply_remote_freshness_checked(&mut self, live_branches: HashSet<String>) {
         for branch in &mut self.branches {
             if branch.scope == BranchScope::Remote {
                 branch.is_stale = !live_branches.contains(&branch.branch_name);
@@ -20,7 +24,7 @@ impl App {
     }
 
     pub fn set_remote_freshness_error(&mut self, error: String) {
-        self.remote_freshness = RemoteFreshness::Error(error);
+        self.update(Msg::SetRemoteFreshness(RemoteFreshness::Error(error)));
     }
 
     pub fn remote_freshness_is_checking(&self) -> bool {
@@ -41,15 +45,27 @@ impl App {
     }
 
     pub fn set_work_item_loading(&mut self, id: u32) {
+        self.update(Msg::SetWorkItemLoading(id));
+    }
+
+    pub(super) fn apply_work_item_loading(&mut self, id: u32) {
         self.work_items.insert(id, WorkItemStatus::Loading);
     }
 
     pub fn set_work_item_loaded(&mut self, id: u32, work_item: WorkItem) {
+        self.update(Msg::SetWorkItemLoaded { id, work_item });
+    }
+
+    pub(super) fn apply_work_item_loaded(&mut self, id: u32, work_item: WorkItem) {
         self.work_items
             .insert(id, WorkItemStatus::Loaded(work_item));
     }
 
     pub fn set_work_item_error(&mut self, id: u32, error: String) {
+        self.update(Msg::SetWorkItemError { id, error });
+    }
+
+    pub(super) fn apply_work_item_error(&mut self, id: u32, error: String) {
         self.work_items.insert(id, WorkItemStatus::Error(error));
     }
 
@@ -77,10 +93,18 @@ impl App {
     }
 
     pub fn set_branch_status(&mut self, key: String, status: BranchStatus) {
+        self.update(Msg::SetBranchStatus { key, status });
+    }
+
+    pub(super) fn apply_branch_status(&mut self, key: String, status: BranchStatus) {
         self.branch_statuses.insert(key, Ok(status));
     }
 
     pub fn set_branch_status_error(&mut self, key: String, error: String) {
+        self.update(Msg::SetBranchStatusError { key, error });
+    }
+
+    pub(super) fn apply_branch_status_error(&mut self, key: String, error: String) {
         self.branch_statuses.insert(key, Err(error));
     }
 

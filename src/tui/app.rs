@@ -91,7 +91,7 @@ pub enum RemoteFreshness {
 /// `Msg` is for pure `App` state transitions. Work that needs external side
 /// effects, such as git operations or opening a browser, should stay outside
 /// `App::update` and feed the resulting state change back through a message.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum Msg {
     NextBranch,
     PreviousBranch,
@@ -103,6 +103,19 @@ pub enum Msg {
     ClearFilter,
     CancelFilter,
     Quit,
+    EnterNormalMode,
+    EnterDeleteConfirmMode,
+    ShowErrorPopup(String),
+    SetStatus(StatusMessage),
+    ClearStatus,
+    SetRemoteFreshness(RemoteFreshness),
+    SetRemoteFreshnessChecked(HashSet<String>),
+    SetWorkItemLoading(u32),
+    SetWorkItemLoaded { id: u32, work_item: WorkItem },
+    SetWorkItemError { id: u32, error: String },
+    SetBranchStatus { key: String, status: BranchStatus },
+    SetBranchStatusError { key: String, error: String },
+    SetBackgroundError(String),
 }
 
 /// Application state
@@ -164,7 +177,22 @@ impl App {
             Msg::ApplyFilter => self.apply_filter_input(),
             Msg::ClearFilter => self.clear_branch_filter(),
             Msg::CancelFilter => self.cancel_filter_input(),
-            Msg::Quit => self.quit(),
+            Msg::Quit => self.should_quit = true,
+            Msg::EnterNormalMode => self.mode = AppMode::Normal,
+            Msg::EnterDeleteConfirmMode => self.apply_enter_confirm_mode(),
+            Msg::ShowErrorPopup(message) => self.mode = AppMode::ErrorPopup(message),
+            Msg::SetStatus(message) => self.status_message = Some(message),
+            Msg::ClearStatus => self.status_message = None,
+            Msg::SetRemoteFreshness(remote_freshness) => self.remote_freshness = remote_freshness,
+            Msg::SetRemoteFreshnessChecked(live_branches) => {
+                self.apply_remote_freshness_checked(live_branches)
+            }
+            Msg::SetWorkItemLoading(id) => self.apply_work_item_loading(id),
+            Msg::SetWorkItemLoaded { id, work_item } => self.apply_work_item_loaded(id, work_item),
+            Msg::SetWorkItemError { id, error } => self.apply_work_item_error(id, error),
+            Msg::SetBranchStatus { key, status } => self.apply_branch_status(key, status),
+            Msg::SetBranchStatusError { key, error } => self.apply_branch_status_error(key, error),
+            Msg::SetBackgroundError(error) => self.apply_background_error(error),
         }
     }
 
@@ -344,6 +372,51 @@ mod tests {
         app.update(Msg::Quit);
 
         assert!(app.should_quit);
+    }
+
+    #[test]
+    fn test_update_handles_lifecycle_and_feedback_messages() {
+        let mut app = App::new(create_test_branches(), vec![]);
+
+        app.update(Msg::EnterDeleteConfirmMode);
+        assert!(matches!(app.mode, AppMode::ConfirmDelete { .. }));
+
+        app.update(Msg::EnterNormalMode);
+        assert!(matches!(app.mode, AppMode::Normal));
+
+        app.update(Msg::SetStatus(StatusMessage {
+            text: "Working".to_string(),
+            is_error: false,
+            expires_at: Instant::now() + std::time::Duration::from_secs(5),
+        }));
+        assert_eq!(
+            app.get_status_message()
+                .map(|message| message.text.as_str()),
+            Some("Working")
+        );
+
+        app.update(Msg::ClearStatus);
+        assert!(app.get_status_message().is_none());
+
+        app.update(Msg::SetRemoteFreshness(RemoteFreshness::Checking));
+        assert!(app.remote_freshness_is_checking());
+
+        app.update(Msg::SetWorkItemLoading(123));
+        assert!(matches!(
+            app.get_work_item_status(123),
+            WorkItemStatus::Loading
+        ));
+
+        app.update(Msg::SetBackgroundError("background failed".to_string()));
+        assert_eq!(
+            app.get_status_message()
+                .map(|message| message.text.as_str()),
+            Some("background failed")
+        );
+        assert!(
+            app.get_status_message()
+                .is_some_and(|message| message.is_error)
+        );
     }
 
     #[test]
