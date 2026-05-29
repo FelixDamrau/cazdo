@@ -91,7 +91,7 @@ pub enum RemoteFreshness {
 /// Produced by the renderer and applied through [`Msg::SetDetailsMetrics`] so the
 /// heights are stored on `App` outside the render pass, keeping rendering
 /// read-only.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct DetailsMetrics {
     pub content_height: u16,
     pub visible_height: u16,
