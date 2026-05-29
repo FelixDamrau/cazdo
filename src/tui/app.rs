@@ -86,6 +86,17 @@ pub enum RemoteFreshness {
     Error(String),
 }
 
+/// Layout-derived heights measured while rendering the details panel.
+///
+/// Produced by the renderer and applied through [`Msg::SetDetailsMetrics`] so the
+/// heights are stored on `App` outside the render pass, keeping rendering
+/// read-only.
+#[derive(Debug, Clone, Copy)]
+pub struct DetailsMetrics {
+    pub content_height: u16,
+    pub visible_height: u16,
+}
+
 /// Message handled by the TUI update loop.
 ///
 /// `Msg` is for pure `App` state transitions. Work that needs external side
@@ -116,6 +127,7 @@ pub enum Msg {
     SetBranchStatus { key: String, status: BranchStatus },
     SetBranchStatusError { key: String, error: String },
     SetBackgroundError(String),
+    SetDetailsMetrics(DetailsMetrics),
 }
 
 /// Application state
@@ -193,6 +205,7 @@ impl App {
             Msg::SetBranchStatus { key, status } => self.apply_branch_status(key, status),
             Msg::SetBranchStatusError { key, error } => self.apply_branch_status_error(key, error),
             Msg::SetBackgroundError(error) => self.apply_background_error(error),
+            Msg::SetDetailsMetrics(metrics) => self.apply_details_metrics(metrics),
         }
     }
 
@@ -209,8 +222,9 @@ impl App {
         self.scroll_offset = self.scroll_offset.saturating_sub(amount);
     }
 
-    pub fn set_content_height(&mut self, height: u16) {
-        self.content_height = height;
+    pub(super) fn apply_details_metrics(&mut self, metrics: DetailsMetrics) {
+        self.content_height = metrics.content_height;
+        self.visible_height = metrics.visible_height;
     }
 
     pub fn record_deleted_branch(&mut self, name: String, restore_hint: Option<String>) {
@@ -506,6 +520,22 @@ mod tests {
         app.next();
 
         assert_eq!(app.scroll_offset, 0);
+    }
+
+    #[test]
+    fn test_update_sets_details_metrics() {
+        let mut app = App::new(create_test_branches(), vec![]);
+
+        app.update(Msg::SetDetailsMetrics(DetailsMetrics {
+            content_height: 50,
+            visible_height: 20,
+        }));
+        assert_eq!(app.content_height, 50);
+        assert_eq!(app.visible_height, 20);
+
+        // Heights set through the update loop drive scroll clamping.
+        app.scroll_down(100);
+        assert_eq!(app.scroll_offset, 30);
     }
 
     #[test]
