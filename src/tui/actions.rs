@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use super::app::{App, BranchInfo, BranchView, WorkItemStatus};
+use super::app::{App, BranchInfo, BranchView, Msg, WorkItemStatus};
 use super::theme::timing;
 use crate::git::{BranchScope, DeleteResult, GitRepo, short_sha};
 
@@ -17,8 +17,11 @@ pub(super) fn execute_delete_branch(app: &mut App, git_repo: &GitRepo, branch: &
     ) {
         Ok(DeleteResult::Local { commit_sha }) => {
             let restore_hint = format!("git checkout -b {} {}", branch.branch_name, commit_sha);
-            app.record_deleted_branch(branch.display_name.clone(), Some(restore_hint));
-            app.remove_branch(&branch.key);
+            app.update(Msg::BranchDeleted {
+                key: branch.key.clone(),
+                name: branch.display_name.clone(),
+                restore_hint: Some(restore_hint),
+            });
             app.set_status_message(
                 format!(
                     "Deleted {} (was {})",
@@ -43,7 +46,9 @@ pub(super) fn execute_delete_branch(app: &mut App, git_repo: &GitRepo, branch: &
 pub(super) fn execute_prune_branch(app: &mut App, git_repo: &GitRepo, branch: &BranchInfo) {
     match git_repo.prune_remote_tracking_branch(&branch.branch_name) {
         Ok(()) => {
-            app.remove_branch(&branch.key);
+            app.update(Msg::BranchPruned {
+                key: branch.key.clone(),
+            });
             app.set_status_message(
                 format!("Pruned stale tracking ref '{}'", branch.display_name),
                 false,
@@ -112,14 +117,18 @@ where
 
 fn apply_remote_delete_result(app: &mut App, branch: &BranchInfo, prune_result: Result<()>) {
     let (message, is_error) = remote_delete_status_message(&branch.display_name, prune_result);
-    app.record_deleted_branch(branch.display_name.clone(), None);
 
     if is_error {
-        if let Some(existing_branch) = app.branches.iter_mut().find(|b| b.key == branch.key) {
-            existing_branch.is_stale = true;
-        }
+        app.update(Msg::BranchDeletePruneFailed {
+            key: branch.key.clone(),
+            name: branch.display_name.clone(),
+        });
     } else {
-        app.remove_branch(&branch.key);
+        app.update(Msg::BranchDeleted {
+            key: branch.key.clone(),
+            name: branch.display_name.clone(),
+            restore_hint: None,
+        });
     }
 
     app.set_status_message(message, is_error, timing::STATUS_DURATION_SECS);

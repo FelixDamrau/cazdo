@@ -122,12 +122,36 @@ pub enum Msg {
     SetRemoteFreshness(RemoteFreshness),
     SetRemoteFreshnessChecked(HashSet<String>),
     SetWorkItemLoading(u32),
-    SetWorkItemLoaded { id: u32, work_item: WorkItem },
-    SetWorkItemError { id: u32, error: String },
-    SetBranchStatus { key: String, status: BranchStatus },
-    SetBranchStatusError { key: String, error: String },
+    SetWorkItemLoaded {
+        id: u32,
+        work_item: WorkItem,
+    },
+    SetWorkItemError {
+        id: u32,
+        error: String,
+    },
+    SetBranchStatus {
+        key: String,
+        status: BranchStatus,
+    },
+    SetBranchStatusError {
+        key: String,
+        error: String,
+    },
     SetBackgroundError(String),
     SetDetailsMetrics(DetailsMetrics),
+    BranchDeleted {
+        key: String,
+        name: String,
+        restore_hint: Option<String>,
+    },
+    BranchDeletePruneFailed {
+        key: String,
+        name: String,
+    },
+    BranchPruned {
+        key: String,
+    },
 }
 
 /// Application state
@@ -206,6 +230,19 @@ impl App {
             Msg::SetBranchStatusError { key, error } => self.apply_branch_status_error(key, error),
             Msg::SetBackgroundError(error) => self.apply_background_error(error),
             Msg::SetDetailsMetrics(metrics) => self.apply_details_metrics(metrics),
+            Msg::BranchDeleted {
+                key,
+                name,
+                restore_hint,
+            } => {
+                self.record_deleted_branch(name, restore_hint);
+                self.remove_branch(&key);
+            }
+            Msg::BranchDeletePruneFailed { key, name } => {
+                self.record_deleted_branch(name, None);
+                self.mark_branch_stale(&key);
+            }
+            Msg::BranchPruned { key } => self.remove_branch(&key),
         }
     }
 
@@ -244,6 +281,12 @@ impl App {
         if let Some(pos) = self.branches.iter().position(|b| b.key == key) {
             self.branches.remove(pos);
             self.clamp_selected_index();
+        }
+    }
+
+    pub(super) fn mark_branch_stale(&mut self, key: &str) {
+        if let Some(branch) = self.branches.iter_mut().find(|b| b.key == key) {
+            branch.is_stale = true;
         }
     }
 
@@ -1408,5 +1451,87 @@ mod tests {
         );
 
         assert!(!app.needs_branch_status("refs/heads/feature/1"));
+    }
+
+    #[test]
+    fn test_branch_deleted_msg_removes_branch_and_records_history() {
+        let mut app = App::new(
+            vec![branch(
+                "refs/heads/feature/1",
+                "feature/1",
+                "feature/1",
+                BranchScope::Local,
+                false,
+                false,
+                None,
+            )],
+            vec![],
+        );
+
+        app.update(Msg::BranchDeleted {
+            key: "refs/heads/feature/1".to_string(),
+            name: "feature/1".to_string(),
+            restore_hint: Some("git checkout -b feature/1 abc1234".to_string()),
+        });
+
+        assert!(app.branch_by_key("refs/heads/feature/1").is_none());
+        assert_eq!(app.deleted_branches.len(), 1);
+        assert_eq!(app.deleted_branches[0].name, "feature/1");
+        assert_eq!(
+            app.deleted_branches[0].restore_hint.as_deref(),
+            Some("git checkout -b feature/1 abc1234")
+        );
+    }
+
+    #[test]
+    fn test_branch_delete_prune_failed_msg_keeps_branch_and_marks_stale() {
+        let mut app = App::new(
+            vec![branch(
+                "refs/remotes/origin/feature/1",
+                "origin/feature/1",
+                "feature/1",
+                BranchScope::Remote,
+                false,
+                false,
+                None,
+            )],
+            vec![],
+        );
+
+        app.update(Msg::BranchDeletePruneFailed {
+            key: "refs/remotes/origin/feature/1".to_string(),
+            name: "origin/feature/1".to_string(),
+        });
+
+        let kept = app
+            .branch_by_key("refs/remotes/origin/feature/1")
+            .expect("branch should remain visible");
+        assert!(kept.is_stale);
+        assert_eq!(app.deleted_branches.len(), 1);
+        assert_eq!(app.deleted_branches[0].name, "origin/feature/1");
+        assert_eq!(app.deleted_branches[0].restore_hint, None);
+    }
+
+    #[test]
+    fn test_branch_pruned_msg_removes_branch_without_recording_history() {
+        let mut app = App::new(
+            vec![branch(
+                "refs/remotes/origin/feature/1",
+                "origin/feature/1",
+                "feature/1",
+                BranchScope::Remote,
+                false,
+                false,
+                None,
+            )],
+            vec![],
+        );
+
+        app.update(Msg::BranchPruned {
+            key: "refs/remotes/origin/feature/1".to_string(),
+        });
+
+        assert!(app.branch_by_key("refs/remotes/origin/feature/1").is_none());
+        assert!(app.deleted_branches.is_empty());
     }
 }
