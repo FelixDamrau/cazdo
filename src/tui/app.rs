@@ -1,5 +1,5 @@
 use crate::azure_devops::WorkItem;
-use crate::git::{BranchScope, BranchStatus, compare_branch_order};
+use crate::git::{BranchOrder, BranchScope, BranchStatus, compare_branch_order};
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
@@ -20,6 +20,18 @@ pub struct BranchInfo {
     pub is_current: bool,
     pub is_protected: bool,
     pub is_stale: bool,
+}
+
+impl BranchOrder for BranchInfo {
+    fn scope(&self) -> BranchScope {
+        self.scope
+    }
+    fn is_current(&self) -> bool {
+        self.is_current
+    }
+    fn display_name(&self) -> &str {
+        &self.display_name
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -374,16 +386,7 @@ impl App {
     }
 
     pub fn sort_branches(&mut self) {
-        self.branches.sort_by(|a, b| {
-            compare_branch_order(
-                a.scope,
-                a.is_current,
-                &a.display_name,
-                b.scope,
-                b.is_current,
-                &b.display_name,
-            )
-        });
+        self.branches.sort_by(compare_branch_order);
     }
 }
 

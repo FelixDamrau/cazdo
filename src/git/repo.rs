@@ -83,23 +83,34 @@ pub struct GitRepo {
     repo: Repository,
 }
 
-pub fn compare_branch_order(
-    a_scope: BranchScope,
-    a_is_current: bool,
-    a_display_name: &str,
-    b_scope: BranchScope,
-    b_is_current: bool,
-    b_display_name: &str,
-) -> std::cmp::Ordering {
-    match (a_scope, b_scope) {
-        (BranchScope::Local, BranchScope::Remote) => std::cmp::Ordering::Less,
-        (BranchScope::Remote, BranchScope::Local) => std::cmp::Ordering::Greater,
-        (BranchScope::Local, BranchScope::Local) => match (a_is_current, b_is_current) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => a_display_name.cmp(b_display_name),
-        },
-        (BranchScope::Remote, BranchScope::Remote) => a_display_name.cmp(b_display_name),
+/// Branch fields needed to order branch lists: locals first, the current
+/// branch first within locals, then by display name.
+pub trait BranchOrder {
+    fn scope(&self) -> BranchScope;
+    fn is_current(&self) -> bool;
+    fn display_name(&self) -> &str;
+}
+
+pub fn compare_branch_order<T: BranchOrder>(a: &T, b: &T) -> std::cmp::Ordering {
+    fn key<T: BranchOrder>(branch: &T) -> (u8, bool, &str) {
+        (
+            branch.scope().is_remote() as u8,
+            !branch.is_current(),
+            branch.display_name(),
+        )
+    }
+    key(a).cmp(&key(b))
+}
+
+impl BranchOrder for RepoBranch {
+    fn scope(&self) -> BranchScope {
+        self.scope
+    }
+    fn is_current(&self) -> bool {
+        self.is_current
+    }
+    fn display_name(&self) -> &str {
+        &self.display_name
     }
 }
 
@@ -164,16 +175,7 @@ impl GitRepo {
             });
         }
 
-        branches.sort_by(|a, b| {
-            compare_branch_order(
-                a.scope,
-                a.is_current,
-                &a.display_name,
-                b.scope,
-                b.is_current,
-                &b.display_name,
-            )
-        });
+        branches.sort_by(compare_branch_order);
 
         Ok(branches)
     }
