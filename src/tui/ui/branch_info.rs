@@ -140,7 +140,7 @@ pub fn render_branch_info(frame: &mut Frame, app: &App, area: Rect) {
 mod tests {
     use super::*;
     use crate::git::{BranchStatus, RemoteStatus};
-    use crate::tui::app::{BranchInfo, BranchView};
+    use crate::tui::app::{BranchInfo, Msg};
 
     fn remote_branch(stale: bool) -> BranchInfo {
         BranchInfo {
@@ -209,7 +209,7 @@ mod tests {
         let branch = remote_branch(true);
         let status = remote_status();
         let mut app = App::new(vec![branch.clone()], vec![]);
-        app.active_view = BranchView::Remote;
+        app.update(Msg::ToggleView);
         app.set_branch_status(branch.key.clone(), status.clone());
         app.set_remote_freshness_error("Network timeout".to_string());
 
@@ -257,7 +257,7 @@ mod tests {
     fn test_branch_info_shows_cached_status_error() {
         let branch = remote_branch(false);
         let mut app = App::new(vec![branch.clone()], vec![]);
-        app.active_view = BranchView::Remote;
+        app.update(Msg::ToggleView);
         app.set_branch_status_error(branch.key.clone(), "status unavailable".to_string());
 
         assert!(app.get_branch_status(&branch.key).is_none());

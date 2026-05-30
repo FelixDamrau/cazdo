@@ -93,7 +93,7 @@ async fn run_loop(
             }
         }
 
-        if app.should_quit {
+        if app.should_quit() {
             return Ok(());
         }
     }

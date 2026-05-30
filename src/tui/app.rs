@@ -133,43 +133,43 @@ pub enum Msg {
 /// Application state
 pub struct App {
     pub branches: Vec<BranchInfo>,
-    pub active_view: BranchView,
-    pub local_selected_index: usize,
-    pub remote_selected_index: usize,
     pub work_items: HashMap<u32, WorkItemStatus>,
     pub branch_statuses: HashMap<String, Result<BranchStatus, String>>,
-    pub should_quit: bool,
-    pub scroll_offset: u16,
     pub content_height: u16,
     pub visible_height: u16,
-    pub mode: AppMode,
-    pub status_message: Option<StatusMessage>,
     pub deleted_branches: Vec<DeletedBranch>,
     pub protected_patterns: Vec<String>,
-    pub show_protected: bool,
-    pub remote_freshness: RemoteFreshness,
-    pub branch_filter: String,
-    pub filter_input: String,
-    pub filter_input_selected_key: Option<String>,
+    active_view: BranchView,
+    local_selected_index: usize,
+    remote_selected_index: usize,
+    should_quit: bool,
+    scroll_offset: u16,
+    mode: AppMode,
+    status_message: Option<StatusMessage>,
+    show_protected: bool,
+    remote_freshness: RemoteFreshness,
+    branch_filter: String,
+    filter_input: String,
+    filter_input_selected_key: Option<String>,
 }
 
 impl App {
     pub fn new(branches: Vec<BranchInfo>, protected_patterns: Vec<String>) -> Self {
         Self {
             branches,
+            work_items: HashMap::new(),
+            branch_statuses: HashMap::new(),
+            content_height: 0,
+            visible_height: 0,
+            deleted_branches: Vec::new(),
+            protected_patterns,
             active_view: BranchView::Local,
             local_selected_index: 0,
             remote_selected_index: 0,
-            work_items: HashMap::new(),
-            branch_statuses: HashMap::new(),
             should_quit: false,
             scroll_offset: 0,
-            content_height: 0,
-            visible_height: 0,
             mode: AppMode::Normal,
             status_message: None,
-            deleted_branches: Vec::new(),
-            protected_patterns,
             show_protected: false,
             remote_freshness: RemoteFreshness::NotChecked,
             branch_filter: String::new(),
@@ -220,6 +220,14 @@ impl App {
 
     pub fn scroll_up(&mut self, amount: u16) {
         self.scroll_offset = self.scroll_offset.saturating_sub(amount);
+    }
+
+    pub fn scroll_offset(&self) -> u16 {
+        self.scroll_offset
+    }
+
+    pub fn should_quit(&self) -> bool {
+        self.should_quit
     }
 
     pub(super) fn apply_details_metrics(&mut self, metrics: DetailsMetrics) {

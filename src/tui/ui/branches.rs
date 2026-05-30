@@ -14,9 +14,9 @@ pub fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
     let visible = app.visible_branches();
     let filter = app.effective_branch_filter().trim();
     let title = if filter.is_empty() {
-        format!(" Branches ({}) ", app.active_view.label())
+        format!(" Branches ({}) ", app.active_view().label())
     } else {
-        format!(" Branches ({}) / {} ", app.active_view.label(), filter)
+        format!(" Branches ({}) / {} ", app.active_view().label(), filter)
     };
 
     if visible.is_empty() {
@@ -34,18 +34,18 @@ pub fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
         let empty_text = if !filter.is_empty() {
             format!(
                 "No {} branches match \"{}\".",
-                app.active_view.label().to_lowercase(),
+                app.active_view().label().to_lowercase(),
                 filter
             )
         } else if app.has_hidden_branches_in_active_view() {
             format!(
                 "No {} branches shown. Press p to show protected branches.",
-                app.active_view.label().to_lowercase()
+                app.active_view().label().to_lowercase()
             )
         } else {
             format!(
                 "No {} branches found.",
-                app.active_view.label().to_lowercase()
+                app.active_view().label().to_lowercase()
             )
         };
 
