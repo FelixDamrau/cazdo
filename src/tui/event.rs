@@ -46,9 +46,9 @@ pub async fn run_app(mut app: App, git_repo: GitRepo) -> Result<()> {
     )?;
     terminal.show_cursor()?;
 
-    if !app.deleted_branches.is_empty() {
+    if !app.deleted_branches().is_empty() {
         println!("\nDeleted branches this session:");
-        for db in &app.deleted_branches {
+        for db in app.deleted_branches() {
             match &db.restore_hint {
                 Some(hint) => println!("  • {} - restore: {}", db.name, hint),
                 None => println!("  • {}", db.name),

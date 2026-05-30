@@ -1,5 +1,5 @@
 use crate::azure_devops::WorkItem;
-use crate::git::{BranchScope, BranchStatus, compare_branch_order};
+use crate::git::{BranchOrder, BranchScope, BranchStatus, compare_branch_order};
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
@@ -20,6 +20,18 @@ pub struct BranchInfo {
     pub is_current: bool,
     pub is_protected: bool,
     pub is_stale: bool,
+}
+
+impl BranchOrder for BranchInfo {
+    fn scope(&self) -> BranchScope {
+        self.scope
+    }
+    fn is_current(&self) -> bool {
+        self.is_current
+    }
+    fn display_name(&self) -> &str {
+        &self.display_name
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,49 +168,71 @@ pub enum Msg {
 
 /// Application state
 pub struct App {
-    pub branches: Vec<BranchInfo>,
-    pub work_items: HashMap<u32, WorkItemStatus>,
-    pub branch_statuses: HashMap<String, Result<BranchStatus, String>>,
-    pub content_height: u16,
-    pub visible_height: u16,
-    pub deleted_branches: Vec<DeletedBranch>,
-    pub protected_patterns: Vec<String>,
+    // Branch data
+    branches: Vec<BranchInfo>,
+    deleted_branches: Vec<DeletedBranch>,
+    protected_patterns: Vec<String>, // immutable config
+
+    // Selection & scroll (selection.rs)
     active_view: BranchView,
     local_selected_index: usize,
     remote_selected_index: usize,
-    should_quit: bool,
     scroll_offset: u16,
-    mode: AppMode,
-    status_message: Option<StatusMessage>,
+    content_height: u16,
+    visible_height: u16,
     show_protected: bool,
-    remote_freshness: RemoteFreshness,
+
+    // Filtering (filtering.rs)
     branch_filter: String,
     filter_input: String,
     filter_input_selected_key: Option<String>,
+
+    // Async load state (load_state.rs)
+    work_items: HashMap<u32, WorkItemStatus>,
+    branch_statuses: HashMap<String, Result<BranchStatus, String>>,
+    remote_freshness: RemoteFreshness,
+
+    // Mode & status (status.rs)
+    mode: AppMode,
+    status_message: Option<StatusMessage>,
+
+    // Lifecycle
+    should_quit: bool,
 }
 
 impl App {
     pub fn new(branches: Vec<BranchInfo>, protected_patterns: Vec<String>) -> Self {
         Self {
+            // Branch data
             branches,
-            work_items: HashMap::new(),
-            branch_statuses: HashMap::new(),
-            content_height: 0,
-            visible_height: 0,
             deleted_branches: Vec::new(),
             protected_patterns,
+
+            // Selection & scroll
             active_view: BranchView::Local,
             local_selected_index: 0,
             remote_selected_index: 0,
-            should_quit: false,
             scroll_offset: 0,
-            mode: AppMode::Normal,
-            status_message: None,
+            content_height: 0,
+            visible_height: 0,
             show_protected: false,
-            remote_freshness: RemoteFreshness::NotChecked,
+
+            // Filtering
             branch_filter: String::new(),
             filter_input: String::new(),
             filter_input_selected_key: None,
+
+            // Async load state
+            work_items: HashMap::new(),
+            branch_statuses: HashMap::new(),
+            remote_freshness: RemoteFreshness::NotChecked,
+
+            // Mode & status
+            mode: AppMode::Normal,
+            status_message: None,
+
+            // Lifecycle
+            should_quit: false,
         }
     }
 
@@ -261,6 +295,22 @@ impl App {
 
     pub fn scroll_offset(&self) -> u16 {
         self.scroll_offset
+    }
+
+    pub fn content_height(&self) -> u16 {
+        self.content_height
+    }
+
+    pub fn visible_height(&self) -> u16 {
+        self.visible_height
+    }
+
+    pub fn protected_patterns(&self) -> &[String] {
+        &self.protected_patterns
+    }
+
+    pub fn deleted_branches(&self) -> &[DeletedBranch] {
+        &self.deleted_branches
     }
 
     pub fn should_quit(&self) -> bool {
@@ -358,16 +408,7 @@ impl App {
     }
 
     pub fn sort_branches(&mut self) {
-        self.branches.sort_by(|a, b| {
-            compare_branch_order(
-                a.scope,
-                a.is_current,
-                &a.display_name,
-                b.scope,
-                b.is_current,
-                &b.display_name,
-            )
-        });
+        self.branches.sort_by(compare_branch_order);
     }
 }
 

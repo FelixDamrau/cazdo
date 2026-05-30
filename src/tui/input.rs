@@ -77,19 +77,19 @@ fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Command> {
             None
         }
         KeyCode::PageDown => {
-            app.scroll_down(app.visible_height / scroll::PAGE_SCROLL_DIVISOR);
+            app.scroll_down(app.visible_height() / scroll::PAGE_SCROLL_DIVISOR);
             None
         }
         KeyCode::PageUp => {
-            app.scroll_up(app.visible_height / scroll::PAGE_SCROLL_DIVISOR);
+            app.scroll_up(app.visible_height() / scroll::PAGE_SCROLL_DIVISOR);
             None
         }
         KeyCode::Char('d') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
-            app.scroll_down(app.visible_height / scroll::PAGE_SCROLL_DIVISOR);
+            app.scroll_down(app.visible_height() / scroll::PAGE_SCROLL_DIVISOR);
             None
         }
         KeyCode::Char('u') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
-            app.scroll_up(app.visible_height / scroll::PAGE_SCROLL_DIVISOR);
+            app.scroll_up(app.visible_height() / scroll::PAGE_SCROLL_DIVISOR);
             None
         }
         KeyCode::Char('d') => {
@@ -213,7 +213,7 @@ mod tests {
         let mut app = App::new(vec![remote_branch(false)], vec![]);
         app.update(Msg::ToggleView);
         app.enter_confirm_mode();
-        app.branches[0].is_stale = true;
+        app.mark_branch_stale("refs/remotes/origin/feature/1");
 
         let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Enter));
 
