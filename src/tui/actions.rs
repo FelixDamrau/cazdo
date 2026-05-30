@@ -13,7 +13,7 @@ pub(super) fn execute_delete_branch(app: &mut App, git_repo: &GitRepo, branch: &
         branch.scope,
         &branch.branch_name,
         branch.remote_name.as_deref(),
-        &app.protected_patterns,
+        app.protected_patterns(),
     ) {
         Ok(DeleteResult::Local { commit_sha }) => {
             let restore_hint = format!("git checkout -b {} {}", branch.branch_name, commit_sha);
@@ -229,9 +229,9 @@ mod tests {
             Err(anyhow::anyhow!("could not prune tracking ref")),
         );
 
-        assert_eq!(app.deleted_branches.len(), 1);
-        assert_eq!(app.deleted_branches[0].name, "origin/feature/1");
-        assert_eq!(app.deleted_branches[0].restore_hint, None);
+        assert_eq!(app.deleted_branches().len(), 1);
+        assert_eq!(app.deleted_branches()[0].name, "origin/feature/1");
+        assert_eq!(app.deleted_branches()[0].restore_hint, None);
     }
 
     #[test]

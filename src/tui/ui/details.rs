@@ -22,15 +22,15 @@ pub fn render_details(frame: &mut Frame, app: &App, area: Rect) -> DetailsMetric
 
     // Build scroll info for bottom border (only if scrollable).
     // This intentionally reads the content height measured on the previous frame
-    // (`app.content_height`); the freshly measured height is returned below and
+    // (`app.content_height()`); the freshly measured height is returned below and
     // applied after the draw, preserving the prior one-frame indicator lag.
-    let scroll_title = if app.content_height > visible_height {
+    let scroll_title = if app.content_height() > visible_height {
         Line::from(vec![
             Span::styled(
                 format!(
                     " {}/{} ",
                     app.scroll_offset() + 1,
-                    app.content_height.saturating_sub(visible_height) + 1
+                    app.content_height().saturating_sub(visible_height) + 1
                 ),
                 theme::styles::MUTED,
             ),

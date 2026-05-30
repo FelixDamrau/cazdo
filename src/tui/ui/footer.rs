@@ -131,7 +131,7 @@ mod tests {
 
     #[test]
     fn test_footer_variant_prioritizes_filter_input_over_status() {
-        let mut app = test_app();
+        let mut app = test_app(None);
         app.update(Msg::StartFilter);
         app.set_status_message("Saved".to_string(), false, 5);
 
@@ -140,7 +140,7 @@ mod tests {
 
     #[test]
     fn test_footer_variant_prioritizes_status_over_normal_hints() {
-        let mut app = test_app();
+        let mut app = test_app(None);
         app.set_status_message("Deleted branch".to_string(), false, 5);
 
         match footer_variant(&app) {
@@ -164,23 +164,21 @@ mod tests {
 
     #[test]
     fn test_normal_footer_omits_refresh_when_unavailable() {
-        let app = test_app();
+        let app = test_app(None);
 
         assert!(!spans_text(&normal_footer_spans(&app)).contains("refresh"));
     }
 
     #[test]
     fn test_normal_footer_includes_refresh_when_available() {
-        let mut app = test_app();
-        app.branches[0].work_item_id = Some(42);
+        let app = test_app(Some(42));
 
         assert!(spans_text(&normal_footer_spans(&app)).contains("refresh"));
     }
 
     #[test]
     fn test_normal_footer_uses_explicit_action_labels() {
-        let mut app = test_app();
-        app.branches[0].work_item_id = Some(42);
+        let app = test_app(Some(42));
 
         assert_eq!(
             spans_text(&normal_footer_spans(&app)),
@@ -195,7 +193,7 @@ mod tests {
             .collect::<String>()
     }
 
-    fn test_app() -> App {
+    fn test_app(work_item_id: Option<u32>) -> App {
         App::new(
             vec![BranchInfo {
                 key: "refs/heads/feature/1".to_string(),
@@ -203,7 +201,7 @@ mod tests {
                 branch_name: "feature/1".to_string(),
                 remote_name: None,
                 scope: BranchScope::Local,
-                work_item_id: None,
+                work_item_id,
                 is_current: false,
                 is_protected: false,
                 is_stale: false,

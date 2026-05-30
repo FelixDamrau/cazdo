@@ -156,13 +156,13 @@ pub enum Msg {
 
 /// Application state
 pub struct App {
-    pub branches: Vec<BranchInfo>,
-    pub work_items: HashMap<u32, WorkItemStatus>,
-    pub branch_statuses: HashMap<String, Result<BranchStatus, String>>,
-    pub content_height: u16,
-    pub visible_height: u16,
-    pub deleted_branches: Vec<DeletedBranch>,
-    pub protected_patterns: Vec<String>,
+    branches: Vec<BranchInfo>,
+    work_items: HashMap<u32, WorkItemStatus>,
+    branch_statuses: HashMap<String, Result<BranchStatus, String>>,
+    content_height: u16,
+    visible_height: u16,
+    deleted_branches: Vec<DeletedBranch>,
+    protected_patterns: Vec<String>,
     active_view: BranchView,
     local_selected_index: usize,
     remote_selected_index: usize,
@@ -261,6 +261,22 @@ impl App {
 
     pub fn scroll_offset(&self) -> u16 {
         self.scroll_offset
+    }
+
+    pub fn content_height(&self) -> u16 {
+        self.content_height
+    }
+
+    pub fn visible_height(&self) -> u16 {
+        self.visible_height
+    }
+
+    pub fn protected_patterns(&self) -> &[String] {
+        &self.protected_patterns
+    }
+
+    pub fn deleted_branches(&self) -> &[DeletedBranch] {
+        &self.deleted_branches
     }
 
     pub fn should_quit(&self) -> bool {
