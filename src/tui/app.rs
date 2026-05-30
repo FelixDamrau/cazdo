@@ -168,49 +168,71 @@ pub enum Msg {
 
 /// Application state
 pub struct App {
+    // Branch data
     branches: Vec<BranchInfo>,
-    work_items: HashMap<u32, WorkItemStatus>,
-    branch_statuses: HashMap<String, Result<BranchStatus, String>>,
-    content_height: u16,
-    visible_height: u16,
     deleted_branches: Vec<DeletedBranch>,
-    protected_patterns: Vec<String>,
+    protected_patterns: Vec<String>, // immutable config
+
+    // Selection & scroll (selection.rs)
     active_view: BranchView,
     local_selected_index: usize,
     remote_selected_index: usize,
-    should_quit: bool,
     scroll_offset: u16,
-    mode: AppMode,
-    status_message: Option<StatusMessage>,
+    content_height: u16,
+    visible_height: u16,
     show_protected: bool,
-    remote_freshness: RemoteFreshness,
+
+    // Filtering (filtering.rs)
     branch_filter: String,
     filter_input: String,
     filter_input_selected_key: Option<String>,
+
+    // Async load state (load_state.rs)
+    work_items: HashMap<u32, WorkItemStatus>,
+    branch_statuses: HashMap<String, Result<BranchStatus, String>>,
+    remote_freshness: RemoteFreshness,
+
+    // Mode & status (status.rs)
+    mode: AppMode,
+    status_message: Option<StatusMessage>,
+
+    // Lifecycle
+    should_quit: bool,
 }
 
 impl App {
     pub fn new(branches: Vec<BranchInfo>, protected_patterns: Vec<String>) -> Self {
         Self {
+            // Branch data
             branches,
-            work_items: HashMap::new(),
-            branch_statuses: HashMap::new(),
-            content_height: 0,
-            visible_height: 0,
             deleted_branches: Vec::new(),
             protected_patterns,
+
+            // Selection & scroll
             active_view: BranchView::Local,
             local_selected_index: 0,
             remote_selected_index: 0,
-            should_quit: false,
             scroll_offset: 0,
-            mode: AppMode::Normal,
-            status_message: None,
+            content_height: 0,
+            visible_height: 0,
             show_protected: false,
-            remote_freshness: RemoteFreshness::NotChecked,
+
+            // Filtering
             branch_filter: String::new(),
             filter_input: String::new(),
             filter_input_selected_key: None,
+
+            // Async load state
+            work_items: HashMap::new(),
+            branch_statuses: HashMap::new(),
+            remote_freshness: RemoteFreshness::NotChecked,
+
+            // Mode & status
+            mode: AppMode::Normal,
+            status_message: None,
+
+            // Lifecycle
+            should_quit: false,
         }
     }
 
