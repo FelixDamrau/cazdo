@@ -69,7 +69,7 @@ fn render_normal_footer(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn normal_footer_spans(app: &App) -> Vec<Span<'static>> {
-    let toggle_label = match app.active_view {
+    let toggle_label = match app.active_view() {
         BranchView::Local => "remote",
         BranchView::Remote => "local",
     };
@@ -125,21 +125,15 @@ fn render_footer_line(frame: &mut Frame, area: Rect, line: Line<'static>, style:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
-    use std::time::{Duration, Instant};
 
     use crate::git::BranchScope;
-    use crate::tui::app::{AppMode, BranchInfo, DeletedBranch, RemoteFreshness, WorkItemStatus};
+    use crate::tui::app::{BranchInfo, Msg};
 
     #[test]
     fn test_footer_variant_prioritizes_filter_input_over_status() {
         let mut app = test_app();
-        app.mode = AppMode::FilterInput;
-        app.status_message = Some(StatusMessage {
-            text: "Saved".to_string(),
-            is_error: false,
-            expires_at: Instant::now() + Duration::from_secs(5),
-        });
+        app.update(Msg::StartFilter);
+        app.set_status_message("Saved".to_string(), false, 5);
 
         assert!(matches!(footer_variant(&app), FooterVariant::FilterInput));
     }
@@ -147,11 +141,7 @@ mod tests {
     #[test]
     fn test_footer_variant_prioritizes_status_over_normal_hints() {
         let mut app = test_app();
-        app.status_message = Some(StatusMessage {
-            text: "Deleted branch".to_string(),
-            is_error: false,
-            expires_at: Instant::now() + Duration::from_secs(5),
-        });
+        app.set_status_message("Deleted branch".to_string(), false, 5);
 
         match footer_variant(&app) {
             FooterVariant::Status(status) => assert_eq!(status.text, "Deleted branch"),
@@ -206,8 +196,8 @@ mod tests {
     }
 
     fn test_app() -> App {
-        App {
-            branches: vec![BranchInfo {
+        App::new(
+            vec![BranchInfo {
                 key: "refs/heads/feature/1".to_string(),
                 display_name: "feature/1".to_string(),
                 branch_name: "feature/1".to_string(),
@@ -218,24 +208,7 @@ mod tests {
                 is_protected: false,
                 is_stale: false,
             }],
-            active_view: BranchView::Local,
-            local_selected_index: 0,
-            remote_selected_index: 0,
-            work_items: HashMap::<u32, WorkItemStatus>::new(),
-            branch_statuses: HashMap::new(),
-            should_quit: false,
-            scroll_offset: 0,
-            content_height: 0,
-            visible_height: 0,
-            mode: AppMode::Normal,
-            status_message: None,
-            deleted_branches: Vec::<DeletedBranch>::new(),
-            protected_patterns: vec![],
-            show_protected: false,
-            remote_freshness: RemoteFreshness::NotChecked,
-            branch_filter: String::new(),
-            filter_input: String::new(),
-            filter_input_selected_key: None,
-        }
+            vec![],
+        )
     }
 }

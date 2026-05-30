@@ -17,6 +17,15 @@ impl App {
         }
     }
 
+    pub fn filter_input(&self) -> &str {
+        &self.filter_input
+    }
+
+    #[cfg(test)]
+    pub fn branch_filter(&self) -> &str {
+        &self.branch_filter
+    }
+
     pub fn enter_filter_input(&mut self) {
         self.filter_input_selected_key = self.selected_branch().map(|branch| branch.key.clone());
         self.filter_input = self.branch_filter.clone();

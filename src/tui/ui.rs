@@ -54,7 +54,7 @@ pub fn render(frame: &mut Frame, app: &App) -> DetailsMetrics {
             branch.scope.is_remote(),
             app.confirm_delete_is_prune(),
         );
-    } else if let AppMode::ErrorPopup(ref message) = app.mode {
+    } else if let AppMode::ErrorPopup(message) = app.mode() {
         popup::render_error_popup(frame, message);
     }
 

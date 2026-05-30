@@ -25,6 +25,10 @@ impl App {
         matches!(self.mode, AppMode::Normal)
     }
 
+    pub fn mode(&self) -> &AppMode {
+        &self.mode
+    }
+
     pub fn set_status_message(&mut self, text: String, is_error: bool, duration_secs: u64) {
         self.update(Msg::SetStatus(StatusMessage {
             text,

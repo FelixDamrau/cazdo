@@ -68,9 +68,9 @@ pub(super) fn execute_checkout_branch(app: &mut App, git_repo: &GitRepo, branch:
         Ok(()) => {
             app.ensure_local_branch_exists(branch);
             app.update_current_branch(&branch.branch_name);
-            if branch.scope == BranchScope::Remote || app.active_view == BranchView::Local {
+            if branch.scope == BranchScope::Remote || app.active_view() == BranchView::Local {
                 app.sort_branches();
-                focus_local_branch_after_checkout(app, &branch.branch_name);
+                app.focus_local_branch(&branch.branch_name);
             }
             app.set_status_message(
                 format!("Switched to branch '{}'", branch.branch_name),
@@ -79,25 +79,6 @@ pub(super) fn execute_checkout_branch(app: &mut App, git_repo: &GitRepo, branch:
             );
         }
         Err(error) => app.show_error_popup(error.to_string()),
-    }
-}
-
-pub(super) fn focus_local_branch_after_checkout(app: &mut App, branch_name: &str) {
-    app.active_view = BranchView::Local;
-    app.scroll_offset = 0;
-
-    if let Some(idx) = app
-        .visible_branches()
-        .iter()
-        .position(|branch| branch.branch_name == branch_name)
-    {
-        app.local_selected_index = idx;
-    } else {
-        app.local_selected_index = app
-            .visible_branches()
-            .len()
-            .checked_sub(1)
-            .map_or(0, |idx| app.local_selected_index.min(idx));
     }
 }
 
@@ -179,6 +160,7 @@ fn open_url(url: &str) -> Result<()> {
 mod tests {
     use super::*;
     use crate::azure_devops::{WorkItem, WorkItemState, WorkItemType};
+    use crate::tui::app::Msg;
 
     #[test]
     fn test_remote_delete_status_message_reports_prune_failure() {
@@ -206,7 +188,7 @@ mod tests {
     fn test_remote_delete_with_prune_failure_keeps_branch_visible_and_marks_stale() {
         let branch = remote_branch(false);
         let mut app = App::new(vec![branch.clone()], vec![]);
-        app.active_view = BranchView::Remote;
+        app.update(Msg::ToggleView);
 
         apply_remote_delete_result(
             &mut app,
@@ -230,7 +212,7 @@ mod tests {
     fn test_remote_delete_with_prune_failure_still_records_deleted_branch_summary() {
         let branch = remote_branch(false);
         let mut app = App::new(vec![branch.clone()], vec![]);
-        app.active_view = BranchView::Remote;
+        app.update(Msg::ToggleView);
 
         apply_remote_delete_result(
             &mut app,
@@ -247,15 +229,14 @@ mod tests {
     fn test_focus_local_branch_after_checkout_clamps_when_branch_not_visible() {
         let remote_branch = remote_branch(false);
         let mut app = App::new(vec![], vec![]);
-        app.active_view = BranchView::Remote;
-        app.local_selected_index = 4;
-        app.remote_selected_index = 0;
+        app.set_selected_index_for_test(4);
+        app.update(Msg::ToggleView);
 
-        focus_local_branch_after_checkout(&mut app, &remote_branch.branch_name);
+        app.focus_local_branch(&remote_branch.branch_name);
 
-        assert_eq!(app.active_view, BranchView::Local);
-        assert_eq!(app.scroll_offset, 0);
-        assert_eq!(app.local_selected_index, 0);
+        assert_eq!(app.active_view(), BranchView::Local);
+        assert_eq!(app.scroll_offset(), 0);
+        assert_eq!(app.selected_index(), 0);
     }
 
     #[test]
@@ -273,12 +254,12 @@ mod tests {
             is_stale: false,
         };
         let mut app = App::new(vec![local_branch], vec![]);
-        app.active_view = BranchView::Remote;
+        app.update(Msg::ToggleView);
 
-        focus_local_branch_after_checkout(&mut app, &remote_branch.branch_name);
+        app.focus_local_branch(&remote_branch.branch_name);
 
-        assert_eq!(app.active_view, BranchView::Local);
-        assert_eq!(app.local_selected_index, 0);
+        assert_eq!(app.active_view(), BranchView::Local);
+        assert_eq!(app.selected_index(), 0);
     }
 
     #[test]
@@ -310,16 +291,15 @@ mod tests {
             ],
             vec![],
         );
-        app.active_view = BranchView::Local;
-        app.local_selected_index = 1;
+        app.set_selected_index_for_test(1);
 
         app.update_current_branch("feature/4");
         app.sort_branches();
-        focus_local_branch_after_checkout(&mut app, "feature/4");
+        app.focus_local_branch("feature/4");
 
-        assert_eq!(app.active_view, BranchView::Local);
-        assert_eq!(app.scroll_offset, 0);
-        assert_eq!(app.local_selected_index, 0);
+        assert_eq!(app.active_view(), BranchView::Local);
+        assert_eq!(app.scroll_offset(), 0);
+        assert_eq!(app.selected_index(), 0);
         assert_eq!(app.visible_branches()[0].branch_name, "feature/4");
     }
 
@@ -406,12 +386,11 @@ mod tests {
             ],
             vec![],
         );
-        app.active_view = BranchView::Local;
-        app.local_selected_index = 1;
+        app.set_selected_index_for_test(1);
 
         app.remove_branch("refs/heads/feature/2");
 
-        assert_eq!(app.local_selected_index, 0);
+        assert_eq!(app.selected_index(), 0);
         assert_eq!(
             app.selected_branch().expect("remaining branch").branch_name,
             "feature/1"

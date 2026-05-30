@@ -28,7 +28,7 @@ pub(super) fn handle_input(app: &mut App) -> Result<Option<Command>> {
 }
 
 fn handle_key_event(app: &mut App, key: KeyEvent) -> Option<Command> {
-    match &app.mode {
+    match app.mode() {
         AppMode::Normal => handle_normal_mode_key(app, key),
         AppMode::FilterInput => handle_filter_input_key(app, key),
         AppMode::ConfirmDelete { branch_key } => {
@@ -140,7 +140,7 @@ fn handle_filter_input_key(app: &mut App, key: KeyEvent) -> Option<Command> {
             None
         }
         KeyCode::Backspace => {
-            let mut filter_input = app.filter_input.clone();
+            let mut filter_input = app.filter_input().to_string();
             filter_input.pop();
             app.update(Msg::SetFilterInput(filter_input));
             None
@@ -154,7 +154,7 @@ fn handle_filter_input_key(app: &mut App, key: KeyEvent) -> Option<Command> {
                 .modifiers
                 .intersects(event::KeyModifiers::CONTROL | event::KeyModifiers::ALT) =>
         {
-            let mut filter_input = app.filter_input.clone();
+            let mut filter_input = app.filter_input().to_string();
             filter_input.push(c);
             app.update(Msg::SetFilterInput(filter_input));
             None
@@ -211,7 +211,7 @@ mod tests {
     #[test]
     fn test_confirm_delete_derives_prune_from_current_branch_state() {
         let mut app = App::new(vec![remote_branch(false)], vec![]);
-        app.active_view = BranchView::Remote;
+        app.update(Msg::ToggleView);
         app.enter_confirm_mode();
         app.branches[0].is_stale = true;
 
@@ -228,13 +228,13 @@ mod tests {
     #[test]
     fn test_slash_enters_filter_input_with_prefilled_filter() {
         let mut app = App::new(vec![remote_branch(false)], vec![]);
-        app.branch_filter = "feature old".to_string();
+        app.apply_branch_filter("feature old".to_string());
 
         let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('/')));
 
         assert!(action.is_none());
-        assert!(matches!(app.mode, AppMode::FilterInput));
-        assert_eq!(app.filter_input, "feature old");
+        assert!(matches!(app.mode(), AppMode::FilterInput));
+        assert_eq!(app.filter_input(), "feature old");
     }
 
     #[test]
@@ -246,23 +246,23 @@ mod tests {
         let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Enter));
 
         assert!(action.is_none());
-        assert!(matches!(app.mode, AppMode::Normal));
-        assert_eq!(app.branch_filter, "feature login");
+        assert!(matches!(app.mode(), AppMode::Normal));
+        assert_eq!(app.branch_filter(), "feature login");
     }
 
     #[test]
     fn test_filter_input_escape_discards_draft() {
         let mut app = App::new(vec![remote_branch(false)], vec![]);
-        app.branch_filter = "feature old".to_string();
+        app.apply_branch_filter("feature old".to_string());
         app.enter_filter_input();
         app.update_filter_input("feature new".to_string());
 
         let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Esc));
 
         assert!(action.is_none());
-        assert!(matches!(app.mode, AppMode::Normal));
-        assert_eq!(app.branch_filter, "feature old");
-        assert_eq!(app.filter_input, "feature old");
+        assert!(matches!(app.mode(), AppMode::Normal));
+        assert_eq!(app.branch_filter(), "feature old");
+        assert_eq!(app.filter_input(), "feature old");
     }
 
     #[test]
@@ -305,27 +305,27 @@ mod tests {
             ],
             vec![],
         );
-        app.local_selected_index = 2;
+        app.set_selected_index_for_test(2);
         app.enter_filter_input();
         app.update_filter_input("login".to_string());
 
         let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Esc));
 
         assert!(action.is_none());
-        assert!(matches!(app.mode, AppMode::Normal));
+        assert!(matches!(app.mode(), AppMode::Normal));
         assert_eq!(app.selected_branch().unwrap().branch_name, "chore/docs");
     }
 
     #[test]
     fn test_escape_clears_active_filter_before_quit() {
         let mut app = App::new(vec![remote_branch(false)], vec![]);
-        app.branch_filter = "feature".to_string();
+        app.apply_branch_filter("feature".to_string());
 
         let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Esc));
 
         assert!(action.is_none());
-        assert!(app.branch_filter.is_empty());
-        assert!(!app.should_quit);
+        assert!(app.branch_filter().is_empty());
+        assert!(!app.should_quit());
     }
 
     #[test]
@@ -336,9 +336,9 @@ mod tests {
         let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('t')));
 
         assert!(action.is_none());
-        assert!(matches!(app.mode, AppMode::FilterInput));
-        assert_eq!(app.active_view, BranchView::Local);
-        assert_eq!(app.filter_input, "t");
+        assert!(matches!(app.mode(), AppMode::FilterInput));
+        assert_eq!(app.active_view(), BranchView::Local);
+        assert_eq!(app.filter_input(), "t");
     }
 
     #[test]
@@ -371,7 +371,7 @@ mod tests {
     #[test]
     fn test_immediate_delete_shortcut_prunes_stale_branch() {
         let mut app = App::new(vec![remote_branch(true)], vec![]);
-        app.active_view = BranchView::Remote;
+        app.update(Msg::ToggleView);
 
         let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('D')));
 

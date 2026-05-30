@@ -33,6 +33,39 @@ impl App {
         }
     }
 
+    pub fn active_view(&self) -> BranchView {
+        self.active_view
+    }
+
+    /// Switch to the local view and select the branch with the given name,
+    /// resetting scroll. Falls back to a clamped local selection when the
+    /// branch is not currently visible.
+    pub fn focus_local_branch(&mut self, branch_name: &str) {
+        self.active_view = BranchView::Local;
+        self.scroll_offset = 0;
+
+        if let Some(idx) = self
+            .visible_branches()
+            .iter()
+            .position(|branch| branch.branch_name == branch_name)
+        {
+            self.local_selected_index = idx;
+        } else {
+            self.local_selected_index = self
+                .visible_branches()
+                .len()
+                .checked_sub(1)
+                .map_or(0, |idx| self.local_selected_index.min(idx));
+        }
+    }
+
+    /// Test-only setter for the active view's selection index, bypassing the
+    /// clamping that navigation methods apply, so tests can exercise clamping.
+    #[cfg(test)]
+    pub fn set_selected_index_for_test(&mut self, index: usize) {
+        self.set_selected_index(index);
+    }
+
     pub(super) fn next(&mut self) {
         let count = self.visible_count();
         if count > 0 {

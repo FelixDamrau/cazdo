@@ -29,7 +29,7 @@ pub fn render_details(frame: &mut Frame, app: &App, area: Rect) -> DetailsMetric
             Span::styled(
                 format!(
                     " {}/{} ",
-                    app.scroll_offset + 1,
+                    app.scroll_offset() + 1,
                     app.content_height.saturating_sub(visible_height) + 1
                 ),
                 theme::styles::MUTED,
@@ -187,7 +187,7 @@ fn render_work_item_details(frame: &mut Frame, app: &App, area: Rect, wi_id: u32
     let content_height = content.len() as u16;
 
     // Apply scroll offset
-    let paragraph = Paragraph::new(content).scroll((app.scroll_offset, 0));
+    let paragraph = Paragraph::new(content).scroll((app.scroll_offset(), 0));
 
     frame.render_widget(paragraph, area);
 
@@ -196,7 +196,7 @@ fn render_work_item_details(frame: &mut Frame, app: &App, area: Rect, wi_id: u32
         frame,
         area,
         content_height as usize,
-        app.scroll_offset as usize,
+        app.scroll_offset() as usize,
     );
 
     content_height
