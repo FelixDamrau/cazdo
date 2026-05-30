@@ -10,7 +10,7 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 use tokio::sync::mpsc;
 
-use super::app::App;
+use super::app::{App, DetailsMetrics, Msg};
 use super::ui;
 use super::{
     actions::{
@@ -76,7 +76,9 @@ async fn run_loop(
         trigger_remote_freshness_check(app, git_repo, &tx);
         fetch_branch_status_if_needed(app, git_repo);
 
-        terminal.draw(|frame| ui::render(frame, app))?;
+        let mut metrics = DetailsMetrics::default();
+        terminal.draw(|frame| metrics = ui::render(frame, app))?;
+        app.update(Msg::SetDetailsMetrics(metrics));
 
         if let Some(action) = handle_input(app)? {
             match action {

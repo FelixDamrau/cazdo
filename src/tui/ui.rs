@@ -12,11 +12,11 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
 };
 
-use super::app::{App, AppMode};
+use super::app::{App, AppMode, DetailsMetrics};
 use super::theme;
 
 /// Main render function - orchestrates all UI components
-pub fn render(frame: &mut Frame, app: &mut App) {
+pub fn render(frame: &mut Frame, app: &App) -> DetailsMetrics {
     // Split into main area and footer
     let main_chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -42,7 +42,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         .split(chunks[1]);
 
     branches::render_branches(frame, app, chunks[0]);
-    details::render_details(frame, app, right_chunks[0]);
+    let metrics = details::render_details(frame, app, right_chunks[0]);
     branch_info::render_branch_info(frame, app, right_chunks[1]);
     footer::render_footer(frame, app, main_chunks[1]);
 
@@ -57,4 +57,6 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     } else if let AppMode::ErrorPopup(ref message) = app.mode {
         popup::render_error_popup(frame, message);
     }
+
+    metrics
 }

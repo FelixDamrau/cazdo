@@ -6,22 +6,24 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 
-use crate::tui::app::{App, WorkItemStatus};
+use crate::tui::app::{App, DetailsMetrics, WorkItemStatus};
 use crate::tui::html_render::render_html;
 use crate::tui::theme;
 
 use super::helpers::append_wrapped_text;
 
 /// Render the work item details panel
-pub fn render_details(frame: &mut Frame, app: &mut App, area: Rect) {
+pub fn render_details(frame: &mut Frame, app: &App, area: Rect) -> DetailsMetrics {
     let work_item_id = app.selected_work_item_id();
 
     // Calculate inner area first to determine visible height
     let inner = Block::default().borders(Borders::ALL).inner(area);
     let visible_height = inner.height;
-    app.visible_height = visible_height;
 
-    // Build scroll info for bottom border (only if scrollable)
+    // Build scroll info for bottom border (only if scrollable).
+    // This intentionally reads the content height measured on the previous frame
+    // (`app.content_height`); the freshly measured height is returned below and
+    // applied after the draw, preserving the prior one-frame indicator lag.
     let scroll_title = if app.content_height > visible_height {
         Line::from(vec![
             Span::styled(
@@ -52,10 +54,8 @@ pub fn render_details(frame: &mut Frame, app: &mut App, area: Rect) {
     // Clear the inner area before rendering new content
     frame.render_widget(Clear, inner);
 
-    match work_item_id {
-        Some(wi_id) => {
-            render_work_item_details(frame, app, inner, wi_id);
-        }
+    let content_height = match work_item_id {
+        Some(wi_id) => render_work_item_details(frame, app, inner, wi_id),
         None => {
             let lines = vec![
                 Line::from(""),
@@ -65,15 +65,21 @@ pub fn render_details(frame: &mut Frame, app: &mut App, area: Rect) {
                 )),
             ];
 
-            app.set_content_height(lines.len() as u16);
+            let content_height = lines.len() as u16;
             let text = Paragraph::new(lines);
             frame.render_widget(text, inner);
+            content_height
         }
+    };
+
+    DetailsMetrics {
+        content_height,
+        visible_height,
     }
 }
 
 /// Render the work item details content
-fn render_work_item_details(frame: &mut Frame, app: &mut App, area: Rect, wi_id: u32) {
+fn render_work_item_details(frame: &mut Frame, app: &App, area: Rect, wi_id: u32) -> u16 {
     let status = app.get_work_item_status(wi_id);
     let max_width = area.width.saturating_sub(4) as usize;
 
@@ -177,9 +183,8 @@ fn render_work_item_details(frame: &mut Frame, app: &mut App, area: Rect, wi_id:
         }
     };
 
-    // Set content height for scroll bounds
+    // Content height for scroll bounds (returned to the update loop).
     let content_height = content.len() as u16;
-    app.set_content_height(content_height);
 
     // Apply scroll offset
     let paragraph = Paragraph::new(content).scroll((app.scroll_offset, 0));
@@ -193,4 +198,6 @@ fn render_work_item_details(frame: &mut Frame, app: &mut App, area: Rect, wi_id:
         content_height as usize,
         app.scroll_offset as usize,
     );
+
+    content_height
 }
