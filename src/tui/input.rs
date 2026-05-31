@@ -215,7 +215,7 @@ mod tests {
         let mut app = App::new(vec![remote_branch(false)], vec![]);
         app.update(Msg::ToggleView);
         app.enter_confirm_mode();
-        app.update(Msg::SetRemoteFreshnessChecked(HashSet::new()));
+        app.set_remote_freshness(HashSet::new());
 
         let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Enter));
 
