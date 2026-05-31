@@ -317,24 +317,24 @@ impl App {
         self.should_quit
     }
 
-    pub(super) fn apply_details_metrics(&mut self, metrics: DetailsMetrics) {
+    fn apply_details_metrics(&mut self, metrics: DetailsMetrics) {
         self.content_height = metrics.content_height;
         self.visible_height = metrics.visible_height;
     }
 
-    pub fn record_deleted_branch(&mut self, name: String, restore_hint: Option<String>) {
+    fn record_deleted_branch(&mut self, name: String, restore_hint: Option<String>) {
         self.deleted_branches
             .push(DeletedBranch { name, restore_hint });
     }
 
-    pub fn remove_branch(&mut self, key: &str) {
+    fn remove_branch(&mut self, key: &str) {
         if let Some(pos) = self.branches.iter().position(|b| b.key == key) {
             self.branches.remove(pos);
             self.clamp_selected_index();
         }
     }
 
-    pub(super) fn mark_branch_stale(&mut self, key: &str) {
+    fn mark_branch_stale(&mut self, key: &str) {
         if let Some(branch) = self.branches.iter_mut().find(|b| b.key == key) {
             branch.is_stale = true;
         }
@@ -1574,5 +1574,41 @@ mod tests {
 
         assert!(app.branch_by_key("refs/remotes/origin/feature/1").is_none());
         assert!(app.deleted_branches.is_empty());
+    }
+
+    #[test]
+    fn test_remove_branch_keeps_selection_on_previous_visible_branch() {
+        let mut app = App::new(
+            vec![
+                branch(
+                    "refs/heads/feature/1",
+                    "feature/1",
+                    "feature/1",
+                    BranchScope::Local,
+                    false,
+                    false,
+                    None,
+                ),
+                branch(
+                    "refs/heads/feature/2",
+                    "feature/2",
+                    "feature/2",
+                    BranchScope::Local,
+                    false,
+                    false,
+                    None,
+                ),
+            ],
+            vec![],
+        );
+        app.set_selected_index_for_test(1);
+
+        app.remove_branch("refs/heads/feature/2");
+
+        assert_eq!(app.selected_index(), 0);
+        assert_eq!(
+            app.selected_branch().expect("remaining branch").branch_name,
+            "feature/1"
+        );
     }
 }

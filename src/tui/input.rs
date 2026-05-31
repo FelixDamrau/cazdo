@@ -204,6 +204,8 @@ fn handle_mouse_event(app: &mut App, mouse_event: MouseEvent) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
     use crate::git::BranchScope;
     use crate::tui::app::{App, AppMode, BranchInfo, BranchView};
@@ -213,7 +215,7 @@ mod tests {
         let mut app = App::new(vec![remote_branch(false)], vec![]);
         app.update(Msg::ToggleView);
         app.enter_confirm_mode();
-        app.mark_branch_stale("refs/remotes/origin/feature/1");
+        app.set_remote_freshness(HashSet::new());
 
         let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Enter));
 

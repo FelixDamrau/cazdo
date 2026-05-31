@@ -367,46 +367,6 @@ mod tests {
     }
 
     #[test]
-    fn test_remove_branch_keeps_selection_on_previous_visible_branch() {
-        let mut app = App::new(
-            vec![
-                BranchInfo {
-                    key: "refs/heads/feature/1".to_string(),
-                    display_name: "feature/1".to_string(),
-                    branch_name: "feature/1".to_string(),
-                    remote_name: None,
-                    scope: BranchScope::Local,
-                    work_item_id: None,
-                    is_current: false,
-                    is_protected: false,
-                    is_stale: false,
-                },
-                BranchInfo {
-                    key: "refs/heads/feature/2".to_string(),
-                    display_name: "feature/2".to_string(),
-                    branch_name: "feature/2".to_string(),
-                    remote_name: None,
-                    scope: BranchScope::Local,
-                    work_item_id: None,
-                    is_current: false,
-                    is_protected: false,
-                    is_stale: false,
-                },
-            ],
-            vec![],
-        );
-        app.set_selected_index_for_test(1);
-
-        app.remove_branch("refs/heads/feature/2");
-
-        assert_eq!(app.selected_index(), 0);
-        assert_eq!(
-            app.selected_branch().expect("remaining branch").branch_name,
-            "feature/1"
-        );
-    }
-
-    #[test]
     fn test_ensure_local_branch_exists_creates_checkout_target_branch() {
         let remote_branch = remote_branch(false);
         let mut app = App::new(vec![remote_branch.clone()], vec![]);
