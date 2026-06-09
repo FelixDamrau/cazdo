@@ -1,6 +1,36 @@
 # Changelog
 
 All notable changes to this project are documented in this file.
+## v0.2.1 - 2026-06-09
+
+### Features
+
+- **wi:** Add --json output for full Azure DevOps work item payload (#58)
+
+### Bug Fixes
+
+- **azure-devops:** Add timeout to live HTTP client (#81)
+
+### Refactoring
+
+- **tui:** Introduce App update action (#70)
+
+- **tui:** Route navigation through update loop (#71)
+
+- **tui:** Route filter state through update loop (#72)
+
+- **tui:** Route lifecycle feedback through update loop (#74)
+
+- **tui:** Keep rendering read-only (#75)
+
+- **tui:** Make migrated App fields private (#77)
+
+- **tui:** Route branch deletion and restore through the update loop (#78)
+
+- **tui:** Make remaining App fields private (#79)
+
+- **tui:** Make TUI mutation helpers update-only. (#80)
+
 ## v0.2.0 - 2026-05-07
 
 ### Bug Fixes
