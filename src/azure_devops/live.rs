@@ -77,7 +77,7 @@ impl LiveAzureDevOpsClient {
         response
             .json()
             .await
-            .context("Failed to parse work item response")
+            .map_err(|err| request_error("Failed to parse work item response", err))
     }
 
     pub(super) async fn verify_connection(&self) -> Result<()> {
@@ -111,10 +111,9 @@ impl LiveAzureDevOpsClient {
                 ));
             }
 
-            let json: serde_json::Value = response
-                .json()
-                .await
-                .context("Failed to parse Azure DevOps verification response")?;
+            let json: serde_json::Value = response.json().await.map_err(|err| {
+                request_error("Failed to parse Azure DevOps verification response", err)
+            })?;
 
             let has_authenticated_user = json
                 .get("authenticatedUser")
@@ -225,6 +224,7 @@ fn request_error(context: &'static str, error: reqwest::Error) -> anyhow::Error 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::AsyncWriteExt;
     use tokio::net::TcpListener;
     use tokio::task::JoinHandle;
 
@@ -238,6 +238,26 @@ mod tests {
 
         let handle = tokio::spawn(async move {
             let (_socket, _) = listener.accept().await.expect("client should connect");
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        });
+
+        (url, handle)
+    }
+
+    async fn start_body_stalling_server() -> (String, JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("stalling server should bind");
+        let url = format!("http://{}", listener.local_addr().expect("local addr"));
+
+        let handle = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("client should connect");
+            let headers =
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n";
+            socket
+                .write_all(headers.as_bytes())
+                .await
+                .expect("headers should be written");
             tokio::time::sleep(Duration::from_secs(5)).await;
         });
 
@@ -262,6 +282,25 @@ mod tests {
             .get_work_item_json(123)
             .await
             .expect_err("stalled request should time out");
+
+        server.abort();
+        assert!(
+            error.to_string().contains("request timed out"),
+            "unexpected error: {error:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn work_item_request_times_out_when_server_stalls_during_body() {
+        let (url, server) = start_body_stalling_server().await;
+        let config = test_config(url);
+        let client = LiveAzureDevOpsClient::new_with_timeout(&config, Duration::from_millis(100))
+            .expect("client should initialize");
+
+        let error = client
+            .get_work_item_json(123)
+            .await
+            .expect_err("stalled body should time out");
 
         server.abort();
         assert!(
