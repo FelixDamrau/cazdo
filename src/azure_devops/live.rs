@@ -1,9 +1,13 @@
+use std::time::Duration;
+
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde_json::Value;
 
 use super::work_item::WorkItem;
 use crate::config::Config;
+
+const AZURE_DEVOPS_HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone)]
 pub(super) struct LiveAzureDevOpsClient {
@@ -14,9 +18,14 @@ pub(super) struct LiveAzureDevOpsClient {
 
 impl LiveAzureDevOpsClient {
     pub(super) fn new(config: &Config) -> Result<Self> {
+        Self::new_with_timeout(config, AZURE_DEVOPS_HTTP_TIMEOUT)
+    }
+
+    fn new_with_timeout(config: &Config, timeout: Duration) -> Result<Self> {
         let pat = config.get_pat()?;
 
         let client = Client::builder()
+            .timeout(timeout)
             .build()
             .context("Failed to create HTTP client")?;
 
@@ -58,7 +67,7 @@ impl LiveAzureDevOpsClient {
             .basic_auth("", Some(&self.pat))
             .send()
             .await
-            .context("Failed to send request to Azure DevOps")?;
+            .map_err(|err| request_error("Failed to send request to Azure DevOps", err))?;
 
         let status = response.status();
         if !status.is_success() || status == reqwest::StatusCode::NON_AUTHORITATIVE_INFORMATION {
@@ -68,7 +77,7 @@ impl LiveAzureDevOpsClient {
         response
             .json()
             .await
-            .context("Failed to parse work item response")
+            .map_err(|err| request_error("Failed to parse work item response", err))
     }
 
     pub(super) async fn verify_connection(&self) -> Result<()> {
@@ -81,7 +90,9 @@ impl LiveAzureDevOpsClient {
             .basic_auth("", Some(&self.pat))
             .send()
             .await
-            .context("Failed to send verification request to Azure DevOps")?;
+            .map_err(|err| {
+                request_error("Failed to send verification request to Azure DevOps", err)
+            })?;
 
         let status = response.status();
         if status.is_success() {
@@ -100,10 +111,9 @@ impl LiveAzureDevOpsClient {
                 ));
             }
 
-            let json: serde_json::Value = response
-                .json()
-                .await
-                .context("Failed to parse Azure DevOps verification response")?;
+            let json: serde_json::Value = response.json().await.map_err(|err| {
+                request_error("Failed to parse Azure DevOps verification response", err)
+            })?;
 
             let has_authenticated_user = json
                 .get("authenticatedUser")
@@ -200,5 +210,121 @@ impl LiveAzureDevOpsClient {
             .unwrap_or_else(|| format!("Azure DevOps verification failed ({})", status));
 
         anyhow::anyhow!("{}", error_msg)
+    }
+}
+
+fn request_error(context: &'static str, error: reqwest::Error) -> anyhow::Error {
+    if error.is_timeout() {
+        anyhow::anyhow!("{}: request timed out", context)
+    } else {
+        anyhow::Error::new(error).context(context)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::TcpListener;
+    use tokio::task::JoinHandle;
+
+    const TEST_HTTP_TIMEOUT: Duration = Duration::from_millis(10);
+
+    async fn start_stalling_server() -> (String, JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("stalling server should bind");
+        let url = format!("http://{}", listener.local_addr().expect("local addr"));
+
+        let handle = tokio::spawn(async move {
+            let (_socket, _) = listener.accept().await.expect("client should connect");
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        });
+
+        (url, handle)
+    }
+
+    async fn start_body_stalling_server() -> (String, JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("stalling server should bind");
+        let url = format!("http://{}", listener.local_addr().expect("local addr"));
+
+        let handle = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("client should connect");
+            let headers =
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n";
+            socket
+                .write_all(headers.as_bytes())
+                .await
+                .expect("headers should be written");
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        });
+
+        (url, handle)
+    }
+
+    fn test_config(base_url: String) -> Config {
+        let mut config = Config::default();
+        config.azure_devops.organization_url = base_url;
+        config.azure_devops.pat = Some("test-pat".to_string());
+        config
+    }
+
+    #[tokio::test]
+    async fn work_item_request_times_out_when_server_stalls() {
+        let (url, server) = start_stalling_server().await;
+        let config = test_config(url);
+        let client = LiveAzureDevOpsClient::new_with_timeout(&config, TEST_HTTP_TIMEOUT)
+            .expect("client should initialize");
+
+        let error = client
+            .get_work_item_json(123)
+            .await
+            .expect_err("stalled request should time out");
+
+        server.abort();
+        assert!(
+            error.to_string().contains("request timed out"),
+            "unexpected error: {error:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn work_item_request_times_out_when_server_stalls_during_body() {
+        let (url, server) = start_body_stalling_server().await;
+        let config = test_config(url);
+        let client = LiveAzureDevOpsClient::new_with_timeout(&config, Duration::from_millis(100))
+            .expect("client should initialize");
+
+        let error = client
+            .get_work_item_json(123)
+            .await
+            .expect_err("stalled body should time out");
+
+        server.abort();
+        assert!(
+            error.to_string().contains("request timed out"),
+            "unexpected error: {error:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn verification_request_times_out_when_server_stalls() {
+        let (url, server) = start_stalling_server().await;
+        let config = test_config(url);
+        let client = LiveAzureDevOpsClient::new_with_timeout(&config, TEST_HTTP_TIMEOUT)
+            .expect("client should initialize");
+
+        let error = client
+            .verify_connection()
+            .await
+            .expect_err("stalled verification should time out");
+
+        server.abort();
+        assert!(
+            error.to_string().contains("request timed out"),
+            "unexpected error: {error:#}"
+        );
     }
 }
