@@ -29,15 +29,12 @@ impl FixtureAzureDevOpsClient {
 
         let mut work_items = HashMap::new();
         for entry in entries {
-            let id = entry
-                .get("id")
-                .and_then(Value::as_u64)
-                .with_context(|| {
-                    format!(
-                        "Demo work item fixture entry missing numeric 'id': {}",
-                        path.display()
-                    )
-                })? as u32;
+            let id = entry.get("id").and_then(Value::as_u64).with_context(|| {
+                format!(
+                    "Demo work item fixture entry missing numeric 'id': {}",
+                    path.display()
+                )
+            })? as u32;
             work_items.insert(id, entry);
         }
 
@@ -246,11 +243,7 @@ mod tests {
             .err()
             .expect("entry without id should fail to load");
 
-        assert!(
-            error
-                .to_string()
-                .contains("missing numeric 'id'")
-        );
+        assert!(error.to_string().contains("missing numeric 'id'"));
     }
 
     #[test]
