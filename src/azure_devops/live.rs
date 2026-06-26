@@ -46,7 +46,7 @@ impl LiveAzureDevOpsClient {
     pub(super) async fn get_work_item(&self, id: u32) -> Result<WorkItem> {
         let json = self.request_work_item_json(id, false).await?;
 
-        WorkItem::from_json(&json, id)
+        super::codec::decode(&json, id)
     }
 
     pub(super) async fn get_work_item_json(&self, id: u32) -> Result<Value> {

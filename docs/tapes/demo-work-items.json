@@ -1,62 +1,116 @@
 [
   {
     "id": 101,
-    "title": "Improve branch filtering UX",
-    "work_item_type": "Task",
-    "state": "Committed",
-    "assigned_to": "Felix Damrau",
-    "tags": ["Docs", "Demo"],
-    "description": "<p>Make it obvious that shared filter terms narrow the branch list without hiding the current selection too early.</p><ul><li>Keep matching branches visible</li><li>Preserve keyboard flow while filtering</li><li>Show the active filter in the footer</li></ul>",
-    "url": "https://demo.example.invalid/workitems/101"
+    "fields": {
+      "System.Title": "Improve branch filtering UX",
+      "System.WorkItemType": "Task",
+      "System.State": "Committed",
+      "System.AssignedTo": {
+        "displayName": "Felix Damrau"
+      },
+      "System.Tags": "Docs; Demo",
+      "System.Description": "<p>Make it obvious that shared filter terms narrow the branch list without hiding the current selection too early.</p><ul><li>Keep matching branches visible</li><li>Preserve keyboard flow while filtering</li><li>Show the active filter in the footer</li></ul>"
+    },
+    "_links": {
+      "html": {
+        "href": "https://demo.example.invalid/workitems/101"
+      }
+    },
+    "relations": []
   },
   {
     "id": 102,
-    "title": "Keep filtered branch results readable",
-    "work_item_type": "User Story",
-    "state": "Active",
-    "assigned_to": "Felix Damrau",
-    "tags": ["UX", "Docs"],
-    "description": "<p>Refine the branch list so matching entries stay easy to scan even when several names contain the same token.</p><p>Use <code>wi</code> as the shared filter term and keep the most relevant rows visible. <strong>Readable results matter more than raw branch count.</strong></p>",
-    "url": "https://demo.example.invalid/workitems/102"
+    "fields": {
+      "System.Title": "Keep filtered branch results readable",
+      "System.WorkItemType": "User Story",
+      "System.State": "Active",
+      "System.AssignedTo": {
+        "displayName": "Felix Damrau"
+      },
+      "System.Tags": "UX; Docs",
+      "System.Description": "<p>Refine the branch list so matching entries stay easy to scan even when several names contain the same token.</p><p>Use <code>wi</code> as the shared filter term and keep the most relevant rows visible. <strong>Readable results matter more than raw branch count.</strong></p>"
+    },
+    "_links": {
+      "html": {
+        "href": "https://demo.example.invalid/workitems/102"
+      }
+    },
+    "relations": []
   },
   {
     "id": 103,
-    "title": "Add reproducible VHS demo setup",
-    "work_item_type": "Feature",
-    "state": "Committed",
-    "assigned_to": "Felix Damrau",
-    "tags": ["Azure DevOps", "Demo"],
-    "description": "<p>Build a deterministic demo environment so the VHS assets always show the same repository state and work item details.</p><h2>Notes</h2><p><strong>No live Azure DevOps dependency.</strong> The demo should resolve <code>feature/wi103</code> to a local fixture and render the details pane consistently.</p><pre><code>cargo build --quiet\n./scripts/setup-vhs-demo-repo.sh\nvhs docs/tapes/cazdo-open-nav.tape</code></pre><ul><li>Create a temp repository with a local bare <code>origin</code></li><li>Load fixture work items from JSON</li><li>Keep the generated GIF and still image reproducible</li></ul>",
-    "url": "https://demo.example.invalid/workitems/103"
+    "fields": {
+      "System.Title": "Add reproducible VHS demo setup",
+      "System.WorkItemType": "Feature",
+      "System.State": "Committed",
+      "System.AssignedTo": {
+        "displayName": "Felix Damrau"
+      },
+      "System.Tags": "Azure DevOps; Demo",
+      "System.Description": "<p>Build a deterministic demo environment so the VHS assets always show the same repository state and work item details.</p><h2>Notes</h2><p><strong>No live Azure DevOps dependency.</strong> The demo should resolve <code>feature/wi103</code> to a local fixture and render the details pane consistently.</p><pre><code>cargo build --quiet\n./scripts/setup-vhs-demo-repo.sh\nvhs docs/tapes/cazdo-open-nav.tape</code></pre><ul><li>Create a temp repository with a local bare <code>origin</code></li><li>Load fixture work items from JSON</li><li>Keep the generated GIF and still image reproducible</li></ul>"
+    },
+    "_links": {
+      "html": {
+        "href": "https://demo.example.invalid/workitems/103"
+      }
+    },
+    "relations": []
   },
   {
     "id": 104,
-    "title": "Show remote branch work item details",
-    "work_item_type": "Task",
-    "state": "New",
-    "assigned_to": "Other Person",
-    "tags": ["Remote", "Demo"],
-    "description": "<h2>Remote View</h2><p>When the tape toggles to <code>origin</code>, the selected branch should still resolve to a fixture-backed work item and show realistic metadata.</p>",
-    "url": "https://demo.example.invalid/workitems/104"
+    "fields": {
+      "System.Title": "Show remote branch work item details",
+      "System.WorkItemType": "Task",
+      "System.State": "New",
+      "System.AssignedTo": {
+        "displayName": "Other Person"
+      },
+      "System.Tags": "Remote; Demo",
+      "System.Description": "<h2>Remote View</h2><p>When the tape toggles to <code>origin</code>, the selected branch should still resolve to a fixture-backed work item and show realistic metadata.</p>"
+    },
+    "_links": {
+      "html": {
+        "href": "https://demo.example.invalid/workitems/104"
+      }
+    },
+    "relations": []
   },
   {
     "id": 105,
-    "title": "Load fixture work items in demo mode",
-    "work_item_type": "Task",
-    "state": "Approved",
-    "assigned_to": "Felix Damrau",
-    "tags": ["Remote", "Azure DevOps"],
-    "description": "<p>Keep demo mode isolated from real credentials by loading local work item data when <code>CAZDO_DEMO_WORK_ITEMS</code> is set.</p><pre><code>CAZDO_DEMO_WORK_ITEMS=docs/tapes/demo-work-items.json\ncazdo</code></pre>",
-    "url": "https://demo.example.invalid/workitems/105"
+    "fields": {
+      "System.Title": "Load fixture work items in demo mode",
+      "System.WorkItemType": "Task",
+      "System.State": "Approved",
+      "System.AssignedTo": {
+        "displayName": "Felix Damrau"
+      },
+      "System.Tags": "Remote; Azure DevOps",
+      "System.Description": "<p>Keep demo mode isolated from real credentials by loading local work item data when <code>CAZDO_DEMO_WORK_ITEMS</code> is set.</p><pre><code>CAZDO_DEMO_WORK_ITEMS=docs/tapes/demo-work-items.json\ncazdo</code></pre>"
+    },
+    "_links": {
+      "html": {
+        "href": "https://demo.example.invalid/workitems/105"
+      }
+    },
+    "relations": []
   },
   {
     "id": 106,
-    "title": "Polish demo capture workflow",
-    "work_item_type": "Bug",
-    "state": "Resolved",
-    "assigned_to": "Felix Damrau",
-    "tags": ["Polish", "Release"],
-    "description": "<p>Clean up the capture workflow so the checked-in GIF and still image can be regenerated from the fixture repo without manual setup.</p><p>Follow-up: keep the still image centered on a branch with a real description.</p>",
-    "url": "https://demo.example.invalid/workitems/106"
+    "fields": {
+      "System.Title": "Polish demo capture workflow",
+      "System.WorkItemType": "Bug",
+      "System.State": "Resolved",
+      "System.AssignedTo": {
+        "displayName": "Felix Damrau"
+      },
+      "System.Tags": "Polish; Release",
+      "System.Description": "<p>Clean up the capture workflow so the checked-in GIF and still image can be regenerated from the fixture repo without manual setup.</p><p>Follow-up: keep the still image centered on a branch with a real description.</p>"
+    },
+    "_links": {
+      "html": {
+        "href": "https://demo.example.invalid/workitems/106"
+      }
+    },
+    "relations": []
   }
 ]
