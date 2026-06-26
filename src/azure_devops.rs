@@ -1,4 +1,5 @@
 mod client;
+mod codec;
 mod fixture;
 mod live;
 mod work_item;

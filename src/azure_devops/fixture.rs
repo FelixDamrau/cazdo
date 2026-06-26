@@ -2,30 +2,20 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 
-use super::work_item::{WorkItem, WorkItemParts};
+use super::work_item::WorkItem;
 
+/// In-memory stand-in for the live Azure DevOps API.
+///
+/// It stores raw, Azure-shaped JSON per work item id, so it answers exactly the
+/// way live does: `get_work_item` decodes the stored JSON through the shared
+/// [`codec`](super::codec), and `get_work_item_json` returns it verbatim. The
+/// only difference from the live adapter is where the JSON comes from — a file
+/// here, an HTTP response there.
 #[derive(Clone)]
 pub(super) struct FixtureAzureDevOpsClient {
-    work_items: HashMap<u32, FixtureWorkItem>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct FixtureWorkItem {
-    id: u32,
-    title: String,
-    work_item_type: String,
-    state: String,
-    #[serde(default)]
-    assigned_to: Option<String>,
-    #[serde(default)]
-    url: Option<String>,
-    #[serde(default)]
-    tags: Vec<String>,
-    #[serde(default)]
-    description: Option<String>,
+    work_items: HashMap<u32, Value>,
 }
 
 impl FixtureAzureDevOpsClient {
@@ -33,112 +23,52 @@ impl FixtureAzureDevOpsClient {
         let content = std::fs::read_to_string(path).with_context(|| {
             format!("Failed to read demo work item fixture: {}", path.display())
         })?;
-        let fixture_items: Vec<FixtureWorkItem> =
-            serde_json::from_str(&content).with_context(|| {
-                format!("Failed to parse demo work item fixture: {}", path.display())
-            })?;
+        let entries: Vec<Value> = serde_json::from_str(&content).with_context(|| {
+            format!("Failed to parse demo work item fixture: {}", path.display())
+        })?;
 
-        let work_items = fixture_items
-            .into_iter()
-            .map(|item| (item.id, item))
-            .collect::<HashMap<_, _>>();
+        let mut work_items = HashMap::new();
+        for entry in entries {
+            let id = entry.get("id").and_then(Value::as_u64).with_context(|| {
+                format!(
+                    "Demo work item fixture entry missing numeric 'id': {}",
+                    path.display()
+                )
+            })?;
+            let id = u32::try_from(id).with_context(|| {
+                format!(
+                    "Demo work item fixture entry 'id' is out of u32 range: {}",
+                    path.display()
+                )
+            })?;
+            work_items.insert(id, entry);
+        }
 
         Ok(Self { work_items })
     }
 
     pub(super) fn get_work_item(&self, id: u32) -> Result<WorkItem> {
-        self.work_items
-            .get(&id)
-            .ok_or_else(|| anyhow::anyhow!("Work Item #{} not found", id))?
-            .clone()
-            .into_work_item()
+        super::codec::decode(self.lookup(id)?, id)
     }
 
     pub(super) fn get_work_item_json(&self, id: u32) -> Result<Value> {
-        self.work_items
-            .get(&id)
-            .ok_or_else(|| anyhow::anyhow!("Work Item #{} not found", id))?
-            .to_azure_json()
+        self.lookup(id).cloned()
     }
 
     pub(super) fn verify_connection(&self) -> Result<()> {
         Ok(())
     }
-}
 
-impl FixtureWorkItem {
-    fn into_work_item(self) -> Result<WorkItem> {
-        let mut rich_text_fields = Vec::new();
-        if let Some(description) = self.description
-            && !description.trim().is_empty()
-        {
-            rich_text_fields.push(super::work_item::RichTextField {
-                name: "Description".to_string(),
-                value: description,
-            });
-        }
-
-        Ok(WorkItem::from_parts(WorkItemParts {
-            id: self.id,
-            title: self.title,
-            work_item_type: &self.work_item_type,
-            state: &self.state,
-            assigned_to: self.assigned_to,
-            url: self.url,
-            tags: self.tags,
-            rich_text_fields,
-        }))
-    }
-
-    fn to_azure_json(&self) -> Result<Value> {
-        let mut fields = serde_json::Map::new();
-        fields.insert("System.Title".to_string(), json!(self.title));
-        fields.insert(
-            "System.WorkItemType".to_string(),
-            json!(self.work_item_type),
-        );
-        fields.insert("System.State".to_string(), json!(self.state));
-
-        if let Some(assigned_to) = self.assigned_to.as_ref() {
-            fields.insert(
-                "System.AssignedTo".to_string(),
-                json!({ "displayName": assigned_to }),
-            );
-        }
-
-        if !self.tags.is_empty() {
-            fields.insert("System.Tags".to_string(), json!(self.tags.join("; ")));
-        }
-
-        if let Some(description) = self.description.as_ref()
-            && !description.trim().is_empty()
-        {
-            fields.insert("System.Description".to_string(), json!(description));
-        }
-
-        let mut value = json!({
-            "id": self.id,
-            "fields": Value::Object(fields),
-            "relations": []
-        });
-
-        if let Some(url) = self.url.as_ref() {
-            value["_links"] = json!({
-                "html": {
-                    "href": url
-                }
-            });
-        }
-
-        Ok(value)
+    fn lookup(&self, id: u32) -> Result<&Value> {
+        self.work_items
+            .get(&id)
+            .ok_or_else(|| anyhow::anyhow!("Work Item #{} not found", id))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::azure_devops::AzureDevOpsClient;
-    use serde_json::json;
     use tempfile::TempDir;
 
     fn write_fixture(temp_dir: &TempDir, content: &str) -> std::path::PathBuf {
@@ -146,6 +76,18 @@ mod tests {
         std::fs::write(&path, content).expect("fixture should be written");
         path
     }
+
+    /// A minimal Azure-shaped fixture with a single item (id 101).
+    const MINIMAL_FIXTURE: &str = r#"[
+  {
+    "id": 101,
+    "fields": {
+      "System.Title": "Show filter behavior in the demo",
+      "System.WorkItemType": "Task",
+      "System.State": "Committed"
+    }
+  }
+]"#;
 
     #[tokio::test]
     async fn loads_work_item_from_demo_fixture_file() {
@@ -155,13 +97,16 @@ mod tests {
             r#"[
   {
     "id": 101,
-    "title": "Show filter behavior in the demo",
-    "work_item_type": "Task",
-    "state": "Committed",
-    "assigned_to": "Demo User",
-    "tags": ["Docs", "Demo"],
-    "description": "<p>Use this item to show that parsed branch IDs resolve to Azure DevOps-style details.</p>",
-    "url": "https://example.test/items/101"
+    "fields": {
+      "System.Title": "Show filter behavior in the demo",
+      "System.WorkItemType": "Task",
+      "System.State": "Committed",
+      "System.AssignedTo": { "displayName": "Demo User" },
+      "System.Tags": "Docs; Demo",
+      "System.Description": "<p>Use this item to show that parsed branch IDs resolve to Azure DevOps-style details.</p>"
+    },
+    "_links": { "html": { "href": "https://example.test/items/101" } },
+    "relations": []
   }
 ]"#,
         );
@@ -187,18 +132,7 @@ mod tests {
     #[tokio::test]
     async fn returns_not_found_for_missing_demo_fixture_item() {
         let temp_dir = TempDir::new().expect("temp dir should be created");
-        let fixture_path = write_fixture(
-            &temp_dir,
-            r#"[
-  {
-    "id": 101,
-    "title": "Show filter behavior in the demo",
-    "work_item_type": "Task",
-    "state": "Committed",
-    "description": "<p>Visible in the fixture.</p>"
-  }
-]"#,
-        );
+        let fixture_path = write_fixture(&temp_dir, MINIMAL_FIXTURE);
 
         let client = AzureDevOpsClient::new_fixture(&fixture_path)
             .expect("fixture-backed client should initialize");
@@ -212,20 +146,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn returns_azure_shaped_json_from_demo_fixture_file() {
+    async fn returns_stored_json_verbatim_from_demo_fixture_file() {
         let temp_dir = TempDir::new().expect("temp dir should be created");
         let fixture_path = write_fixture(
             &temp_dir,
             r#"[
   {
     "id": 101,
-    "title": "Show filter behavior in the demo",
-    "work_item_type": "Task",
-    "state": "Committed",
-    "assigned_to": "Demo User",
-    "tags": ["Docs", "Demo"],
-    "description": "<p>Use this item to show JSON output.</p>",
-    "url": "https://example.test/items/101"
+    "fields": {
+      "System.Title": "Show filter behavior in the demo",
+      "System.WorkItemType": "Task",
+      "System.State": "Committed",
+      "System.AssignedTo": { "displayName": "Demo User" },
+      "System.Tags": "Docs; Demo",
+      "System.Description": "<p>Use this item to show JSON output.</p>"
+    },
+    "_links": { "html": { "href": "https://example.test/items/101" } },
+    "relations": []
   }
 ]"#,
         );
@@ -263,18 +200,7 @@ mod tests {
     #[tokio::test]
     async fn returns_not_found_for_missing_demo_fixture_json_item() {
         let temp_dir = TempDir::new().expect("temp dir should be created");
-        let fixture_path = write_fixture(
-            &temp_dir,
-            r#"[
-  {
-    "id": 101,
-    "title": "Show filter behavior in the demo",
-    "work_item_type": "Task",
-    "state": "Committed",
-    "description": "<p>Visible in the fixture.</p>"
-  }
-]"#,
-        );
+        let fixture_path = write_fixture(&temp_dir, MINIMAL_FIXTURE);
 
         let client = AzureDevOpsClient::new_fixture(&fixture_path)
             .expect("fixture-backed client should initialize");
@@ -304,20 +230,56 @@ mod tests {
     }
 
     #[test]
-    fn new_fixture_uses_fixture_provider() {
+    fn rejects_fixture_entry_without_id() {
         let temp_dir = TempDir::new().expect("temp dir should be created");
         let fixture_path = write_fixture(
             &temp_dir,
             r#"[
   {
-    "id": 101,
-    "title": "Show filter behavior in the demo",
-    "work_item_type": "Task",
-    "state": "Committed",
-    "description": "<p>Visible in the fixture.</p>"
+    "fields": {
+      "System.Title": "Missing id",
+      "System.WorkItemType": "Task",
+      "System.State": "Committed"
+    }
   }
 ]"#,
         );
+
+        let error = AzureDevOpsClient::new_fixture(&fixture_path)
+            .err()
+            .expect("entry without id should fail to load");
+
+        assert!(error.to_string().contains("missing numeric 'id'"));
+    }
+
+    #[test]
+    fn rejects_fixture_entry_with_oversized_id() {
+        let temp_dir = TempDir::new().expect("temp dir should be created");
+        let fixture_path = write_fixture(
+            &temp_dir,
+            r#"[
+  {
+    "id": 4294967296,
+    "fields": {
+      "System.Title": "Oversized id",
+      "System.WorkItemType": "Task",
+      "System.State": "Committed"
+    }
+  }
+]"#,
+        );
+
+        let error = AzureDevOpsClient::new_fixture(&fixture_path)
+            .err()
+            .expect("entry with out-of-range id should fail to load");
+
+        assert!(error.to_string().contains("out of u32 range"));
+    }
+
+    #[test]
+    fn new_fixture_uses_fixture_provider() {
+        let temp_dir = TempDir::new().expect("temp dir should be created");
+        let fixture_path = write_fixture(&temp_dir, MINIMAL_FIXTURE);
 
         let client = AzureDevOpsClient::new_fixture(&fixture_path)
             .expect("fixture-backed client should initialize");
@@ -328,18 +290,7 @@ mod tests {
     #[tokio::test]
     async fn fixture_verify_connection_does_not_depend_on_file_after_load() {
         let temp_dir = TempDir::new().expect("temp dir should be created");
-        let fixture_path = write_fixture(
-            &temp_dir,
-            r#"[
-  {
-    "id": 101,
-    "title": "Improve branch filtering UX",
-    "work_item_type": "Task",
-    "state": "Committed",
-    "description": "<p>Visible in the fixture.</p>"
-  }
-]"#,
-        );
+        let fixture_path = write_fixture(&temp_dir, MINIMAL_FIXTURE);
 
         let client = AzureDevOpsClient::new_fixture(&fixture_path)
             .expect("fixture-backed client should initialize");
@@ -349,68 +300,5 @@ mod tests {
             .verify_connection()
             .await
             .expect("loaded fixture client should still verify");
-    }
-
-    #[test]
-    fn fixture_and_live_mapping_produce_matching_work_items() {
-        let fixture_work_item = FixtureWorkItem {
-            id: 321,
-            title: "Keep fixture and live parsing aligned".to_string(),
-            work_item_type: "Feature".to_string(),
-            state: "Committed".to_string(),
-            assigned_to: Some("Demo User".to_string()),
-            url: Some("https://example.test/items/321".to_string()),
-            tags: vec!["Demo".to_string(), "Parity".to_string()],
-            description: Some("<p>Shared description</p>".to_string()),
-        }
-        .into_work_item()
-        .expect("fixture item should parse");
-
-        let live_json = json!({
-            "fields": {
-                "System.Title": "Keep fixture and live parsing aligned",
-                "System.WorkItemType": "Feature",
-                "System.State": "Committed",
-                "System.AssignedTo": {
-                    "displayName": "Demo User"
-                },
-                "System.Tags": "Demo; Parity",
-                "System.Description": "<p>Shared description</p>"
-            },
-            "_links": {
-                "html": {
-                    "href": "https://example.test/items/321"
-                }
-            }
-        });
-
-        let live_work_item = WorkItem::from_json(&live_json, 321).expect("live item should parse");
-
-        assert_eq!(fixture_work_item.id, live_work_item.id);
-        assert_eq!(fixture_work_item.title, live_work_item.title);
-        assert_eq!(
-            fixture_work_item.work_item_type.display_name(),
-            live_work_item.work_item_type.display_name()
-        );
-        assert_eq!(
-            fixture_work_item.state.display_name(),
-            live_work_item.state.display_name()
-        );
-        assert_eq!(fixture_work_item.assigned_to, live_work_item.assigned_to);
-        assert_eq!(fixture_work_item.url, live_work_item.url);
-        assert_eq!(fixture_work_item.tags, live_work_item.tags);
-        assert_eq!(
-            fixture_work_item.rich_text_fields.len(),
-            live_work_item.rich_text_fields.len()
-        );
-        assert_eq!(fixture_work_item.rich_text_fields[0].name, "Description");
-        assert_eq!(
-            fixture_work_item.rich_text_fields[0].name,
-            live_work_item.rich_text_fields[0].name
-        );
-        assert_eq!(
-            fixture_work_item.rich_text_fields[0].value,
-            live_work_item.rich_text_fields[0].value
-        );
     }
 }
