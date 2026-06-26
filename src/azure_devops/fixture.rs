@@ -34,7 +34,13 @@ impl FixtureAzureDevOpsClient {
                     "Demo work item fixture entry missing numeric 'id': {}",
                     path.display()
                 )
-            })? as u32;
+            })?;
+            let id = u32::try_from(id).with_context(|| {
+                format!(
+                    "Demo work item fixture entry 'id' is out of u32 range: {}",
+                    path.display()
+                )
+            })?;
             work_items.insert(id, entry);
         }
 
@@ -244,6 +250,30 @@ mod tests {
             .expect("entry without id should fail to load");
 
         assert!(error.to_string().contains("missing numeric 'id'"));
+    }
+
+    #[test]
+    fn rejects_fixture_entry_with_oversized_id() {
+        let temp_dir = TempDir::new().expect("temp dir should be created");
+        let fixture_path = write_fixture(
+            &temp_dir,
+            r#"[
+  {
+    "id": 4294967296,
+    "fields": {
+      "System.Title": "Oversized id",
+      "System.WorkItemType": "Task",
+      "System.State": "Committed"
+    }
+  }
+]"#,
+        );
+
+        let error = AzureDevOpsClient::new_fixture(&fixture_path)
+            .err()
+            .expect("entry with out-of-range id should fail to load");
+
+        assert!(error.to_string().contains("out of u32 range"));
     }
 
     #[test]
