@@ -120,6 +120,8 @@ pub enum Msg {
     PreviousBranch,
     ToggleView,
     ToggleShowProtected,
+    ScrollDown(u16),
+    ScrollUp(u16),
     StartFilter,
     SetFilterInput(String),
     ApplyFilter,
@@ -164,6 +166,8 @@ pub enum Msg {
     BranchPruned {
         key: String,
     },
+    SortBranches,
+    SetCurrentBranch(String),
 }
 
 /// Application state
@@ -242,6 +246,8 @@ impl App {
             Msg::PreviousBranch => self.previous(),
             Msg::ToggleView => self.toggle_view(),
             Msg::ToggleShowProtected => self.toggle_show_protected(),
+            Msg::ScrollDown(amount) => self.scroll_down(amount),
+            Msg::ScrollUp(amount) => self.scroll_up(amount),
             Msg::StartFilter => self.enter_filter_input(),
             Msg::SetFilterInput(filter_input) => self.update_filter_input(filter_input),
             Msg::ApplyFilter => self.apply_filter_input(),
@@ -277,6 +283,8 @@ impl App {
                 self.mark_branch_stale(&key);
             }
             Msg::BranchPruned { key } => self.remove_branch(&key),
+            Msg::SortBranches => self.sort_branches(),
+            Msg::SetCurrentBranch(name) => self.update_current_branch(&name),
         }
     }
 
@@ -284,12 +292,12 @@ impl App {
         self.selected_branch().and_then(|b| b.work_item_id)
     }
 
-    pub fn scroll_down(&mut self, amount: u16) {
+    fn scroll_down(&mut self, amount: u16) {
         let max_scroll = self.content_height.saturating_sub(self.visible_height);
         self.scroll_offset = (self.scroll_offset + amount).min(max_scroll);
     }
 
-    pub fn scroll_up(&mut self, amount: u16) {
+    fn scroll_up(&mut self, amount: u16) {
         self.scroll_offset = self.scroll_offset.saturating_sub(amount);
     }
 
@@ -340,7 +348,7 @@ impl App {
         }
     }
 
-    pub fn update_current_branch(&mut self, new_current_branch: &str) {
+    fn update_current_branch(&mut self, new_current_branch: &str) {
         for branch in &mut self.branches {
             branch.is_current =
                 branch.scope == BranchScope::Local && branch.branch_name == new_current_branch;
@@ -407,7 +415,7 @@ impl App {
             .is_some_and(|branch| branch.is_stale)
     }
 
-    pub fn sort_branches(&mut self) {
+    fn sort_branches(&mut self) {
         self.branches.sort_by(compare_branch_order);
     }
 }
@@ -588,16 +596,16 @@ mod tests {
         app.content_height = 50;
         app.visible_height = 20;
 
-        app.scroll_down(10);
+        app.update(Msg::ScrollDown(10));
         assert_eq!(app.scroll_offset, 10);
 
-        app.scroll_down(100);
+        app.update(Msg::ScrollDown(100));
         assert_eq!(app.scroll_offset, 30);
 
-        app.scroll_up(10);
+        app.update(Msg::ScrollUp(10));
         assert_eq!(app.scroll_offset, 20);
 
-        app.scroll_up(100);
+        app.update(Msg::ScrollUp(100));
         assert_eq!(app.scroll_offset, 0);
     }
 
@@ -608,7 +616,7 @@ mod tests {
         app.content_height = 50;
         app.visible_height = 20;
 
-        app.scroll_down(10);
+        app.update(Msg::ScrollDown(10));
         app.next();
 
         assert_eq!(app.scroll_offset, 0);
@@ -626,7 +634,7 @@ mod tests {
         assert_eq!(app.visible_height, 20);
 
         // Heights set through the update loop drive scroll clamping.
-        app.scroll_down(100);
+        app.update(Msg::ScrollDown(100));
         assert_eq!(app.scroll_offset, 30);
     }
 
@@ -1186,7 +1194,7 @@ mod tests {
             ),
         ];
         let mut app = App::new(branches, vec![]);
-        app.update_current_branch("feature/1");
+        app.update(Msg::SetCurrentBranch("feature/1".to_string()));
 
         let local = app
             .branches
@@ -1369,8 +1377,8 @@ mod tests {
         let mut app = App::new(branches, vec![]);
 
         app.ensure_local_branch_exists(&remote_branch);
-        app.update_current_branch("feature/3");
-        app.sort_branches();
+        app.update(Msg::SetCurrentBranch("feature/3".to_string()));
+        app.update(Msg::SortBranches);
 
         let local_names = app
             .branches
