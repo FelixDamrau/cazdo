@@ -62,7 +62,7 @@ fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Command> {
         }
         KeyCode::Down | KeyCode::Char('j') => {
             if key.modifiers.contains(event::KeyModifiers::SHIFT) {
-                app.scroll_down(scroll::LINE_SCROLL_AMOUNT);
+                app.update(Msg::ScrollDown(scroll::LINE_SCROLL_AMOUNT));
             } else {
                 app.update(Msg::NextBranch);
             }
@@ -70,26 +70,34 @@ fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Command> {
         }
         KeyCode::Up | KeyCode::Char('k') => {
             if key.modifiers.contains(event::KeyModifiers::SHIFT) {
-                app.scroll_up(scroll::LINE_SCROLL_AMOUNT);
+                app.update(Msg::ScrollUp(scroll::LINE_SCROLL_AMOUNT));
             } else {
                 app.update(Msg::PreviousBranch);
             }
             None
         }
         KeyCode::PageDown => {
-            app.scroll_down(app.visible_height() / scroll::PAGE_SCROLL_DIVISOR);
+            app.update(Msg::ScrollDown(
+                app.visible_height() / scroll::PAGE_SCROLL_DIVISOR,
+            ));
             None
         }
         KeyCode::PageUp => {
-            app.scroll_up(app.visible_height() / scroll::PAGE_SCROLL_DIVISOR);
+            app.update(Msg::ScrollUp(
+                app.visible_height() / scroll::PAGE_SCROLL_DIVISOR,
+            ));
             None
         }
         KeyCode::Char('d') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
-            app.scroll_down(app.visible_height() / scroll::PAGE_SCROLL_DIVISOR);
+            app.update(Msg::ScrollDown(
+                app.visible_height() / scroll::PAGE_SCROLL_DIVISOR,
+            ));
             None
         }
         KeyCode::Char('u') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
-            app.scroll_up(app.visible_height() / scroll::PAGE_SCROLL_DIVISOR);
+            app.update(Msg::ScrollUp(
+                app.visible_height() / scroll::PAGE_SCROLL_DIVISOR,
+            ));
             None
         }
         KeyCode::Char('d') => {
@@ -196,8 +204,8 @@ fn handle_mouse_event(app: &mut App, mouse_event: MouseEvent) {
     }
 
     match mouse_event.kind {
-        MouseEventKind::ScrollDown => app.scroll_down(scroll::LINE_SCROLL_AMOUNT),
-        MouseEventKind::ScrollUp => app.scroll_up(scroll::LINE_SCROLL_AMOUNT),
+        MouseEventKind::ScrollDown => app.update(Msg::ScrollDown(scroll::LINE_SCROLL_AMOUNT)),
+        MouseEventKind::ScrollUp => app.update(Msg::ScrollUp(scroll::LINE_SCROLL_AMOUNT)),
         _ => {}
     }
 }

@@ -72,9 +72,9 @@ pub(super) fn execute_checkout_branch(app: &mut App, git_repo: &GitRepo, branch:
     ) {
         Ok(()) => {
             app.ensure_local_branch_exists(branch);
-            app.update_current_branch(&branch.branch_name);
+            app.update(Msg::SetCurrentBranch(branch.branch_name.clone()));
             if branch.scope == BranchScope::Remote || app.active_view() == BranchView::Local {
-                app.sort_branches();
+                app.update(Msg::SortBranches);
                 app.focus_local_branch(&branch.branch_name);
             }
             app.set_status_message(
@@ -302,8 +302,8 @@ mod tests {
         );
         app.set_selected_index_for_test(1);
 
-        app.update_current_branch("feature/4");
-        app.sort_branches();
+        app.update(Msg::SetCurrentBranch("feature/4".to_string()));
+        app.update(Msg::SortBranches);
         app.focus_local_branch("feature/4");
 
         assert_eq!(app.active_view(), BranchView::Local);
