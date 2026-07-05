@@ -131,6 +131,38 @@ impl Config {
         Ok(())
     }
 
+    /// Redact the PAT in raw config file text for display (e.g. `cazdo config show`).
+    ///
+    /// Operates on the raw TOML so comments, formatting, and unrelated fields are
+    /// preserved; only a `pat` assignment inside the `[azure_devops]` section is masked.
+    pub fn redact_for_display(content: &str) -> String {
+        let mut redacted = String::with_capacity(content.len());
+        let mut in_azure_devops_section = false;
+
+        for line in content.split_inclusive('\n') {
+            let line_without_newline = line.trim_end_matches(['\r', '\n']);
+            let newline = &line[line_without_newline.len()..];
+
+            if let Some(section) = section_name(line_without_newline) {
+                in_azure_devops_section = section == "azure_devops";
+                redacted.push_str(line);
+                continue;
+            }
+
+            if in_azure_devops_section && is_pat_assignment(line_without_newline) {
+                let indent_len =
+                    line_without_newline.len() - line_without_newline.trim_start().len();
+                let indent = &line_without_newline[..indent_len];
+                redacted.push_str(&format!("{indent}pat = \"***redacted***\"{newline}"));
+                continue;
+            }
+
+            redacted.push_str(line);
+        }
+
+        redacted
+    }
+
     pub fn get_pat(&self) -> Result<String> {
         // Read from actual environment or use fallback logic
         self.resolve_pat(std::env::var("CAZDO_PAT").ok())
@@ -199,6 +231,41 @@ impl Config {
 
         PatResolution::Missing
     }
+}
+
+fn section_name(line: &str) -> Option<&str> {
+    let trimmed = line.trim();
+    if !trimmed.starts_with('[') {
+        return None;
+    }
+
+    let end = trimmed.find(']')?;
+    let rest = trimmed[end + 1..].trim_start();
+    if !rest.is_empty() && !rest.starts_with('#') {
+        return None;
+    }
+
+    Some(trimmed[1..end].trim())
+}
+
+fn is_pat_assignment(line_without_newline: &str) -> bool {
+    let trimmed_start = line_without_newline.trim_start();
+    !trimmed_start.starts_with('#')
+        && trimmed_start
+            .split_once('=')
+            .is_some_and(|(key, _)| toml_key_name(key.trim()) == Some("pat"))
+}
+
+fn toml_key_name(key: &str) -> Option<&str> {
+    if let Some(stripped) = key.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+        return Some(stripped.trim());
+    }
+
+    if let Some(stripped) = key.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) {
+        return Some(stripped.trim());
+    }
+
+    if key.is_empty() { None } else { Some(key) }
 }
 
 fn write_config_file(path: &Path, content: &str) -> Result<()> {
@@ -429,5 +496,76 @@ mod tests {
 
         assert_eq!(fs::read_to_string(&config_path).unwrap(), "new = true\n");
         assert_eq!(file_mode(&config_path), 0o600);
+    }
+
+    #[test]
+    fn redact_for_display_redacts_pat_in_azure_devops_section() {
+        let input = "[azure_devops]\npat = \"secret-token\"\n";
+        let expected = "[azure_devops]\npat = \"***redacted***\"\n";
+
+        assert_eq!(Config::redact_for_display(input), expected);
+    }
+
+    #[test]
+    fn redact_for_display_keeps_commented_pat_example() {
+        let input = "[azure_devops]\n# pat = \"example-token\"\n";
+
+        assert_eq!(Config::redact_for_display(input), input);
+    }
+
+    #[test]
+    fn redact_for_display_does_not_touch_other_sections() {
+        let input = "[branches]\npat = \"not-a-real-pat-setting\"\n";
+
+        assert_eq!(Config::redact_for_display(input), input);
+    }
+
+    #[test]
+    fn redact_for_display_returns_unchanged_when_no_pat_exists() {
+        let input = "[azure_devops]\norganization_url = \"https://dev.azure.com/test\"\n";
+
+        assert_eq!(Config::redact_for_display(input), input);
+    }
+
+    #[test]
+    fn redact_for_display_stops_redacting_after_section_switch() {
+        let input =
+            "[azure_devops]\npat = \"secret-token\"\n[branches]\npat = \"leave-me-alone\"\n";
+        let expected =
+            "[azure_devops]\npat = \"***redacted***\"\n[branches]\npat = \"leave-me-alone\"\n";
+
+        assert_eq!(Config::redact_for_display(input), expected);
+    }
+
+    #[test]
+    fn redact_for_display_handles_inline_comment_on_section_header() {
+        let input = "[azure_devops] # local settings\npat = \"secret-token\"\n";
+        let expected = "[azure_devops] # local settings\npat = \"***redacted***\"\n";
+
+        assert_eq!(Config::redact_for_display(input), expected);
+    }
+
+    #[test]
+    fn redact_for_display_redacts_double_quoted_pat_key() {
+        let input = "[azure_devops]\n\"pat\" = \"secret-token\"\n";
+        let expected = "[azure_devops]\npat = \"***redacted***\"\n";
+
+        assert_eq!(Config::redact_for_display(input), expected);
+    }
+
+    #[test]
+    fn redact_for_display_redacts_single_quoted_pat_key() {
+        let input = "[azure_devops]\n'pat' = \"secret-token\"\n";
+        let expected = "[azure_devops]\npat = \"***redacted***\"\n";
+
+        assert_eq!(Config::redact_for_display(input), expected);
+    }
+
+    #[test]
+    fn redact_for_display_redacts_quoted_pat_key_with_inner_whitespace() {
+        let input = "[azure_devops]\n\" pat \" = \"secret-token\"\n";
+        let expected = "[azure_devops]\npat = \"***redacted***\"\n";
+
+        assert_eq!(Config::redact_for_display(input), expected);
     }
 }
