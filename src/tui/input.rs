@@ -28,9 +28,12 @@ pub(super) fn handle_input(app: &mut App) -> Result<Option<Command>> {
 }
 
 fn handle_key_event(app: &mut App, key: KeyEvent) -> Option<Command> {
+    if app.is_editing_filter() {
+        return handle_filter_input_key(app, key);
+    }
+
     match app.mode() {
         AppMode::Normal => handle_normal_mode_key(app, key),
-        AppMode::FilterInput => handle_filter_input_key(app, key),
         AppMode::ConfirmDelete { branch_key } => {
             let branch_key = branch_key.clone();
             handle_confirm_delete_key(app, key, &branch_key)
@@ -199,7 +202,7 @@ fn handle_error_popup_key(app: &mut App, key: KeyEvent) {
 }
 
 fn handle_mouse_event(app: &mut App, mouse_event: MouseEvent) {
-    if !app.is_normal_mode() {
+    if !app.is_normal_mode() || app.is_editing_filter() {
         return;
     }
 
@@ -216,7 +219,7 @@ mod tests {
 
     use super::*;
     use crate::git::BranchScope;
-    use crate::tui::app::{App, AppMode, BranchInfo, BranchView};
+    use crate::tui::app::{App, BranchInfo, BranchView};
 
     #[test]
     fn test_confirm_delete_derives_prune_from_current_branch_state() {
@@ -243,7 +246,7 @@ mod tests {
         let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('/')));
 
         assert!(action.is_none());
-        assert!(matches!(app.mode(), AppMode::FilterInput));
+        assert!(app.is_editing_filter());
         assert_eq!(app.filter_input(), "feature old");
     }
 
@@ -256,7 +259,7 @@ mod tests {
         let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Enter));
 
         assert!(action.is_none());
-        assert!(matches!(app.mode(), AppMode::Normal));
+        assert!(!app.is_editing_filter());
         assert_eq!(app.branch_filter(), "feature login");
     }
 
@@ -270,9 +273,9 @@ mod tests {
         let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Esc));
 
         assert!(action.is_none());
-        assert!(matches!(app.mode(), AppMode::Normal));
+        assert!(!app.is_editing_filter());
         assert_eq!(app.branch_filter(), "feature old");
-        assert_eq!(app.filter_input(), "feature old");
+        assert_eq!(app.effective_branch_filter(), "feature old");
     }
 
     #[test]
@@ -322,7 +325,7 @@ mod tests {
         let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Esc));
 
         assert!(action.is_none());
-        assert!(matches!(app.mode(), AppMode::Normal));
+        assert!(!app.is_editing_filter());
         assert_eq!(app.selected_branch().unwrap().branch_name, "chore/docs");
     }
 
@@ -346,7 +349,7 @@ mod tests {
         let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('t')));
 
         assert!(action.is_none());
-        assert!(matches!(app.mode(), AppMode::FilterInput));
+        assert!(app.is_editing_filter());
         assert_eq!(app.active_view(), BranchView::Local);
         assert_eq!(app.filter_input(), "t");
     }

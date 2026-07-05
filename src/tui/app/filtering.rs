@@ -1,60 +1,56 @@
 use super::*;
 
 impl App {
-    pub fn is_filter_input_mode(&self) -> bool {
-        matches!(self.mode, AppMode::FilterInput)
+    pub fn is_editing_filter(&self) -> bool {
+        self.filter.is_editing()
     }
 
     pub fn has_active_filter(&self) -> bool {
-        !self.branch_filter.trim().is_empty()
+        self.filter.has_active_filter()
     }
 
     pub fn effective_branch_filter(&self) -> &str {
-        if self.is_filter_input_mode() {
-            &self.filter_input
-        } else {
-            &self.branch_filter
-        }
+        self.filter.effective_query()
     }
 
     pub fn filter_input(&self) -> &str {
-        &self.filter_input
+        self.filter.draft()
     }
 
     #[cfg(test)]
     pub fn branch_filter(&self) -> &str {
-        &self.branch_filter
+        self.filter.applied_query()
     }
 
     pub fn enter_filter_input(&mut self) {
-        self.filter_input_selected_key = self.selected_branch().map(|branch| branch.key.clone());
-        self.filter_input = self.branch_filter.clone();
-        self.mode = AppMode::FilterInput;
+        let anchor = self.selected_branch().map(|branch| branch.key.clone());
+        self.filter.enter(anchor);
     }
 
     pub fn update_filter_input(&mut self, filter_input: String) {
-        self.update_filter_query(filter_input, false);
+        let selected_key = self.selected_branch().map(|branch| branch.key.clone());
+        self.filter.set_draft(filter_input);
+        self.reselect_or_first(selected_key);
     }
 
+    #[cfg(test)]
     pub fn apply_branch_filter(&mut self, filter: String) {
-        self.update_filter_query(filter, true);
+        let selected_key = self.selected_branch().map(|branch| branch.key.clone());
+        self.filter = BranchFilter::Inactive { query: filter };
+        self.reselect_or_first(selected_key);
     }
 
     pub fn apply_filter_input(&mut self) {
-        let filter = self.filter_input.clone();
-        self.filter_input_selected_key = None;
-        self.apply_branch_filter(filter);
-        self.mode = AppMode::Normal;
+        let selected_key = self.selected_branch().map(|branch| branch.key.clone());
+        self.filter.apply();
+        self.reselect_or_first(selected_key);
     }
 
     pub fn cancel_filter_input(&mut self) {
-        self.filter_input = self.branch_filter.clone();
-        self.mode = AppMode::Normal;
+        let restore_anchor = self.filter.cancel();
         self.scroll_offset = 0;
 
-        if !self
-            .filter_input_selected_key
-            .take()
+        if !restore_anchor
             .as_deref()
             .is_some_and(|key| self.select_visible_branch_by_key(key))
         {
@@ -63,7 +59,9 @@ impl App {
     }
 
     pub fn clear_branch_filter(&mut self) {
-        self.apply_branch_filter(String::new());
+        let selected_key = self.selected_branch().map(|branch| branch.key.clone());
+        self.filter.clear();
+        self.reselect_or_first(selected_key);
     }
 
     pub(super) fn branch_matches_filter(&self, branch: &BranchInfo, filter: &str) -> bool {
@@ -79,15 +77,9 @@ impl App {
             .all(|token| branch_name.contains(&token))
     }
 
-    fn update_filter_query(&mut self, filter: String, applied: bool) {
-        let selected_key = self.selected_branch().map(|branch| branch.key.clone());
-
-        if applied {
-            self.branch_filter = filter;
-        } else {
-            self.filter_input = filter;
-        }
-
+    /// After a filter change: keep the selected branch, else fall back to first
+    /// (cancel clamps instead).
+    fn reselect_or_first(&mut self, selected_key: Option<String>) {
         self.scroll_offset = 0;
 
         if !selected_key

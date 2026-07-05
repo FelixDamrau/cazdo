@@ -25,7 +25,7 @@ pub fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn footer_variant(app: &App) -> FooterVariant<'_> {
-    if app.is_filter_input_mode() {
+    if app.is_editing_filter() {
         FooterVariant::FilterInput
     } else if let Some(msg) = app.get_status_message() {
         FooterVariant::Status(msg)
