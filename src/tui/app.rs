@@ -3,10 +3,13 @@ use crate::git::{BranchOrder, BranchScope, BranchStatus, compare_branch_order};
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
+mod branch_filter;
 mod filtering;
 mod load_state;
 mod selection;
 mod status;
+
+use branch_filter::BranchFilter;
 
 /// Branch info with optional work item
 #[derive(Debug, Clone)]
@@ -60,7 +63,6 @@ impl BranchView {
 #[derive(Debug, Clone)]
 pub enum AppMode {
     Normal,
-    FilterInput,
     ConfirmDelete { branch_key: String },
     ErrorPopup(String),
 }
@@ -187,9 +189,7 @@ pub struct App {
     show_protected: bool,
 
     // Filtering (filtering.rs)
-    branch_filter: String,
-    filter_input: String,
-    filter_input_selected_key: Option<String>,
+    filter: BranchFilter,
 
     // Async load state (load_state.rs)
     work_items: HashMap<u32, WorkItemStatus>,
@@ -222,9 +222,7 @@ impl App {
             show_protected: false,
 
             // Filtering
-            branch_filter: String::new(),
-            filter_input: String::new(),
-            filter_input_selected_key: None,
+            filter: BranchFilter::default(),
 
             // Async load state
             work_items: HashMap::new(),
@@ -844,12 +842,12 @@ mod tests {
             )],
             vec![],
         );
-        app.branch_filter = "feature".to_string();
+        app.apply_branch_filter("feature".to_string());
 
         app.update(Msg::StartFilter);
 
-        assert!(matches!(app.mode, AppMode::FilterInput));
-        assert_eq!(app.filter_input, "feature");
+        assert!(app.is_editing_filter());
+        assert_eq!(app.filter_input(), "feature");
     }
 
     #[test]
@@ -877,13 +875,13 @@ mod tests {
             ],
             vec![],
         );
-        app.branch_filter = "feature".to_string();
+        app.apply_branch_filter("feature".to_string());
         app.update(Msg::StartFilter);
 
         app.update(Msg::SetFilterInput("docs".to_string()));
 
-        assert_eq!(app.branch_filter, "feature");
-        assert_eq!(app.filter_input, "docs");
+        assert_eq!(app.branch_filter(), "feature");
+        assert_eq!(app.filter_input(), "docs");
         assert_eq!(app.visible_branches()[0].branch_name, "chore/docs");
     }
 
@@ -895,9 +893,9 @@ mod tests {
 
         app.update(Msg::ApplyFilter);
 
-        assert!(matches!(app.mode, AppMode::Normal));
-        assert_eq!(app.branch_filter, "feature login");
-        assert_eq!(app.filter_input, "feature login");
+        assert!(!app.is_editing_filter());
+        assert_eq!(app.branch_filter(), "feature login");
+        assert_eq!(app.effective_branch_filter(), "feature login");
     }
 
     #[test]
@@ -908,22 +906,22 @@ mod tests {
 
         app.update(Msg::ClearFilter);
 
-        assert!(app.branch_filter.is_empty());
+        assert!(app.branch_filter().is_empty());
         assert_eq!(app.scroll_offset, 0);
     }
 
     #[test]
     fn test_update_cancel_filter_discards_draft_without_changing_applied_filter() {
         let mut app = App::new(vec![create_test_branches()[1].clone()], vec![]);
-        app.branch_filter = "feature".to_string();
+        app.apply_branch_filter("feature".to_string());
         app.update(Msg::StartFilter);
         app.update(Msg::SetFilterInput("docs".to_string()));
 
         app.update(Msg::CancelFilter);
 
-        assert!(matches!(app.mode, AppMode::Normal));
-        assert_eq!(app.branch_filter, "feature");
-        assert_eq!(app.filter_input, "feature");
+        assert!(!app.is_editing_filter());
+        assert_eq!(app.branch_filter(), "feature");
+        assert_eq!(app.effective_branch_filter(), "feature");
     }
 
     #[test]
@@ -1061,7 +1059,7 @@ mod tests {
         let visible = app.visible_branches();
         assert_eq!(visible.len(), 1);
         assert_eq!(visible[0].branch_name, "feature/login");
-        assert_eq!(app.branch_filter, "login");
+        assert_eq!(app.branch_filter(), "login");
     }
 
     #[test]
