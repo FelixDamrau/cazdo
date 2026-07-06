@@ -91,15 +91,7 @@ impl App {
     pub(super) fn toggle_show_protected(&mut self) {
         let selected_key = self.selected_branch().map(|branch| branch.key.clone());
         self.show_protected = !self.show_protected;
-
-        if selected_key
-            .as_deref()
-            .is_some_and(|key| self.select_visible_branch_by_key(key))
-        {
-            return;
-        }
-
-        self.clamp_selected_index();
+        self.select_by_key_or(selected_key.as_deref(), OnMiss::Clamp);
     }
 
     pub(super) fn toggle_view(&mut self) {
@@ -137,16 +129,71 @@ impl App {
         self.set_selected_index(next);
     }
 
-    pub(super) fn select_visible_branch_by_key(&mut self, key: &str) -> bool {
-        if let Some(new_idx) = self
+    pub(super) fn select_by_key_or(&mut self, target: Option<&str>, on_miss: OnMiss) {
+        let keys: Vec<&str> = self
             .visible_branches()
             .iter()
-            .position(|branch| branch.key == key)
-        {
-            self.set_selected_index(new_idx);
-            true
-        } else {
-            false
-        }
+            .map(|branch| branch.key.as_str())
+            .collect();
+        let idx = resolve_selection(target, &keys, self.selected_index(), on_miss);
+        self.set_selected_index(idx);
+    }
+}
+
+/// Fallback when the target key is no longer visible.
+pub(super) enum OnMiss {
+    First,
+    Clamp,
+}
+
+fn resolve_selection(
+    target: Option<&str>,
+    visible_keys: &[&str],
+    current: usize,
+    on_miss: OnMiss,
+) -> usize {
+    if let Some(key) = target
+        && let Some(idx) = visible_keys.iter().position(|k| *k == key)
+    {
+        return idx;
+    }
+    match on_miss {
+        OnMiss::First => 0,
+        OnMiss::Clamp => current.min(visible_keys.len().saturating_sub(1)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolves_to_the_targets_position_when_visible() {
+        let keys = ["a", "b", "c"];
+        assert_eq!(resolve_selection(Some("b"), &keys, 0, OnMiss::First), 1);
+        assert_eq!(resolve_selection(Some("c"), &keys, 0, OnMiss::Clamp), 2);
+    }
+
+    #[test]
+    fn misses_fall_back_to_first_under_first_policy() {
+        let keys = ["a", "b", "c"];
+        assert_eq!(resolve_selection(Some("x"), &keys, 2, OnMiss::First), 0);
+        assert_eq!(resolve_selection(None, &keys, 2, OnMiss::First), 0);
+    }
+
+    #[test]
+    fn misses_clamp_the_current_index_under_clamp_policy() {
+        let keys = ["a", "b"];
+        assert_eq!(resolve_selection(Some("x"), &keys, 3, OnMiss::Clamp), 1);
+        assert_eq!(resolve_selection(None, &keys, 3, OnMiss::Clamp), 1);
+        assert_eq!(resolve_selection(None, &keys, 0, OnMiss::Clamp), 0);
+    }
+
+    #[test]
+    fn empty_visible_list_resolves_to_zero_for_both_policies() {
+        let keys: [&str; 0] = [];
+        assert_eq!(resolve_selection(Some("a"), &keys, 5, OnMiss::First), 0);
+        assert_eq!(resolve_selection(Some("a"), &keys, 5, OnMiss::Clamp), 0);
+        assert_eq!(resolve_selection(None, &keys, 5, OnMiss::Clamp), 0);
     }
 }

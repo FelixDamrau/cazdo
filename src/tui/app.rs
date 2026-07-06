@@ -10,6 +10,7 @@ mod selection;
 mod status;
 
 use branch_filter::BranchFilter;
+use selection::OnMiss;
 
 /// Branch info with optional work item
 #[derive(Debug, Clone)]
