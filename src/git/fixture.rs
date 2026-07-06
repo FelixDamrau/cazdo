@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use anyhow::{Result, anyhow, bail};
 
 use super::repo::{BranchScope, BranchStatus, DeleteResult, GitBackend, RepoBranch};
-use crate::pattern::is_protected;
 
 /// In-memory `GitRepo` backend for tests: returns preset checkout/delete/prune
 /// outcomes. Ops it isn't configured for (branch listing, status, freshness) are
@@ -62,13 +61,9 @@ impl GitBackend for FixtureGitRepo {
     fn delete_branch(
         &self,
         _scope: BranchScope,
-        branch_name: &str,
+        _branch_name: &str,
         _remote_name: Option<&str>,
-        protected_patterns: &[String],
     ) -> Result<DeleteResult> {
-        if is_protected(branch_name, protected_patterns) {
-            bail!("Cannot delete protected branch '{}'", branch_name);
-        }
         match &self.delete_result {
             Some(Ok(result)) => Ok(result.clone()),
             Some(Err(message)) => Err(anyhow!(message.clone())),

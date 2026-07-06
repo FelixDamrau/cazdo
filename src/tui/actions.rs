@@ -407,6 +407,20 @@ mod tests {
     }
 
     #[test]
+    fn test_execute_delete_branch_rejects_protected_branch_via_fixture() {
+        let branch = local_branch("main");
+        let mut app = App::new(vec![branch.clone()], vec!["main".to_string()]);
+        let git_repo = GitRepo::fixture(FixtureGitRepo::new());
+
+        execute_delete_branch(&mut app, &git_repo, &branch);
+
+        assert!(app.branch_by_key("refs/heads/main").is_some());
+        let status = app.get_status_message().expect("status message");
+        assert!(status.is_error);
+        assert!(status.text.contains("Cannot delete protected branch"));
+    }
+
+    #[test]
     fn test_execute_delete_branch_remote_prunes_via_fixture() {
         let branch = remote_branch(false);
         let mut app = App::new(vec![branch.clone()], vec![]);

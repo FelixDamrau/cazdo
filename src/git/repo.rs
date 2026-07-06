@@ -135,7 +135,6 @@ pub(crate) trait GitBackend {
         scope: BranchScope,
         branch_name: &str,
         remote_name: Option<&str>,
-        protected_patterns: &[String],
     ) -> Result<DeleteResult>;
     fn prune_remote_tracking_branch(&self, branch_name: &str) -> Result<()>;
     fn repo_dir(&self) -> Result<PathBuf>;
@@ -187,8 +186,10 @@ impl GitRepo {
         remote_name: Option<&str>,
         protected_patterns: &[String],
     ) -> Result<DeleteResult> {
-        self.backend
-            .delete_branch(scope, branch_name, remote_name, protected_patterns)
+        if is_protected(branch_name, protected_patterns) {
+            anyhow::bail!("Cannot delete protected branch '{}'", branch_name);
+        }
+        self.backend.delete_branch(scope, branch_name, remote_name)
     }
 
     pub fn prune_remote_tracking_branch(&self, branch_name: &str) -> Result<()> {
@@ -310,12 +311,7 @@ impl GitBackend for LiveGitRepo {
         scope: BranchScope,
         branch_name: &str,
         remote_name: Option<&str>,
-        protected_patterns: &[String],
     ) -> Result<DeleteResult> {
-        if is_protected(branch_name, protected_patterns) {
-            anyhow::bail!("Cannot delete protected branch '{}'", branch_name);
-        }
-
         match scope {
             BranchScope::Local => self.delete_local_branch(branch_name),
             BranchScope::Remote => self.delete_remote_branch(branch_name, remote_name),
