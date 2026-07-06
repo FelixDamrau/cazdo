@@ -79,10 +79,6 @@ pub enum DeleteResult {
     Remote,
 }
 
-pub struct GitRepo {
-    repo: Repository,
-}
-
 /// Branch fields needed to order branch lists: locals first, the current
 /// branch first within locals, then by display name.
 pub trait BranchOrder {
@@ -114,21 +110,120 @@ impl BranchOrder for RepoBranch {
     }
 }
 
+/// Public git interface: a concrete facade over a backend that is the live
+/// libgit2 adapter in production and an in-memory fixture in tests.
+pub struct GitRepo {
+    backend: Box<dyn GitBackend>,
+}
+
+pub(crate) trait GitBackend {
+    fn list_branches(&self) -> Result<Vec<RepoBranch>>;
+    fn get_branch_status(
+        &self,
+        scope: BranchScope,
+        branch_name: &str,
+        remote_name: Option<&str>,
+    ) -> Result<BranchStatus>;
+    fn checkout_branch(
+        &self,
+        scope: BranchScope,
+        branch_name: &str,
+        remote_name: Option<&str>,
+    ) -> Result<()>;
+    fn delete_branch(
+        &self,
+        scope: BranchScope,
+        branch_name: &str,
+        remote_name: Option<&str>,
+        protected_patterns: &[String],
+    ) -> Result<DeleteResult>;
+    fn prune_remote_tracking_branch(&self, branch_name: &str) -> Result<()>;
+    fn repo_dir(&self) -> Result<PathBuf>;
+    fn current_local_branch_name(&self) -> Result<Option<String>>;
+}
+
+impl GitRepo {
+    pub fn open_current_dir() -> Result<Self> {
+        Ok(Self {
+            backend: Box::new(LiveGitRepo::open_current_dir()?),
+        })
+    }
+
+    #[cfg(test)]
+    pub fn fixture(fixture: super::fixture::FixtureGitRepo) -> Self {
+        Self {
+            backend: Box::new(fixture),
+        }
+    }
+
+    pub fn list_branches(&self) -> Result<Vec<RepoBranch>> {
+        self.backend.list_branches()
+    }
+
+    pub fn get_branch_status(
+        &self,
+        scope: BranchScope,
+        branch_name: &str,
+        remote_name: Option<&str>,
+    ) -> Result<BranchStatus> {
+        self.backend
+            .get_branch_status(scope, branch_name, remote_name)
+    }
+
+    pub fn checkout_branch(
+        &self,
+        scope: BranchScope,
+        branch_name: &str,
+        remote_name: Option<&str>,
+    ) -> Result<()> {
+        self.backend.checkout_branch(scope, branch_name, remote_name)
+    }
+
+    pub fn delete_branch(
+        &self,
+        scope: BranchScope,
+        branch_name: &str,
+        remote_name: Option<&str>,
+        protected_patterns: &[String],
+    ) -> Result<DeleteResult> {
+        self.backend
+            .delete_branch(scope, branch_name, remote_name, protected_patterns)
+    }
+
+    pub fn prune_remote_tracking_branch(&self, branch_name: &str) -> Result<()> {
+        self.backend.prune_remote_tracking_branch(branch_name)
+    }
+
+    pub fn repo_dir(&self) -> Result<PathBuf> {
+        self.backend.repo_dir()
+    }
+
+    pub(crate) fn current_local_branch_name(&self) -> Result<Option<String>> {
+        self.backend.current_local_branch_name()
+    }
+}
+
+struct LiveGitRepo {
+    repo: Repository,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExistingLocalBranchAction {
     CheckoutLocal,
 }
 
-impl GitRepo {
+impl LiveGitRepo {
     /// Open the git repository in the current directory
     pub fn open_current_dir() -> Result<Self> {
         let repo = Repository::discover(".")
             .context("Not a git repository (or any of the parent directories)")?;
         Ok(Self { repo })
     }
+}
 
+impl GitBackend for LiveGitRepo {
     /// Get all local branches plus origin remote branches.
-    pub fn list_branches(&self) -> Result<Vec<RepoBranch>> {
+    fn list_branches(&self) -> Result<Vec<RepoBranch>> {
         let current = self.current_local_branch_name().ok().flatten();
         let mut branches: Vec<RepoBranch> = Vec::new();
 
@@ -181,7 +276,7 @@ impl GitRepo {
     }
 
     /// Get status information for a branch.
-    pub fn get_branch_status(
+    fn get_branch_status(
         &self,
         scope: BranchScope,
         branch_name: &str,
@@ -194,7 +289,7 @@ impl GitRepo {
     }
 
     /// Checkout a branch by scope/name.
-    pub fn checkout_branch(
+    fn checkout_branch(
         &self,
         scope: BranchScope,
         branch_name: &str,
@@ -209,7 +304,7 @@ impl GitRepo {
     }
 
     /// Delete a branch by scope/name.
-    pub fn delete_branch(
+    fn delete_branch(
         &self,
         scope: BranchScope,
         branch_name: &str,
@@ -227,7 +322,7 @@ impl GitRepo {
     }
 
     /// Remove the local tracking ref for a stale remote branch.
-    pub fn prune_remote_tracking_branch(&self, branch_name: &str) -> Result<()> {
+    fn prune_remote_tracking_branch(&self, branch_name: &str) -> Result<()> {
         let tracking_ref = format!("{ORIGIN_REMOTE}/{branch_name}");
 
         let output = Command::new("git")
@@ -250,10 +345,16 @@ impl GitRepo {
         Ok(())
     }
 
-    pub fn repo_dir(&self) -> Result<PathBuf> {
+    fn repo_dir(&self) -> Result<PathBuf> {
         Ok(self.command_dir()?.to_path_buf())
     }
 
+    fn current_local_branch_name(&self) -> Result<Option<String>> {
+        current_local_branch_name(&self.repo)
+    }
+}
+
+impl LiveGitRepo {
     fn command_dir(&self) -> Result<&Path> {
         self.repo
             .workdir()
@@ -598,9 +699,6 @@ impl GitRepo {
         Ok(upstream.name().ok().flatten() == Some(remote_ref_name))
     }
 
-    pub(crate) fn current_local_branch_name(&self) -> Result<Option<String>> {
-        current_local_branch_name(&self.repo)
-    }
 }
 
 fn current_local_branch_name(repo: &Repository) -> Result<Option<String>> {
@@ -943,7 +1041,7 @@ mod tests {
         assert_eq!(checked_out_path, None);
     }
 
-    fn init_test_repo(name: &str) -> (GitRepo, PathBuf, git2::Oid) {
+    fn init_test_repo(name: &str) -> (LiveGitRepo, PathBuf, git2::Oid) {
         let repo_path = std::env::temp_dir().join(format!(
             "cazdo-{name}-{}-{}",
             std::process::id(),
@@ -971,11 +1069,11 @@ mod tests {
             .expect("commit should succeed");
         drop(tree);
 
-        (GitRepo { repo }, repo_path, oid)
+        (LiveGitRepo { repo }, repo_path, oid)
     }
 
     fn add_worktree_for_branch(
-        repo: &GitRepo,
+        repo: &LiveGitRepo,
         repo_path: &Path,
         oid: git2::Oid,
         branch_name: &str,

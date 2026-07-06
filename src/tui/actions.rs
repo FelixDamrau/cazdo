@@ -169,7 +169,8 @@ fn open_url(url: &str) -> Result<()> {
 mod tests {
     use super::*;
     use crate::azure_devops::{WorkItem, WorkItemState, WorkItemType};
-    use crate::tui::app::Msg;
+    use crate::git::FixtureGitRepo;
+    use crate::tui::app::{AppMode, Msg};
 
     #[test]
     fn test_remote_delete_status_message_reports_prune_failure() {
@@ -380,6 +381,133 @@ mod tests {
         assert_eq!(local_branch.display_name, "feature/1");
         assert_eq!(local_branch.remote_name, None);
         assert!(!local_branch.is_stale);
+    }
+
+    #[test]
+    fn test_execute_delete_branch_local_records_deletion_via_fixture() {
+        let branch = local_branch("feature/1");
+        let mut app = App::new(vec![branch.clone()], vec![]);
+        let git_repo = GitRepo::fixture(FixtureGitRepo::new().with_delete_result(Ok(
+            DeleteResult::Local {
+                commit_sha: "abcdef1234567".to_string(),
+            },
+        )));
+
+        execute_delete_branch(&mut app, &git_repo, &branch);
+
+        assert!(app.branch_by_key("refs/heads/feature/1").is_none());
+        assert_eq!(app.deleted_branches().len(), 1);
+        assert_eq!(
+            app.deleted_branches()[0].restore_hint.as_deref(),
+            Some("git checkout -b feature/1 abcdef1234567")
+        );
+        let status = app.get_status_message().expect("status message");
+        assert!(!status.is_error);
+        assert_eq!(status.text, "Deleted feature/1 (was abcdef1)");
+    }
+
+    #[test]
+    fn test_execute_delete_branch_remote_prunes_via_fixture() {
+        let branch = remote_branch(false);
+        let mut app = App::new(vec![branch.clone()], vec![]);
+        let git_repo = GitRepo::fixture(
+            FixtureGitRepo::new()
+                .with_delete_result(Ok(DeleteResult::Remote))
+                .with_prune_result(Ok(())),
+        );
+
+        execute_delete_branch(&mut app, &git_repo, &branch);
+
+        assert!(app.branch_by_key("refs/remotes/origin/feature/1").is_none());
+        assert_eq!(app.deleted_branches().len(), 1);
+        assert_eq!(app.deleted_branches()[0].name, "origin/feature/1");
+        assert_eq!(app.deleted_branches()[0].restore_hint, None);
+        let status = app.get_status_message().expect("status message");
+        assert!(!status.is_error);
+        assert_eq!(status.text, "Deleted remote branch 'origin/feature/1'");
+    }
+
+    #[test]
+    fn test_execute_delete_branch_remote_prune_failure_via_fixture() {
+        let branch = remote_branch(false);
+        let mut app = App::new(vec![branch.clone()], vec![]);
+        let git_repo = GitRepo::fixture(
+            FixtureGitRepo::new()
+                .with_delete_result(Ok(DeleteResult::Remote))
+                .with_prune_result(Err("could not prune tracking ref".to_string())),
+        );
+
+        execute_delete_branch(&mut app, &git_repo, &branch);
+
+        let branch = app
+            .branch_by_key("refs/remotes/origin/feature/1")
+            .expect("branch should remain visible");
+        assert!(branch.is_stale);
+        let status = app.get_status_message().expect("status message");
+        assert!(status.is_error);
+        assert!(status.text.contains("could not prune tracking ref"));
+    }
+
+    #[test]
+    fn test_execute_prune_branch_via_fixture() {
+        let branch = remote_branch(true);
+        let mut app = App::new(vec![branch.clone()], vec![]);
+        let git_repo = GitRepo::fixture(FixtureGitRepo::new().with_prune_result(Ok(())));
+
+        execute_prune_branch(&mut app, &git_repo, &branch);
+
+        assert!(app.branch_by_key("refs/remotes/origin/feature/1").is_none());
+        let status = app.get_status_message().expect("status message");
+        assert!(!status.is_error);
+        assert_eq!(status.text, "Pruned stale tracking ref 'origin/feature/1'");
+    }
+
+    #[test]
+    fn test_execute_checkout_branch_success_via_fixture() {
+        let branch = local_branch("feature/4");
+        let mut app = App::new(vec![branch.clone()], vec![]);
+        let git_repo = GitRepo::fixture(FixtureGitRepo::new().with_checkout_result(Ok(())));
+
+        execute_checkout_branch(&mut app, &git_repo, &branch);
+
+        assert!(
+            app.branch_by_key("refs/heads/feature/4")
+                .expect("branch")
+                .is_current
+        );
+        let status = app.get_status_message().expect("status message");
+        assert!(!status.is_error);
+        assert_eq!(status.text, "Switched to branch 'feature/4'");
+    }
+
+    #[test]
+    fn test_execute_checkout_branch_error_shows_popup_via_fixture() {
+        let branch = local_branch("feature/4");
+        let mut app = App::new(vec![branch.clone()], vec![]);
+        let git_repo = GitRepo::fixture(
+            FixtureGitRepo::new().with_checkout_result(Err("uncommitted changes".to_string())),
+        );
+
+        execute_checkout_branch(&mut app, &git_repo, &branch);
+
+        assert!(matches!(
+            app.mode(),
+            AppMode::ErrorPopup(message) if message.contains("uncommitted changes")
+        ));
+    }
+
+    fn local_branch(name: &str) -> BranchInfo {
+        BranchInfo {
+            key: format!("refs/heads/{name}"),
+            display_name: name.to_string(),
+            branch_name: name.to_string(),
+            remote_name: None,
+            scope: BranchScope::Local,
+            work_item_id: None,
+            is_current: false,
+            is_protected: false,
+            is_stale: false,
+        }
     }
 
     fn remote_branch(is_stale: bool) -> BranchInfo {
