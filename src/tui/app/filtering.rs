@@ -49,13 +49,7 @@ impl App {
     pub fn cancel_filter_input(&mut self) {
         let restore_anchor = self.filter.cancel();
         self.scroll_offset = 0;
-
-        if !restore_anchor
-            .as_deref()
-            .is_some_and(|key| self.select_visible_branch_by_key(key))
-        {
-            self.clamp_selected_index();
-        }
+        self.select_by_key_or(restore_anchor.as_deref(), OnMiss::Clamp);
     }
 
     pub fn clear_branch_filter(&mut self) {
@@ -81,16 +75,6 @@ impl App {
     /// (cancel clamps instead).
     fn reselect_or_first(&mut self, selected_key: Option<String>) {
         self.scroll_offset = 0;
-
-        if !selected_key
-            .as_deref()
-            .is_some_and(|key| self.select_visible_branch_by_key(key))
-        {
-            if self.visible_count() > 0 {
-                self.set_selected_index(0);
-            } else {
-                self.clamp_selected_index();
-            }
-        }
+        self.select_by_key_or(selected_key.as_deref(), OnMiss::First);
     }
 }
