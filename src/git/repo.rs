@@ -176,7 +176,8 @@ impl GitRepo {
         branch_name: &str,
         remote_name: Option<&str>,
     ) -> Result<()> {
-        self.backend.checkout_branch(scope, branch_name, remote_name)
+        self.backend
+            .checkout_branch(scope, branch_name, remote_name)
     }
 
     pub fn delete_branch(
@@ -698,7 +699,6 @@ impl LiveGitRepo {
 
         Ok(upstream.name().ok().flatten() == Some(remote_ref_name))
     }
-
 }
 
 fn current_local_branch_name(repo: &Repository) -> Result<Option<String>> {
