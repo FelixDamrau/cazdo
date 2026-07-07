@@ -6,8 +6,10 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 
+use crate::azure_devops::FieldFormat;
 use crate::tui::app::{App, DetailsMetrics, WorkItemStatus};
 use crate::tui::html_render::render_html;
+use crate::tui::markdown_render::render_markdown;
 use crate::tui::theme;
 
 use super::helpers::append_wrapped_text;
@@ -169,8 +171,11 @@ fn render_work_item_details(frame: &mut Frame, app: &App, area: Rect, wi_id: u32
                     theme::styles::MUTED,
                 )]));
 
-                // Render HTML with formatting preserved
-                let rendered = render_html(&field.value, max_width.saturating_sub(4));
+                let field_width = max_width.saturating_sub(4);
+                let rendered = match field.format {
+                    FieldFormat::Html => render_html(&field.value, field_width),
+                    FieldFormat::Markdown => render_markdown(&field.value, field_width),
+                };
                 for rendered_line in rendered {
                     // Add indent to each line
                     let mut indented_spans = vec![Span::raw("    ")];
@@ -200,4 +205,103 @@ fn render_work_item_details(frame: &mut Frame, app: &App, area: Rect, wi_id: u32
     );
 
     content_height
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::azure_devops::{RichTextField, WorkItem, WorkItemState, WorkItemType};
+    use crate::git::BranchScope;
+    use crate::tui::app::{BranchInfo, Msg};
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    fn work_item_with(fields: Vec<RichTextField>) -> WorkItem {
+        WorkItem {
+            id: 204,
+            title: "Sample item".to_string(),
+            work_item_type: WorkItemType::ProductBacklogItem,
+            state: WorkItemState::New,
+            assigned_to: None,
+            url: None,
+            tags: vec![],
+            rich_text_fields: fields,
+        }
+    }
+
+    fn branch_linked_to(work_item_id: u32) -> BranchInfo {
+        BranchInfo {
+            key: "wi".to_string(),
+            display_name: "wi".to_string(),
+            branch_name: "feature/wi".to_string(),
+            remote_name: None,
+            scope: BranchScope::Local,
+            work_item_id: Some(work_item_id),
+            is_current: false,
+            is_protected: false,
+            is_stale: false,
+        }
+    }
+
+    /// Render the details pane to an off-screen buffer and return its text.
+    fn rendered_text(app: &App) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(80, 30)).expect("terminal");
+        terminal
+            .draw(|frame| {
+                render_details(frame, app, frame.area());
+            })
+            .expect("draw");
+        terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect()
+    }
+
+    #[test]
+    fn markdown_field_is_rendered_not_shown_as_raw_source() {
+        let mut app = App::new(vec![branch_linked_to(204)], vec![]);
+        app.update(Msg::SetWorkItemLoaded {
+            id: 204,
+            work_item: work_item_with(vec![RichTextField {
+                name: "Description".to_string(),
+                // WI 204's real Description value.
+                value: "THIS IS IN _**mark** down_".to_string(),
+                format: FieldFormat::Markdown,
+            }]),
+        });
+
+        let text = rendered_text(&app);
+
+        assert!(text.contains("mark"), "rendered text missing; got: {text:?}");
+        assert!(!text.contains("_**"), "raw markdown leaked: {text:?}");
+    }
+
+    #[test]
+    fn html_and_markdown_fields_dispatch_to_their_own_renderers() {
+        let mut app = App::new(vec![branch_linked_to(204)], vec![]);
+        app.update(Msg::SetWorkItemLoaded {
+            id: 204,
+            work_item: work_item_with(vec![
+                RichTextField {
+                    name: "Description".to_string(),
+                    value: "a _markdownish_ line".to_string(),
+                    format: FieldFormat::Markdown,
+                },
+                RichTextField {
+                    name: "Acceptance Criteria".to_string(),
+                    value: "<b>htmlish</b> line".to_string(),
+                    format: FieldFormat::Html,
+                },
+            ]),
+        });
+
+        let text = rendered_text(&app);
+
+        assert!(text.contains("markdownish") && text.contains("htmlish"));
+        assert!(!text.contains("_markdownish_"), "markdown leaked: {text:?}");
+        assert!(!text.contains("<b>"), "html leaked: {text:?}");
+    }
 }

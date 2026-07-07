@@ -4,6 +4,7 @@ mod background;
 mod event;
 mod html_render;
 mod input;
+mod markdown_render;
 pub mod theme;
 mod ui;
 

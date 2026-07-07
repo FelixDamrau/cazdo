@@ -1,11 +1,20 @@
 use ratatui::style::Color;
 use std::str::FromStr;
 
-/// A rich text field from Azure DevOps (usually contains HTML)
+/// Format of a rich text field's value, from Azure DevOps' `multilineFieldsFormat` map.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FieldFormat {
+    #[default]
+    Html,
+    Markdown,
+}
+
+/// A rich text field from Azure DevOps.
 #[derive(Debug, Clone)]
 pub struct RichTextField {
     pub name: String,
     pub value: String,
+    pub format: FieldFormat,
 }
 
 #[derive(Debug, Clone)]
