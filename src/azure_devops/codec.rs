@@ -9,13 +9,16 @@
 use anyhow::{Context, Result};
 use serde_json::Value;
 
-use super::work_item::{RichTextField, WorkItem, WorkItemParts};
+use super::work_item::{FieldFormat, RichTextField, WorkItem, WorkItemParts};
 
 const FIELDS: &str = "fields";
 const LINKS: &str = "_links";
 const HTML: &str = "html";
 const HREF: &str = "href";
 const DISPLAY_NAME: &str = "displayName";
+/// Top-level map (sibling to `fields`) of field name -> format; lowercase on reads.
+const MULTILINE_FORMAT: &str = "multilineFieldsFormat";
+const MARKDOWN: &str = "markdown";
 
 const TITLE: &str = "System.Title";
 const WORK_ITEM_TYPE: &str = "System.WorkItemType";
@@ -87,14 +90,21 @@ pub(super) fn decode(json: &Value, id: u32) -> Result<WorkItem> {
         })
         .unwrap_or_default();
 
+    let formats = json.get(MULTILINE_FORMAT);
     let mut rich_text_fields = Vec::new();
     for (field_name, display_name) in RICH_TEXT_FIELDS {
         if let Some(value) = fields.get(*field_name).and_then(|v| v.as_str())
             && !value.trim().is_empty()
         {
+            let format = formats
+                .and_then(|f| f.get(*field_name))
+                .and_then(|v| v.as_str())
+                .filter(|raw| raw.eq_ignore_ascii_case(MARKDOWN))
+                .map_or(FieldFormat::Html, |_| FieldFormat::Markdown);
             rich_text_fields.push(RichTextField {
                 name: display_name.to_string(),
                 value: value.to_string(),
+                format,
             });
         }
     }
@@ -147,6 +157,47 @@ mod tests {
         assert_eq!(work_item.rich_text_fields.len(), 2);
         assert_eq!(work_item.rich_text_fields[0].name, "Description");
         assert_eq!(work_item.rich_text_fields[1].name, "Acceptance Criteria");
+        // No format map -> all fields default to HTML.
+        assert!(
+            work_item
+                .rich_text_fields
+                .iter()
+                .all(|f| f.format == FieldFormat::Html)
+        );
+    }
+
+    #[test]
+    fn decode_reads_per_field_format_from_multiline_map() {
+        let json = json!({
+            "fields": {
+                "System.Title": "Markdown item",
+                "System.WorkItemType": "User Story",
+                "System.State": "Active",
+                "System.Description": "# Heading\n- point",
+                "Microsoft.VSTS.Common.AcceptanceCriteria": "<p>Given/When/Then</p>",
+                "Microsoft.VSTS.TCM.ReproSteps": "plain repro"
+            },
+            "multilineFieldsFormat": {
+                "System.Description": "markdown",
+                "Microsoft.VSTS.Common.AcceptanceCriteria": "html",
+                "Microsoft.VSTS.TCM.ReproSteps": "MarkDown"
+            }
+        });
+
+        let work_item = decode(&json, 204).expect("work item should parse");
+
+        let format_of = |name: &str| {
+            work_item
+                .rich_text_fields
+                .iter()
+                .find(|f| f.name == name)
+                .unwrap_or_else(|| panic!("missing field {name}"))
+                .format
+        };
+        assert_eq!(format_of("Description"), FieldFormat::Markdown);
+        assert_eq!(format_of("Acceptance Criteria"), FieldFormat::Html);
+        // Case-insensitive: "MarkDown" resolves to Markdown.
+        assert_eq!(format_of("Repro Steps"), FieldFormat::Markdown);
     }
 
     #[test]

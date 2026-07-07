@@ -38,6 +38,9 @@ anyhow = "1"
 chrono = "0.4"
 chrono-humanize = "0.2"
 
+# Markdown rendering for work item fields
+pulldown-cmark = { version = "0.13.4", default-features = false, features = ["html"] }
+
 [profile.release]
 strip = true
 lto = true

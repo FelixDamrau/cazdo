@@ -17,6 +17,7 @@ enum ListType {
 #[derive(Clone, Copy)]
 enum TextStyle {
     Bold,
+    Italic,
     Underlined,
     CrossedOut,
 }
@@ -25,6 +26,7 @@ impl TextStyle {
     fn modifier(self) -> Modifier {
         match self {
             Self::Bold => Modifier::BOLD,
+            Self::Italic => Modifier::ITALIC,
             Self::Underlined => Modifier::UNDERLINED,
             Self::CrossedOut => Modifier::CROSSED_OUT,
         }
@@ -195,6 +197,11 @@ impl HtmlParser {
                 self.style_stack.push(TextStyle::Bold);
                 self.current_style = self.compute_style();
             }
+            "i" | "em" => {
+                self.flush_text();
+                self.style_stack.push(TextStyle::Italic);
+                self.current_style = self.compute_style();
+            }
             "u" => {
                 self.flush_text();
                 self.style_stack.push(TextStyle::Underlined);
@@ -300,6 +307,11 @@ impl HtmlParser {
                 self.pop_style(TextStyle::Bold);
                 self.current_style = self.compute_style();
             }
+            "i" | "em" => {
+                self.flush_text();
+                self.pop_style(TextStyle::Italic);
+                self.current_style = self.compute_style();
+            }
             "u" => {
                 self.flush_text();
                 self.pop_style(TextStyle::Underlined);
@@ -313,6 +325,7 @@ impl HtmlParser {
 
             // Links
             "a" => {
+                self.flush_text();
                 self.in_anchor = false;
                 self.current_style = self.compute_style();
             }
@@ -512,9 +525,45 @@ mod tests {
     }
 
     #[test]
+    fn test_italic() {
+        let lines = render_html("Hello <em>emph</em> world", 80);
+        assert_eq!(lines.len(), 1);
+        let emph = lines[0]
+            .spans
+            .iter()
+            .find(|s| s.content.contains("emph"))
+            .expect("emph span");
+        assert!(emph.style.add_modifier.contains(Modifier::ITALIC));
+    }
+
+    #[test]
+    fn test_nested_italic_bold_from_real_html_field() {
+        // WI 204's real Acceptance Criteria value.
+        let lines = render_html("<i><b>rich</b> text</i>", 80);
+        let rich = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .find(|s| s.content.contains("rich"))
+            .expect("rich span");
+        assert!(rich.style.add_modifier.contains(Modifier::ITALIC));
+        assert!(rich.style.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
     fn test_list() {
         let lines = render_html("<ul><li>Item 1</li><li>Item 2</li></ul>", 80);
         assert!(lines.len() >= 2);
+    }
+
+    #[test]
+    fn test_anchor_text_keeps_link_color_when_followed_by_text() {
+        let lines = render_html(r#"see <a href="https://x.test">docs</a> now"#, 80);
+        let docs = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .find(|s| s.content.contains("docs"))
+            .expect("docs span");
+        assert_eq!(docs.style.fg, Some(Color::Cyan));
     }
 
     #[test]
