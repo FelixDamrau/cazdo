@@ -10,9 +10,8 @@ use crate::tui::html_render::render_html;
 
 /// Render Markdown to styled Lines; a `max_width` of 0 disables wrapping.
 pub fn render_markdown(markdown: &str, max_width: usize) -> Vec<Line<'static>> {
-    // GitHub-flavoured extensions that Azure DevOps work items support.
-    let options =
-        Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
+    // Task lists intentionally off: html_render has no `<input>` checkbox support.
+    let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
 
     let mut html_buf = String::new();
     html::push_html(&mut html_buf, Parser::new_ext(markdown, options));
@@ -114,6 +113,14 @@ mod tests {
             span_with(&lines, "cargo test").style.fg,
             Some(Color::Yellow)
         );
+    }
+
+    #[test]
+    fn task_list_markers_survive_as_literal_text() {
+        let content = text(&render_markdown("- [x] done\n- [ ] open", 80));
+
+        assert!(content.contains("[x] done"));
+        assert!(content.contains("[ ] open"));
     }
 
     #[test]
