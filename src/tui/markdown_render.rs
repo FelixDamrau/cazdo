@@ -110,7 +110,10 @@ mod tests {
     #[test]
     fn inline_code_becomes_a_code_styled_span() {
         let lines = render_markdown("run `cargo test` first", 80);
-        assert_eq!(span_with(&lines, "cargo test").style.fg, Some(Color::Yellow));
+        assert_eq!(
+            span_with(&lines, "cargo test").style.fg,
+            Some(Color::Yellow)
+        );
     }
 
     #[test]

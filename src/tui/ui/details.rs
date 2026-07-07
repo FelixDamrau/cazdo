@@ -275,7 +275,10 @@ mod tests {
 
         let text = rendered_text(&app);
 
-        assert!(text.contains("mark"), "rendered text missing; got: {text:?}");
+        assert!(
+            text.contains("mark"),
+            "rendered text missing; got: {text:?}"
+        );
         assert!(!text.contains("_**"), "raw markdown leaked: {text:?}");
     }
 
