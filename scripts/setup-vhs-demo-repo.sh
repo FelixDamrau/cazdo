@@ -14,6 +14,10 @@ git init --bare --quiet "$origin_dir"
 git init --initial-branch=main --quiet "$repo_dir"
 git -C "$repo_dir" config user.name "Cazdo Demo"
 git -C "$repo_dir" config user.email "demo@example.com"
+# Don't inherit a contributor's global commit signing; the demo repo must
+# commit non-interactively.
+git -C "$repo_dir" config commit.gpgsign false
+git -C "$repo_dir" config tag.gpgsign false
 git -C "$repo_dir" remote add origin "$origin_dir"
 
 printf 'Cazdo VHS demo repo\n' > "$repo_dir/README.md"
