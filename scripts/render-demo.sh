@@ -19,12 +19,14 @@ cargo build --quiet --manifest-path "$workspace_root/Cargo.toml"
 
 echo "Creating deterministic demo repo..."
 demo_env="$("$workspace_root/scripts/setup-vhs-demo-repo.sh")"
+
+# Arm cleanup as soon as the temp dir is known, before parsing the rest.
+DEMO_ROOT="$(sed -n 's/^DEMO_ROOT=//p' <<< "$demo_env")"
+trap 'rm -rf -- "${DEMO_ROOT:-}"' EXIT
+
 while IFS='=' read -r key value; do
   declare "$key=$value"
 done <<< "$demo_env"
-
-# Remove this run's temp repo even if the build/render fails partway.
-trap 'rm -rf -- "${DEMO_ROOT:-}"' EXIT
 
 echo "Rendering tape with vhs..."
 (
