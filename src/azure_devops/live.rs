@@ -8,6 +8,7 @@ use super::work_item::WorkItem;
 use crate::config::Config;
 
 const AZURE_DEVOPS_HTTP_TIMEOUT: Duration = Duration::from_secs(30);
+const AZURE_DEVOPS_API_VERSION: &str = "7.1";
 
 #[derive(Clone)]
 pub(super) struct LiveAzureDevOpsClient {
@@ -54,12 +55,11 @@ impl LiveAzureDevOpsClient {
     }
 
     async fn request_work_item_json(&self, id: u32, expand_all: bool) -> Result<Value> {
-        let query = if expand_all {
-            "?$expand=all&api-version=7.0"
-        } else {
-            "?api-version=7.0"
-        };
-        let url = format!("{}/_apis/wit/workitems/{}{}", self.base_url, id, query);
+        let expand = if expand_all { "$expand=all&" } else { "" };
+        let url = format!(
+            "{}/_apis/wit/workitems/{}?{}api-version={}",
+            self.base_url, id, expand, AZURE_DEVOPS_API_VERSION
+        );
 
         let response = self
             .client
