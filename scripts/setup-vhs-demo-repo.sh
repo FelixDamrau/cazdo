@@ -10,10 +10,16 @@ fixture_path="$workspace_root/docs/tapes/demo-work-items.json"
 binary_path="$workspace_root/target/debug/cazdo"
 launcher_path="$repo_dir/cazdo"
 
+trap 'rm -rf -- "$demo_root"' EXIT
+
 git init --bare --quiet "$origin_dir"
 git init --initial-branch=main --quiet "$repo_dir"
 git -C "$repo_dir" config user.name "Cazdo Demo"
 git -C "$repo_dir" config user.email "demo@example.com"
+# Don't inherit a contributor's global commit signing; the demo repo must
+# commit non-interactively.
+git -C "$repo_dir" config commit.gpgsign false
+git -C "$repo_dir" config tag.gpgsign false
 git -C "$repo_dir" remote add origin "$origin_dir"
 
 printf 'Cazdo VHS demo repo\n' > "$repo_dir/README.md"
@@ -61,6 +67,9 @@ export CAZDO_DEMO_WORK_ITEMS="$fixture_path"
 exec "$binary_path" "\$@"
 EOF
 chmod +x "$launcher_path"
+
+# Success: the caller owns the repo (and its cleanup) from here.
+trap - EXIT
 
 printf 'DEMO_ROOT=%s\n' "$demo_root"
 printf 'DEMO_REPO=%s\n' "$repo_dir"

@@ -47,7 +47,12 @@
         "displayName": "Felix Damrau"
       },
       "System.Tags": "Azure DevOps; Demo",
-      "System.Description": "<p>Build a deterministic demo environment so the VHS assets always show the same repository state and work item details.</p><h2>Notes</h2><p><strong>No live Azure DevOps dependency.</strong> The demo should resolve <code>feature/wi103</code> to a local fixture and render the details pane consistently.</p><pre><code>cargo build --quiet\n./scripts/setup-vhs-demo-repo.sh\nvhs docs/tapes/cazdo-open-nav.tape</code></pre><ul><li>Create a temp repository with a local bare <code>origin</code></li><li>Load fixture work items from JSON</li><li>Keep the generated GIF and still image reproducible</li></ul>"
+      "System.Description": "# Demo environment\n\nBuild a **deterministic** demo so recorded assets always show the same state.\n\n## Steps\n\n1. Create a temp repo with a local bare `origin`\n2. Load fixture work items from JSON\n3. Render with [vhs](https://github.com/charmbracelet/vhs)\n\nKeep it *independent* from network, PAT, and branch layout.",
+      "Microsoft.VSTS.Common.AcceptanceCriteria": "<ul><li><b>No</b> live Azure DevOps dependency</li><li>Reproducible GIF and still image</li></ul>"
+    },
+    "multilineFieldsFormat": {
+      "System.Description": "markdown",
+      "Microsoft.VSTS.Common.AcceptanceCriteria": "html"
     },
     "_links": {
       "html": {
