@@ -5,7 +5,10 @@ use crate::pattern::is_protected;
 use crate::tui::render_html;
 use crate::tui::{App, BranchInfo, run_app};
 use anyhow::{Context, Result, bail};
+use axoupdater::{AxoUpdater, AxoupdateError, Version};
 use crossterm::style::Stylize;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 pub async fn interactive() -> Result<()> {
     let repo = GitRepo::open_current_dir().context("Failed to open git repository")?;
@@ -161,6 +164,85 @@ pub async fn config_verify() -> Result<()> {
     Ok(())
 }
 
+pub async fn update() -> Result<()> {
+    let current_exe = std::env::current_exe().context("Failed to locate the cazdo executable")?;
+    let mut updater = AxoUpdater::new_for("cazdo");
+    updater.set_client(
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .context("Failed to configure the update client")?,
+    );
+
+    updater.load_receipt().map_err(|error| match error {
+        AxoupdateError::NoReceipt { .. } => anyhow::anyhow!(
+            "Self-update is only available for cazdo installed with the shell or PowerShell installer. Update package-manager installations through their package manager, or reinstall cazdo with the official installer."
+        ),
+        error => anyhow::anyhow!(error).context("Failed to load the cazdo install receipt"),
+    })?;
+
+    if let Ok(token) = std::env::var("CAZDO_GITHUB_TOKEN") {
+        updater.set_github_token(&token);
+    }
+
+    if !updater.check_receipt_is_for_this_executable()? {
+        bail!(
+            "Self-update is unavailable for this cazdo executable because it does not match the standalone installer receipt. Update it through its package manager, or run the cazdo executable installed at {}.",
+            updater.install_prefix_root()?
+        );
+    }
+
+    // The executable version is authoritative if a binary was replaced without its receipt.
+    updater.set_current_version(Version::parse(env!("CARGO_PKG_VERSION"))?)?;
+
+    println!("Checking for updates...");
+    match updater.run().await? {
+        Some(result) => println!(
+            "Updated cazdo from {} to {}.",
+            result
+                .old_version
+                .map(|version| version.to_string())
+                .unwrap_or_else(|| "an unknown version".to_string()),
+            result.new_version
+        ),
+        None => println!(
+            "cazdo {} is already the latest version.",
+            env!("CARGO_PKG_VERSION")
+        ),
+    }
+
+    if let Err(error) = remove_legacy_updater(&current_exe) {
+        eprintln!(
+            "Warning: could not remove the legacy updater at {}: {error}",
+            legacy_updater_path(&current_exe).display()
+        );
+    }
+
+    Ok(())
+}
+
+fn legacy_updater_path(current_exe: &Path) -> PathBuf {
+    let filename = if cfg!(windows) {
+        "cazdo-update.exe"
+    } else {
+        "cazdo-update"
+    };
+
+    current_exe
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(filename)
+}
+
+fn remove_legacy_updater(current_exe: &Path) -> std::io::Result<()> {
+    let path = legacy_updater_path(current_exe);
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
 const WI_PREVIEW_CHAR_LIMIT: usize = 320;
 const WI_LONG_PREVIEW_CHAR_LIMIT: usize = 600;
 
@@ -290,6 +372,7 @@ fn terminal_link(label: &str, url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     #[test]
     fn current_branch_work_item_id_requires_local_branch() {
@@ -366,5 +449,52 @@ mod tests {
             out,
             "\x1b]8;;https://example.com/wi/123\x1b\\#123\x1b]8;;\x1b\\"
         );
+    }
+
+    #[test]
+    fn legacy_updater_path_is_next_to_current_executable() {
+        let path = legacy_updater_path(Path::new("/tmp/cazdo/bin/cazdo"));
+        let expected = if cfg!(windows) {
+            Path::new("/tmp/cazdo/bin/cazdo-update.exe")
+        } else {
+            Path::new("/tmp/cazdo/bin/cazdo-update")
+        };
+
+        assert_eq!(path, expected);
+    }
+
+    #[test]
+    fn remove_legacy_updater_deletes_existing_file() {
+        let temp = tempdir().expect("tempdir");
+        let current_exe = temp
+            .path()
+            .join(if cfg!(windows) { "cazdo.exe" } else { "cazdo" });
+        let legacy_updater = legacy_updater_path(&current_exe);
+        std::fs::write(&legacy_updater, "legacy updater").expect("write updater");
+
+        remove_legacy_updater(&current_exe).expect("remove updater");
+
+        assert!(!legacy_updater.exists());
+    }
+
+    #[test]
+    fn remove_legacy_updater_ignores_missing_file() {
+        let temp = tempdir().expect("tempdir");
+        let current_exe = temp
+            .path()
+            .join(if cfg!(windows) { "cazdo.exe" } else { "cazdo" });
+
+        remove_legacy_updater(&current_exe).expect("missing updater should be harmless");
+    }
+
+    #[test]
+    fn remove_legacy_updater_reports_removal_failure() {
+        let temp = tempdir().expect("tempdir");
+        let current_exe = temp
+            .path()
+            .join(if cfg!(windows) { "cazdo.exe" } else { "cazdo" });
+        std::fs::create_dir(legacy_updater_path(&current_exe)).expect("create updater directory");
+
+        assert!(remove_legacy_updater(&current_exe).is_err());
     }
 }

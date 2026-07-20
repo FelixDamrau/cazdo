@@ -31,6 +31,8 @@ pub enum Commands {
         #[arg(long, conflicts_with = "long")]
         json: bool,
     },
+    /// Update cazdo to the latest release
+    Update,
 }
 
 #[derive(Subcommand)]
@@ -153,5 +155,12 @@ mod tests {
         };
 
         assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn parses_update() {
+        let cli = Cli::parse_from(["cazdo", "update"]);
+
+        assert!(matches!(cli.command, Some(Commands::Update)));
     }
 }
