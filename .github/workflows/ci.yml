@@ -121,3 +121,19 @@ jobs:
           dist generate
           git diff --exit-code .github/workflows/release.yml || \
             (echo "release.yml has been manually edited. Run 'dist generate' to restore it." && exit 1)
+
+      - name: Verify built-in updater release artifacts
+        shell: bash
+        run: |
+          dist plan --output-format=json > dist-plan.json
+          jq -e '([.artifacts[] | select(.kind == "updater")] | length) == 0' dist-plan.json
+          jq -e '.artifacts["cazdo-installer.sh"].kind == "installer"' dist-plan.json
+          jq -e '.artifacts["cazdo-installer.ps1"].kind == "installer"' dist-plan.json
+
+          dist build --artifacts=global --output-format=json > dist-build.json
+          grep -F '$APP_NAME-receipt.json' target/distrib/cazdo-installer.sh
+          grep -F 'cazdo-receipt.json' target/distrib/cazdo-installer.ps1
+          if grep -Eq 'cazdo-(aarch64|x86_64).*-update' target/distrib/cazdo-installer.sh target/distrib/cazdo-installer.ps1; then
+            echo "Generated installers still reference standalone updater artifacts"
+            exit 1
+          fi

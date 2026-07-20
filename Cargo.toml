@@ -10,11 +10,14 @@ authors = ["Felix Damrau"]
 # CLI argument parsing
 clap = { version = "4", features = ["derive"] }
 
+# Self-updates for cargo-dist installer users
+axoupdater = "0.10"
+
 # Async runtime
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "time"] }
 
 # HTTP client for Azure DevOps API
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.13", features = ["json"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

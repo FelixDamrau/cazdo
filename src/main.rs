@@ -32,6 +32,7 @@ async fn main() -> Result<()> {
             };
             commands::show_work_item(id, output).await?;
         }
+        Some(Commands::Update) => commands::update().await?,
         None => {
             // Default: launch interactive TUI
             commands::interactive().await?;

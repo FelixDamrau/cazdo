@@ -29,11 +29,17 @@ irm https://github.com/FelixDamrau/cazdo/releases/latest/download/cazdo-installe
 
 ## Updating
 
-To update to the latest version, run the installation command again or use:
+If you installed cazdo with the shell or PowerShell installer, update to the latest version with:
 
 ```bash
-cazdo-update
+cazdo update
 ```
+
+Package-manager installations must be updated through their package manager.
+
+### Migrating from `cazdo-update`
+
+If your current installation still provides `cazdo-update`, run it once to install a release that includes `cazdo update`. Then run `cazdo update`; it will remove the obsolete standalone updater from the same installation directory. If automatic cleanup cannot remove it, delete `cazdo-update` (`cazdo-update.exe` on Windows) from the directory containing `cazdo`.
 
 ## Configuration
 
@@ -127,6 +133,9 @@ cazdo wi --long
 
 # Show full Azure DevOps WI JSON
 cazdo wi 120 --json
+
+# Update a shell or PowerShell installer-managed copy
+cazdo update
 ```
 
 ## Keyboard Shortcuts

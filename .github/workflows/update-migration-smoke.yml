@@ -1,0 +1,100 @@
+name: Update Migration Smoke Test
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      expected-version:
+        description: Latest published stable version, without the v prefix
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux v0.2.1 migration
+    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    env:
+      HOME: ${{ github.workspace }}/cazdo-migration-home
+      CARGO_HOME: ${{ github.workspace }}/cazdo-migration-home/.cargo
+      XDG_CONFIG_HOME: ${{ github.workspace }}/cazdo-migration-home/.config
+      CAZDO_NO_MODIFY_PATH: "1"
+      AXOUPDATER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      CAZDO_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      EXPECTED_VERSION: ${{ inputs.expected-version || github.event.release.tag_name }}
+    steps:
+      - name: Install v0.2.1 with the standalone updater
+        shell: bash
+        run: |
+          mkdir -p "$HOME"
+          curl --proto '=https' --tlsv1.2 -LsSf https://github.com/FelixDamrau/cazdo/releases/download/v0.2.1/cazdo-installer.sh | sh
+          test -x "$CARGO_HOME/bin/cazdo"
+          test -x "$CARGO_HOME/bin/cazdo-update"
+          "$CARGO_HOME/bin/cazdo" --version | grep -F '0.2.1'
+
+      - name: Migrate through cazdo-update
+        shell: bash
+        run: |
+          "$CARGO_HOME/bin/cazdo-update"
+          expected_version="${EXPECTED_VERSION#v}"
+          test "$("$CARGO_HOME/bin/cazdo" --version)" = "cazdo $expected_version"
+          "$CARGO_HOME/bin/cazdo" --help | grep -F 'update'
+          test "$(jq -r '.version' "$XDG_CONFIG_HOME/cazdo/cazdo-receipt.json")" = "$expected_version"
+
+      - name: Remove the legacy updater through cazdo update
+        shell: bash
+        run: |
+          "$CARGO_HOME/bin/cazdo" update
+          test ! -e "$CARGO_HOME/bin/cazdo-update"
+          test -f "$XDG_CONFIG_HOME/cazdo/cazdo-receipt.json"
+
+  windows:
+    name: Windows v0.2.1 migration
+    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
+    runs-on: windows-latest
+    env:
+      HOME: ${{ github.workspace }}\cazdo-migration-home
+      CARGO_HOME: ${{ github.workspace }}\cazdo-migration-home\.cargo
+      XDG_CONFIG_HOME: ${{ github.workspace }}\cazdo-migration-home\.config
+      CAZDO_NO_MODIFY_PATH: "1"
+      AXOUPDATER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      CAZDO_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      EXPECTED_VERSION: ${{ inputs.expected-version || github.event.release.tag_name }}
+    steps:
+      - name: Install v0.2.1 with the standalone updater
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:HOME | Out-Null
+          Invoke-RestMethod https://github.com/FelixDamrau/cazdo/releases/download/v0.2.1/cazdo-installer.ps1 | Invoke-Expression
+          if (-not (Test-Path "$env:CARGO_HOME\bin\cazdo.exe")) { throw "cazdo.exe was not installed" }
+          if (-not (Test-Path "$env:CARGO_HOME\bin\cazdo-update.exe")) { throw "cazdo-update.exe was not installed" }
+          $version = & "$env:CARGO_HOME\bin\cazdo.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "cazdo v0.2.1 failed" }
+          if ($version -ne 'cazdo 0.2.1') { throw "expected cazdo 0.2.1, got $version" }
+
+      - name: Migrate through cazdo-update
+        shell: pwsh
+        run: |
+          & "$env:CARGO_HOME\bin\cazdo-update.exe"
+          if ($LASTEXITCODE -ne 0) { throw "cazdo-update failed" }
+          $expectedVersion = $env:EXPECTED_VERSION.TrimStart('v')
+          $actualVersion = & "$env:CARGO_HOME\bin\cazdo.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "updated cazdo failed" }
+          if ($actualVersion -ne "cazdo $expectedVersion") { throw "expected cazdo $expectedVersion, got $actualVersion" }
+          $help = & "$env:CARGO_HOME\bin\cazdo.exe" --help
+          if ($LASTEXITCODE -ne 0) { throw "cazdo --help failed" }
+          if (-not ($help | Select-String -Quiet -SimpleMatch 'update')) { throw "update command is missing" }
+          $receipt = Get-Content "$env:XDG_CONFIG_HOME\cazdo\cazdo-receipt.json" | ConvertFrom-Json
+          if ($receipt.version -ne $expectedVersion) { throw "install receipt was not refreshed" }
+
+      - name: Remove the legacy updater through cazdo update
+        shell: pwsh
+        run: |
+          & "$env:CARGO_HOME\bin\cazdo.exe" update
+          if ($LASTEXITCODE -ne 0) { throw "cazdo update failed" }
+          if (Test-Path "$env:CARGO_HOME\bin\cazdo-update.exe") { throw "legacy updater was not removed" }
+          if (-not (Test-Path "$env:XDG_CONFIG_HOME\cazdo\cazdo-receipt.json")) { throw "install receipt is missing" }
