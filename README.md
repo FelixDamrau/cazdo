@@ -171,6 +171,16 @@ Patterns support `*` wildcards (e.g., `releases/*` matches `releases/v1.0`).
 
 Press `p` in the TUI to toggle visibility of protected branches.
 
+## Development
+
+Install [`just`](https://just.systems/) to use the development recipes:
+
+```bash
+cargo install just
+```
+
+Run `just` to list the available recipes and their requirements. Before pushing, run `just ci` to execute the formatting, lint, build, and test gates.
+
 ## Branch Naming
 
 cazdo extracts the **first sequence of digits** found in the branch name to use as the Work Item ID.
