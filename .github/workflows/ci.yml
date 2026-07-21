@@ -24,6 +24,11 @@ jobs:
       - name: Set up Rust toolchain
         run: rustup show
 
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
       - name: Set up Rust cache
         uses: actions/cache@v5
         with:
@@ -36,10 +41,10 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
 
       - name: Build
-        run: cargo build --locked --verbose
+        run: just build-ci
 
       - name: Run tests
-        run: cargo test --locked --verbose
+        run: just test-ci
 
   lint:
     name: Lint & Format
@@ -51,11 +56,16 @@ jobs:
       - name: Set up Rust toolchain
         run: rustup show
 
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
       - name: Check Formatting
-        run: cargo fmt -- --check
+        run: just fmt-check
 
       - name: Run Clippy
-        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+        run: just clippy-ci
 
   release-tooling:
     name: Release Tooling
@@ -66,27 +76,24 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
       - name: Install git-cliff
         uses: taiki-e/install-action@v2
         with:
           tool: git-cliff
 
       - name: Verify changelog generation
-        run: |
-          git-cliff --config cliff.toml --unreleased --tag v999.999.999 > /tmp/generated-changelog.md
-          test -s /tmp/generated-changelog.md
+        run: just verify-changelog
 
       - name: Verify release note extraction
-        run: |
-          chmod +x scripts/extract-release-notes.sh
-          version=$(python -c "from pathlib import Path; import re; content = Path('Cargo.toml').read_text(); match = re.search(r'(?m)^version = \"([0-9]+\.[0-9]+\.[0-9]+)\"$', content); print(match.group(1))")
-          scripts/extract-release-notes.sh "v${version}" > /tmp/release-notes.md
-          test -s /tmp/release-notes.md
+        run: just extract-notes
 
       - name: Verify release PR metadata when version changes
-        run: |
-          chmod +x scripts/check-release-pr.sh scripts/extract-release-notes.sh
-          scripts/check-release-pr.sh "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}"
+        run: just check-release-pr "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}"
 
   check-release-pipeline:
     name: Check Release Pipeline
@@ -94,6 +101,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
 
       - name: Read dist version
         id: dist-version
@@ -117,10 +129,7 @@ jobs:
 
       - name: Verify release.yml is up to date
         shell: bash
-        run: |
-          dist generate
-          git diff --exit-code .github/workflows/release.yml || \
-            (echo "release.yml has been manually edited. Run 'dist generate' to restore it." && exit 1)
+        run: just verify-release-yml
 
       - name: Verify built-in updater release artifacts
         shell: bash

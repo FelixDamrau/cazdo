@@ -179,7 +179,7 @@ Install [`just`](https://just.systems/) to use the development recipes:
 cargo install just
 ```
 
-Run `just` to list the available recipes and their requirements. Before pushing, run `just ci` to execute the formatting, lint, build, and test gates.
+Run `just` to list the available recipes and their requirements. Before pushing, run `just ci`; it composes the same formatting, lint, build, and test recipes invoked by CI.
 
 ## Branch Naming
 
