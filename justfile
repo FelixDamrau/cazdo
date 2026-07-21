@@ -1,4 +1,4 @@
-current_tag := "v" + `python -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])'`
+current_tag := "v" + `id="$(cargo pkgid)"; printf '%s' "${id##*@}"`
 
 # List available recipes.
 _default:
@@ -49,12 +49,12 @@ changelog:
 
 # Prepare a release for VERSION without committing it (requires git-cliff).
 prepare-release VERSION:
-    scripts/prepare-release.sh {{ VERSION }}
+    scripts/prepare-release.sh {{ quote(VERSION) }}
 
 # Verify the generated release workflow (requires cargo-dist).
 verify-release-yml:
     dist generate
-    git diff --exit-code .github/workflows/release.yml
+    git diff --exit-code .github/workflows/release.yml || (echo "release.yml has been manually edited. Run 'dist generate' to restore it." && exit 1)
 
 # Verify that unreleased changelog generation produces output (requires git-cliff).
 verify-changelog:
