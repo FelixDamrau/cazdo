@@ -1,4 +1,4 @@
-current_tag := "v" + `id="$(cargo pkgid)"; printf '%s' "${id##*@}"`
+current_tag := "v" + `id="$(cargo pkgid)"; version="${id##*#}"; printf '%s' "${version##*@}"`
 
 # List available recipes.
 _default:
