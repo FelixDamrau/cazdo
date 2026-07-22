@@ -9,7 +9,7 @@ _Cats Do Console Azure DevOps._
 
 `cazdo` is a TUI for Azure DevOps that bridges the gap between your git workflow and issue tracking.
 
-It scans your local branches and `origin` remote branches, extracts work item IDs from their names (e.g., `feature/123-login`), and fetches the corresponding details from Azure DevOps. This allows you to view acceptance criteria, descriptions, and status directly alongside your code.
+It scans your local branches and `origin` remote branches, extracts work item IDs from their names (e.g., `feature/123-login`), and fetches the corresponding details from Azure DevOps. This allows you to view acceptance criteria, descriptions, and status directly alongside your code, with Markdown and HTML fields rendered as formatted text.
 
 ![cazdo TUI example](docs/images/cazdo-open-nav-still.png)
 
