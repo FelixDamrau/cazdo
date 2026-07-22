@@ -1,6 +1,44 @@
 # Changelog
 
 All notable changes to this project are documented in this file.
+## v0.3.0 - 2026-07-22
+
+**Migrating from `cazdo-update`:** Run the standalone `cazdo-update` once to install v0.3.0, then use `cazdo update` for future updates. The built-in command removes the obsolete standalone updater when possible.
+
+### Features
+
+- **wi:** Render Markdown-formatted work item fields (#95)
+
+- **cli:** Replace cazdo-update with built-in update command (#103)
+
+### Bug Fixes
+
+- **tui:** Keep selected protected/stale branch rows readable (#99)
+
+### Documentation
+
+- **demo:** Refresh nav GIF + hero still for current feature set (#100)
+
+### Refactoring
+
+- **azure-devops:** Own work-item JSON in a single codec (#88)
+
+- **config:** Move PAT redaction into the config module (#89)
+
+- **tui:** Route remaining App mutations through update(Msg) (#90)
+
+- **tui:** Model the branch filter as a state machine (#91)
+
+- **git:** Introduce a GitRepo interface with live and in-memory … (#93)
+
+- **tui:** Extract branch-selection resolution into a pure fn (#94)
+
+### Maintenance
+
+- **azure:** Bump work-item API version 7.0 → 7.1 (#101)
+
+- **dev:** Centralize development and CI tasks in just (#106)
+
 ## v0.2.1 - 2026-06-09
 
 ### Features
