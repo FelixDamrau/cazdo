@@ -1,7 +1,5 @@
 use crate::azure_devops::WorkItem;
-use crate::git::{
-    BranchOrder, BranchScope, BranchStatus, WorktreeIdentity, WorktreeInfo, compare_branch_order,
-};
+use crate::git::{BranchOrder, BranchScope, BranchStatus, WorktreeInfo, compare_branch_order};
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
@@ -68,7 +66,6 @@ impl BranchView {
 pub enum AppMode {
     Normal,
     ConfirmDelete { branch_key: String },
-    WorktreeDiagnostics { identity: WorktreeIdentity },
     ErrorPopup(String),
 }
 
@@ -137,7 +134,6 @@ pub enum Msg {
     Quit,
     EnterNormalMode,
     EnterDeleteConfirmMode,
-    EnterWorktreeDiagnostics,
     ShowErrorPopup(String),
     SetStatus(StatusMessage),
     ClearStatus,
@@ -273,7 +269,6 @@ impl App {
             Msg::Quit => self.should_quit = true,
             Msg::EnterNormalMode => self.mode = AppMode::Normal,
             Msg::EnterDeleteConfirmMode => self.apply_enter_confirm_mode(),
-            Msg::EnterWorktreeDiagnostics => self.enter_worktree_diagnostics(),
             Msg::ShowErrorPopup(message) => self.mode = AppMode::ErrorPopup(message),
             Msg::SetStatus(message) => self.status_message = Some(message),
             Msg::ClearStatus => self.status_message = None,

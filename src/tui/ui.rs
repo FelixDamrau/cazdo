@@ -36,11 +36,7 @@ pub fn render(frame: &mut Frame, app: &App) -> DetailsMetrics {
         worktrees::render_worktree_details(frame, app, chunks[1]);
         footer::render_footer(frame, app, main_chunks[1]);
 
-        if let AppMode::WorktreeDiagnostics { .. } = app.mode() {
-            if let Some(entry) = app.worktree_diagnostics() {
-                popup::render_worktree_diagnostics(frame, entry);
-            }
-        } else if let AppMode::ErrorPopup(message) = app.mode() {
+        if let AppMode::ErrorPopup(message) = app.mode() {
             popup::render_error_popup(frame, message);
         }
         return DetailsMetrics::default();

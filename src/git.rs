@@ -11,6 +11,6 @@ pub use repo::{
 };
 #[cfg(test)]
 pub use worktree::WorktreeDirtyReason;
-pub use worktree::{
-    WorktreeCleanliness, WorktreeIdentity, WorktreeInfo, WorktreeState, WorktreeSubmodules,
-};
+#[cfg(test)]
+pub use worktree::WorktreeIdentity;
+pub use worktree::{WorktreeCleanliness, WorktreeInfo, WorktreeState, WorktreeSubmodules};

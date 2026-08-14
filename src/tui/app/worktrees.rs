@@ -1,4 +1,4 @@
-use super::{App, AppMode};
+use super::App;
 use crate::git::WorktreeInfo;
 use crate::tui::theme::timing;
 
@@ -42,22 +42,5 @@ impl App {
 
     pub(super) fn apply_worktree_error(&mut self, error: String) {
         self.set_status_message(error, true, timing::STATUS_DURATION_SECS);
-    }
-
-    pub(super) fn enter_worktree_diagnostics(&mut self) {
-        if let Some(entry) = self.selected_worktree() {
-            self.mode = AppMode::WorktreeDiagnostics {
-                identity: entry.identity.clone(),
-            };
-        }
-    }
-
-    pub fn worktree_diagnostics(&self) -> Option<&WorktreeInfo> {
-        let AppMode::WorktreeDiagnostics { identity } = &self.mode else {
-            return None;
-        };
-        self.worktrees
-            .iter()
-            .find(|entry| &entry.identity == identity)
     }
 }

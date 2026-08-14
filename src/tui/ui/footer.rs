@@ -73,7 +73,6 @@ fn normal_footer_spans(app: &App) -> Vec<Span<'static>> {
     spans.push(label_span(" "));
     if app.is_worktree_view() {
         push_hint(&mut spans, "j/k", "navigate");
-        push_hint(&mut spans, "enter", "diagnostics");
         push_hint(&mut spans, "r", "refresh");
         push_hint(&mut spans, "w", "branches");
         spans.extend(normal_footer_tail(false));

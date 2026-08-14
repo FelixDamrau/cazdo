@@ -5,7 +5,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, MouseEvent,
 
 use super::app::{App, AppMode, BranchInfo, Msg};
 use super::theme::{scroll, timing};
-use worktrees::{handle_worktree_diagnostics_key, handle_worktree_mode_key};
+use worktrees::handle_worktree_mode_key;
 
 pub(super) enum Command {
     Delete(BranchInfo),
@@ -47,10 +47,6 @@ fn handle_key_event(app: &mut App, key: KeyEvent) -> Option<Command> {
         AppMode::ConfirmDelete { branch_key } => {
             let branch_key = branch_key.clone();
             handle_confirm_delete_key(app, key, &branch_key)
-        }
-        AppMode::WorktreeDiagnostics { .. } => {
-            handle_worktree_diagnostics_key(app, key);
-            None
         }
         AppMode::ErrorPopup(_) => {
             handle_error_popup_key(app, key);
@@ -240,7 +236,7 @@ mod tests {
         BranchScope, WorktreeCleanliness, WorktreeIdentity, WorktreeInfo, WorktreeState,
         WorktreeSubmodules,
     };
-    use crate::tui::app::{App, AppMode, BranchInfo, BranchView};
+    use crate::tui::app::{App, BranchInfo, BranchView};
 
     #[test]
     fn test_confirm_delete_derives_prune_from_current_branch_state() {
@@ -417,7 +413,7 @@ mod tests {
         }
     }
     #[test]
-    fn test_worktree_shortcuts_toggle_navigate_diagnose_and_refresh() {
+    fn test_worktree_shortcuts_toggle_navigate_and_refresh() {
         let mut app = App::new(vec![remote_branch(false)], vec![]);
         app.update(Msg::SetWorktrees(vec![
             worktree(WorktreeIdentity::Main, true),
@@ -442,8 +438,6 @@ mod tests {
         handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('j')));
 
         assert!(handle_key_event(&mut app, KeyEvent::from(KeyCode::Enter)).is_none());
-        assert!(matches!(app.mode(), AppMode::WorktreeDiagnostics { .. }));
-        handle_key_event(&mut app, KeyEvent::from(KeyCode::Esc));
         assert!(app.is_normal_mode());
         assert!(matches!(
             handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('r'))),

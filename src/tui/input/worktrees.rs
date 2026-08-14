@@ -26,16 +26,6 @@ pub(super) fn handle_worktree_mode_key(app: &mut App, key: KeyEvent) -> Option<C
             None
         }
         KeyCode::Char('r') => Some(Command::RefreshWorktrees),
-        KeyCode::Enter => {
-            app.update(Msg::EnterWorktreeDiagnostics);
-            None
-        }
         _ => None,
-    }
-}
-
-pub(super) fn handle_worktree_diagnostics_key(app: &mut App, key: KeyEvent) {
-    if matches!(key.code, KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q')) {
-        app.cancel_mode();
     }
 }
