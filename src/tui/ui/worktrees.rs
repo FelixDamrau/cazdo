@@ -24,7 +24,7 @@ pub fn render_worktrees(frame: &mut Frame, app: &App, area: Rect) {
         )]));
     let list = List::new(items)
         .block(block)
-        .highlight_style(theme::ui::SELECTED.add_modifier(Modifier::BOLD))
+        .highlight_style(theme::ui::SELECTED_BACKGROUND.add_modifier(Modifier::BOLD))
         .highlight_symbol("\u{25BA} ");
     let mut state = ListState::default();
     if !app.worktrees().is_empty() {
@@ -34,34 +34,17 @@ pub fn render_worktrees(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn worktree_list_item(entry: &WorktreeInfo) -> ListItem<'static> {
-    let mut markers = Vec::new();
-    if entry.is_current {
-        markers.push("current");
-    }
-    if entry.is_main {
-        markers.push("main");
-    }
-    let marker = if markers.is_empty() {
-        String::new()
+    let (marker, marker_style) = if entry.is_current {
+        ("* ", theme::branch::CURRENT)
+    } else if entry.is_main {
+        ("m ", theme::styles::ACCENT)
     } else {
-        format!("[{}] ", markers.join("/"))
+        ("  ", theme::styles::TEXT)
     };
-    let lock = if entry.is_locked() { "/locked" } else { "" };
-    let prunable = if entry.prunable { "/prunable" } else { "" };
     let mut lines = vec![
         Line::from(vec![
-            Span::styled(marker, theme::styles::ACCENT),
-            Span::styled(
-                format!(
-                    "{}/{}{}{}",
-                    entry.state.label(),
-                    cleanliness_label(&entry.cleanliness),
-                    lock,
-                    prunable
-                ),
-                status_style(entry),
-            ),
-            Span::styled(format!("  {}", entry.name()), theme::styles::TEXT),
+            Span::styled(marker, marker_style),
+            Span::styled(entry.name().to_string(), list_name_style(entry)),
         ]),
         Line::from(vec![
             Span::styled("  HEAD: ", theme::styles::MUTED),
@@ -78,7 +61,13 @@ fn worktree_list_item(entry: &WorktreeInfo) -> ListItem<'static> {
     if let Some(reason) = &entry.lock_reason {
         lines.push(Line::from(vec![
             Span::styled("  Lock: ", theme::styles::MUTED),
-            Span::styled(reason.clone(), theme::styles::TEXT),
+            Span::styled(reason.clone(), theme::styles::WARNING),
+        ]));
+    }
+    if entry.prunable {
+        lines.push(Line::from(vec![
+            Span::styled("  Prunable: ", theme::styles::MUTED),
+            Span::styled("yes", theme::styles::WARNING),
         ]));
     }
     ListItem::new(lines)
@@ -109,16 +98,68 @@ pub fn render_worktree_details(frame: &mut Frame, app: &App, area: Rect) {
 
 pub(super) fn worktree_diagnostic_lines(entry: &WorktreeInfo) -> Vec<Line<'static>> {
     vec![
-        field_line("Name", entry.name()),
-        field_line("Path", entry.path.to_string_lossy()),
-        field_line("Identity", if entry.is_main { "main" } else { "linked" }),
-        field_line("Branch/HEAD", entry.ref_display()),
-        field_line("Current", if entry.is_current { "yes" } else { "no" }),
-        field_line("State", state_detail(&entry.state)),
-        field_line("Cleanliness", cleanliness_detail(&entry.cleanliness)),
-        field_line("Lock", entry.lock_reason.as_deref().unwrap_or("unlocked")),
-        field_line("Prunable", if entry.prunable { "yes" } else { "no" }),
-        field_line("Submodules", submodule_detail(&entry.submodules)),
+        field_line("Name", entry.name(), list_name_style(entry)),
+        field_line("Path", entry.path.to_string_lossy(), theme::styles::TEXT),
+        field_line(
+            "Identity",
+            if entry.is_main { "main" } else { "linked" },
+            if entry.is_main {
+                theme::styles::ACCENT
+            } else {
+                theme::styles::TEXT
+            },
+        ),
+        field_line(
+            "Branch/HEAD",
+            entry.ref_display(),
+            if entry.is_current {
+                theme::branch::CURRENT
+            } else {
+                theme::styles::TEXT
+            },
+        ),
+        field_line(
+            "Current",
+            if entry.is_current { "yes" } else { "no" },
+            if entry.is_current {
+                theme::branch::CURRENT
+            } else {
+                theme::styles::TEXT
+            },
+        ),
+        field_line(
+            "State",
+            state_detail(&entry.state),
+            state_style(&entry.state),
+        ),
+        field_line(
+            "Cleanliness",
+            cleanliness_detail(&entry.cleanliness),
+            cleanliness_style(&entry.cleanliness),
+        ),
+        field_line(
+            "Lock",
+            entry.lock_reason.as_deref().unwrap_or("unlocked"),
+            if entry.is_locked() {
+                theme::styles::WARNING
+            } else {
+                theme::styles::TEXT
+            },
+        ),
+        field_line(
+            "Prunable",
+            if entry.prunable { "yes" } else { "no" },
+            if entry.prunable {
+                theme::styles::WARNING
+            } else {
+                theme::styles::TEXT
+            },
+        ),
+        field_line(
+            "Submodules",
+            submodule_detail(&entry.submodules),
+            submodule_style(&entry.submodules),
+        ),
     ]
 }
 
@@ -154,26 +195,61 @@ fn submodule_detail(submodules: &WorktreeSubmodules) -> String {
     }
 }
 
-fn field_line(label: &str, value: impl Into<String>) -> Line<'static> {
+fn field_line(label: &str, value: impl Into<String>, value_style: Style) -> Line<'static> {
     Line::from(vec![
         Span::styled(format!("  {label}: "), theme::styles::MUTED),
-        Span::styled(value.into(), theme::styles::TEXT),
+        Span::styled(value.into(), value_style),
     ])
 }
 
-fn cleanliness_label(cleanliness: &WorktreeCleanliness) -> String {
-    match cleanliness {
-        WorktreeCleanliness::Clean => "clean".to_string(),
-        WorktreeCleanliness::Dirty(_) => "dirty".to_string(),
-        WorktreeCleanliness::Unknown(_) => "unknown".to_string(),
+fn list_name_style(entry: &WorktreeInfo) -> Style {
+    if entry.is_current {
+        theme::branch::CURRENT
+    } else {
+        status_style(entry)
     }
 }
 
 fn status_style(entry: &WorktreeInfo) -> Style {
-    if entry.state.is_valid() && entry.cleanliness.is_clean() && !entry.is_locked() {
-        theme::styles::SUCCESS
-    } else {
-        theme::styles::WARNING
+    match &entry.state {
+        WorktreeState::Invalid(_) | WorktreeState::Unknown(_) => theme::styles::ERROR,
+        WorktreeState::Missing | WorktreeState::Prunable => theme::styles::WARNING,
+        WorktreeState::Valid if entry.is_locked() || entry.prunable => theme::styles::WARNING,
+        WorktreeState::Valid => {
+            if entry.cleanliness.is_clean() {
+                theme::styles::SUCCESS
+            } else {
+                match &entry.cleanliness {
+                    WorktreeCleanliness::Dirty(_) => theme::styles::WARNING,
+                    WorktreeCleanliness::Unknown(_) => theme::styles::ERROR,
+                    WorktreeCleanliness::Clean => theme::styles::SUCCESS,
+                }
+            }
+        }
+    }
+}
+
+fn state_style(state: &WorktreeState) -> Style {
+    match state {
+        WorktreeState::Valid => theme::styles::SUCCESS,
+        WorktreeState::Missing | WorktreeState::Prunable => theme::styles::WARNING,
+        WorktreeState::Invalid(_) | WorktreeState::Unknown(_) => theme::styles::ERROR,
+    }
+}
+
+fn cleanliness_style(cleanliness: &WorktreeCleanliness) -> Style {
+    match cleanliness {
+        WorktreeCleanliness::Clean => theme::styles::SUCCESS,
+        WorktreeCleanliness::Dirty(_) => theme::styles::WARNING,
+        WorktreeCleanliness::Unknown(_) => theme::styles::ERROR,
+    }
+}
+
+fn submodule_style(submodules: &WorktreeSubmodules) -> Style {
+    match submodules {
+        WorktreeSubmodules::None => theme::styles::TEXT,
+        WorktreeSubmodules::Present => theme::styles::WARNING,
+        WorktreeSubmodules::Unknown(_) => theme::styles::ERROR,
     }
 }
 
@@ -191,8 +267,12 @@ mod tests {
                 let chunks = ratatui::layout::Layout::default()
                     .direction(ratatui::layout::Direction::Horizontal)
                     .constraints([
-                        ratatui::layout::Constraint::Percentage(40),
-                        ratatui::layout::Constraint::Percentage(60),
+                        ratatui::layout::Constraint::Percentage(
+                            theme::layout::BRANCHES_WIDTH_PERCENT,
+                        ),
+                        ratatui::layout::Constraint::Percentage(
+                            100 - theme::layout::BRANCHES_WIDTH_PERCENT,
+                        ),
                     ])
                     .split(frame.area());
                 render_worktrees(frame, app, chunks[0]);
@@ -206,6 +286,14 @@ mod tests {
             .iter()
             .map(|cell| cell.symbol())
             .collect()
+    }
+    fn diagnostic_value_style(lines: &[Line<'_>], label: &str) -> Style {
+        lines
+            .iter()
+            .find(|line| line.to_string().starts_with(&format!("  {label}: ")))
+            .expect("diagnostic field should exist")
+            .spans[1]
+            .style
     }
 
     #[test]
@@ -229,11 +317,35 @@ mod tests {
         app.update(Msg::ToggleWorktreeView);
 
         let text = rendered_text(&app);
-        assert!(text.contains("feature with spaces"));
+        assert!(text.contains("* feature with spaces"));
         assert!(text.contains("/tmp/feature with spaces"));
         assert!(text.contains("dirty"));
         assert!(text.contains("in use"));
         assert!(text.contains("Submodules: present"));
+        assert!(!text.contains("valid/dirty"));
+
+        let entry = app.selected_worktree().expect("selected worktree");
+        let lines = worktree_diagnostic_lines(entry);
+        assert_eq!(
+            diagnostic_value_style(&lines, "Current"),
+            theme::branch::CURRENT
+        );
+        assert_eq!(
+            diagnostic_value_style(&lines, "State"),
+            theme::styles::SUCCESS
+        );
+        assert_eq!(
+            diagnostic_value_style(&lines, "Cleanliness"),
+            theme::styles::WARNING
+        );
+        assert_eq!(
+            diagnostic_value_style(&lines, "Lock"),
+            theme::styles::WARNING
+        );
+        assert_eq!(
+            diagnostic_value_style(&lines, "Submodules"),
+            theme::styles::WARNING
+        );
     }
 
     #[test]
@@ -308,18 +420,20 @@ mod tests {
             .map(|cell| cell.symbol())
             .collect();
 
-        assert!(text.contains("[current/main] valid/clean"));
+        assert!(text.contains("* main"));
         assert!(text.contains("HEAD: main"));
         assert!(text.contains("Path: /repo"));
-        assert!(text.contains("missing/unknown/locked/prunable"));
+        assert!(text.contains("missing-tree"));
         assert!(text.contains("HEAD: detached 1234567"));
         assert!(text.contains("Path: /tmp/missing tree/雪"));
         assert!(text.contains("Lock: owned by editor"));
+        assert!(text.contains("Prunable: yes"));
+        assert!(!text.contains("valid/clean"));
+        assert!(!text.contains("missing/unknown/locked/prunable"));
     }
     #[test]
-    fn keeps_status_visible_before_long_worktree_identity() {
-        let mut app = App::new(vec![], vec![]);
-        app.update(Msg::SetWorktrees(vec![WorktreeInfo {
+    fn inventory_names_use_status_colors_without_redundant_labels() {
+        let entry = WorktreeInfo {
             identity: WorktreeIdentity::Linked {
                 name: "a-very-long-worktree-name-that-would-hide-state".to_string(),
             },
@@ -333,8 +447,12 @@ mod tests {
             state: WorktreeState::Unknown("metadata unavailable".to_string()),
             prunable: false,
             submodules: WorktreeSubmodules::None,
-        }]));
+        };
 
+        assert_eq!(list_name_style(&entry), theme::styles::ERROR);
+
+        let mut app = App::new(vec![], vec![]);
+        app.update(Msg::SetWorktrees(vec![entry]));
         let mut terminal = Terminal::new(TestBackend::new(42, 6)).expect("terminal");
         terminal
             .draw(|frame| render_worktrees(frame, &app, frame.area()))
@@ -347,6 +465,7 @@ mod tests {
             .map(|cell| cell.symbol())
             .collect();
 
-        assert!(text.contains("unknown/clean"));
+        assert!(text.contains("a-very-long-worktree-name"));
+        assert!(!text.contains("unknown/clean"));
     }
 }
