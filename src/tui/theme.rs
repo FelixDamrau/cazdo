@@ -20,6 +20,7 @@ pub mod ui {
     pub const TITLE: Style = Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD);
     pub const TITLE_ERROR: Style = Style::new().fg(Color::Red).add_modifier(Modifier::BOLD);
     pub const SELECTED: Style = Style::new().fg(Color::White).bg(Color::DarkGray);
+    pub const SELECTED_BACKGROUND: Style = Style::new().bg(Color::DarkGray);
 }
 
 pub mod branch {
@@ -32,8 +33,6 @@ pub mod branch {
 pub mod layout {
     /// Percentage width for branches panel
     pub const BRANCHES_WIDTH_PERCENT: u16 = 35;
-    /// Percentage width for the worktree inventory list
-    pub const WORKTREE_LIST_WIDTH_PERCENT: u16 = 50;
     /// Height of branch info panel
     pub const BRANCH_INFO_HEIGHT: u16 = 5;
     /// Popup size (width%, height%)

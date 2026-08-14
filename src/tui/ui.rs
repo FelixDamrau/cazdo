@@ -28,8 +28,8 @@ pub fn render(frame: &mut Frame, app: &App) -> DetailsMetrics {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Percentage(theme::layout::WORKTREE_LIST_WIDTH_PERCENT),
-                Constraint::Percentage(100 - theme::layout::WORKTREE_LIST_WIDTH_PERCENT),
+                Constraint::Percentage(theme::layout::BRANCHES_WIDTH_PERCENT),
+                Constraint::Percentage(100 - theme::layout::BRANCHES_WIDTH_PERCENT),
             ])
             .split(main_chunks[0]);
         worktrees::render_worktrees(frame, app, chunks[0]);
