@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use anyhow::{Result, anyhow, bail};
 
 use super::repo::{BranchScope, BranchStatus, DeleteResult, GitBackend, RepoBranch};
+use super::worktree::WorktreeInfo;
 
 /// In-memory `GitRepo` backend for tests: returns preset checkout/delete/prune
 /// outcomes. Ops it isn't configured for (branch listing, status, freshness) are
@@ -12,6 +13,7 @@ pub struct FixtureGitRepo {
     checkout_result: Option<Result<(), String>>,
     delete_result: Option<Result<DeleteResult, String>>,
     prune_result: Option<Result<(), String>>,
+    worktrees_result: Option<Result<Vec<WorktreeInfo>, String>>,
 }
 
 impl FixtureGitRepo {
@@ -33,11 +35,24 @@ impl FixtureGitRepo {
         self.prune_result = Some(result);
         self
     }
+
+    pub fn with_worktrees_result(mut self, result: Result<Vec<WorktreeInfo>, String>) -> Self {
+        self.worktrees_result = Some(result);
+        self
+    }
 }
 
 impl GitBackend for FixtureGitRepo {
     fn list_branches(&self) -> Result<Vec<RepoBranch>> {
         bail!("fixture git repo: list_branches unsupported")
+    }
+
+    fn list_worktrees(&self) -> Result<Vec<WorktreeInfo>> {
+        match &self.worktrees_result {
+            Some(Ok(worktrees)) => Ok(worktrees.clone()),
+            Some(Err(message)) => Err(anyhow!(message.clone())),
+            None => bail!("fixture git repo: list_worktrees unsupported"),
+        }
     }
 
     fn get_branch_status(

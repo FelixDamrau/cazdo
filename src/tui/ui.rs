@@ -6,6 +6,7 @@ mod details;
 mod footer;
 mod helpers;
 mod popup;
+mod worktrees;
 
 use ratatui::{
     Frame,
@@ -22,6 +23,28 @@ pub fn render(frame: &mut Frame, app: &App) -> DetailsMetrics {
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(0), Constraint::Length(1)])
         .split(frame.area());
+
+    if app.is_worktree_view() {
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(theme::layout::WORKTREE_LIST_WIDTH_PERCENT),
+                Constraint::Percentage(100 - theme::layout::WORKTREE_LIST_WIDTH_PERCENT),
+            ])
+            .split(main_chunks[0]);
+        worktrees::render_worktrees(frame, app, chunks[0]);
+        worktrees::render_worktree_details(frame, app, chunks[1]);
+        footer::render_footer(frame, app, main_chunks[1]);
+
+        if let AppMode::WorktreeDiagnostics { .. } = app.mode() {
+            if let Some(entry) = app.worktree_diagnostics() {
+                popup::render_worktree_diagnostics(frame, entry);
+            }
+        } else if let AppMode::ErrorPopup(message) = app.mode() {
+            popup::render_error_popup(frame, message);
+        }
+        return DetailsMetrics::default();
+    }
 
     // Split main area into left (branches) and right panels
     let chunks = Layout::default()

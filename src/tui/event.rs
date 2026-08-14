@@ -15,7 +15,7 @@ use super::ui;
 use super::{
     actions::{
         execute_checkout_branch, execute_delete_branch, execute_prune_branch,
-        open_current_work_item,
+        open_current_work_item, refresh_worktrees,
     },
     background::{
         FetchResult, fetch_branch_status_if_needed, process_fetch_results,
@@ -88,6 +88,7 @@ async fn run_loop(
                     pending_fetches.remove(&wi_id);
                     app.reset_work_item(wi_id);
                 }
+                Command::RefreshWorktrees => refresh_worktrees(app, git_repo),
                 Command::OpenWorkItem => open_current_work_item(app),
                 Command::Checkout(branch) => execute_checkout_branch(app, git_repo, &branch),
             }
