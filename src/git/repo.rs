@@ -842,6 +842,23 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    fn worktree_paths_match(left: &Path, right: &Path) -> bool {
+        if worktree_paths_equal(left, right) {
+            return true;
+        }
+
+        let (Some(left_name), Some(left_parent), Some(right_name), Some(right_parent)) = (
+            left.file_name(),
+            left.parent(),
+            right.file_name(),
+            right.parent(),
+        ) else {
+            return false;
+        };
+
+        left_name == right_name && worktree_paths_equal(left_parent, right_parent)
+    }
+
     #[test]
     fn test_extract_work_item_number() {
         assert_eq!(extract_work_item_number("feature/12345-login"), Some(12345));
@@ -1031,7 +1048,8 @@ mod tests {
 
         let _ = fs::remove_dir_all(&worktree_path);
         let _ = fs::remove_dir_all(repo_path);
-        assert_eq!(checked_out_path, Some(worktree_path));
+        let checked_out_path = checked_out_path.expect("linked worktree path should be present");
+        assert!(worktree_paths_match(&checked_out_path, &worktree_path));
     }
 
     #[test]
@@ -1049,13 +1067,13 @@ mod tests {
             .find(|entry| entry.is_main)
             .expect("main worktree should be synthesized");
         assert!(main.is_current);
-        assert_eq!(main.path, repo_path);
+        assert!(worktree_paths_match(&main.path, &repo_path));
         assert!(main.branch.is_some());
         let linked = inventory
             .iter()
             .find(|entry| entry.linked_name() == Some("linked-worktree"))
             .expect("linked identity should be retained");
-        assert_eq!(linked.path, worktree_path);
+        assert!(worktree_paths_match(&linked.path, &worktree_path));
         assert_eq!(linked.branch.as_deref(), Some("feature/test"));
         assert!(!linked.is_current);
         assert!(linked.cleanliness.is_clean());
@@ -1077,7 +1095,7 @@ mod tests {
             .iter()
             .find(|entry| entry.linked_name() == Some("linked-worktree"))
             .expect("missing linked entry should remain visible");
-        assert_eq!(linked.path, worktree_path);
+        assert!(worktree_paths_match(&linked.path, &worktree_path));
         assert!(linked.state.is_missing());
         assert!(linked.branch.as_deref() == Some("feature/test"));
         assert!(linked.prunable);
@@ -1153,7 +1171,7 @@ mod tests {
             WorktreeCleanliness::Unknown(_)
         ));
         assert!(matches!(invalid.submodules, WorktreeSubmodules::Unknown(_)));
-        assert_eq!(invalid.path, worktree_path);
+        assert!(worktree_paths_match(&invalid.path, &worktree_path));
 
         let _ = fs::remove_dir_all(&worktree_path);
         let _ = fs::remove_dir_all(repo_path);
@@ -1170,11 +1188,9 @@ mod tests {
         let inventory = linked_repo
             .list_worktrees()
             .expect("linked worktree inventory should succeed");
-        assert!(
-            inventory
-                .iter()
-                .any(|entry| entry.is_current && entry.path == worktree_path)
-        );
+        assert!(inventory.iter().any(|entry| {
+            entry.is_current && worktree_paths_match(&entry.path, &worktree_path)
+        }));
         assert!(
             inventory
                 .iter()
@@ -1203,7 +1219,7 @@ mod tests {
             .iter()
             .find(|entry| entry.linked_name() == Some("linked ü tree"))
             .expect("Unicode linked identity should be retained");
-        assert_eq!(linked.path, path);
+        assert!(worktree_paths_match(&linked.path, &path));
         assert_eq!(linked.branch.as_deref(), Some("feature/unicode-space"));
         assert!(linked.state.is_valid());
         assert!(linked.cleanliness.is_clean());
