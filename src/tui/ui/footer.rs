@@ -69,16 +69,25 @@ fn render_normal_footer(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn normal_footer_spans(app: &App) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    spans.push(label_span(" "));
+    if app.is_worktree_view() {
+        push_hint(&mut spans, "j/k", "navigate");
+        push_hint(&mut spans, "r", "refresh");
+        push_hint(&mut spans, "w", "branches");
+        spans.extend(normal_footer_tail(false));
+        return spans;
+    }
+
     let toggle_label = match app.active_view() {
         BranchView::Local => "remote",
         BranchView::Remote => "local",
     };
 
-    let mut spans = Vec::new();
-    spans.push(label_span(" "));
     push_hint(&mut spans, "j/k", "navigate");
     push_hint(&mut spans, "/", "filter");
     push_hint(&mut spans, "t", format!("toggle {}", toggle_label));
+    push_hint(&mut spans, "w", "worktrees");
     push_hint(&mut spans, "o", "open");
     push_hint(&mut spans, "pg↑↓", "scroll");
     push_hint(&mut spans, "d", "delete");
@@ -182,7 +191,7 @@ mod tests {
 
         assert_eq!(
             spans_text(&normal_footer_spans(&app)),
-            " j/k navigate  / filter  t toggle remote  o open  pg↑↓ scroll  d delete  r refresh  p protected  q/esc quit  "
+            " j/k navigate  / filter  t toggle remote  w worktrees  o open  pg↑↓ scroll  d delete  r refresh  p protected  q/esc quit  "
         );
     }
 

@@ -2,6 +2,9 @@ use super::*;
 
 impl App {
     pub fn selected_branch(&self) -> Option<&BranchInfo> {
+        if self.worktree_view {
+            return None;
+        }
         let visible = self.visible_branches();
         visible.get(self.selected_index()).copied()
     }
@@ -67,6 +70,10 @@ impl App {
     }
 
     pub(super) fn next(&mut self) {
+        if self.worktree_view {
+            self.next_worktree();
+            return;
+        }
         let count = self.visible_count();
         if count > 0 {
             let next = (self.selected_index() + 1) % count;
@@ -76,6 +83,10 @@ impl App {
     }
 
     pub(super) fn previous(&mut self) {
+        if self.worktree_view {
+            self.previous_worktree();
+            return;
+        }
         let count = self.visible_count();
         if count > 0 {
             let next = if self.selected_index() == 0 {
@@ -103,6 +114,37 @@ impl App {
         }
         self.scroll_offset = 0;
         self.clamp_selected_index();
+    }
+
+    pub(super) fn toggle_worktree_view(&mut self) {
+        self.worktree_view = !self.worktree_view;
+        self.scroll_offset = 0;
+        if self.worktree_view {
+            self.worktree_selected_index = self
+                .worktree_selected_index
+                .min(self.worktrees.len().saturating_sub(1));
+        } else {
+            self.clamp_selected_index();
+        }
+    }
+
+    fn next_worktree(&mut self) {
+        if !self.worktrees.is_empty() {
+            self.worktree_selected_index =
+                (self.worktree_selected_index + 1) % self.worktrees.len();
+            self.scroll_offset = 0;
+        }
+    }
+
+    fn previous_worktree(&mut self) {
+        if !self.worktrees.is_empty() {
+            self.worktree_selected_index = if self.worktree_selected_index == 0 {
+                self.worktrees.len() - 1
+            } else {
+                self.worktree_selected_index - 1
+            };
+            self.scroll_offset = 0;
+        }
     }
 
     fn matches_active_view(&self, branch: &BranchInfo) -> bool {

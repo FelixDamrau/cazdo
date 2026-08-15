@@ -1,5 +1,5 @@
 use crate::azure_devops::WorkItem;
-use crate::git::{BranchOrder, BranchScope, BranchStatus, compare_branch_order};
+use crate::git::{BranchOrder, BranchScope, BranchStatus, WorktreeInfo, compare_branch_order};
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
@@ -8,6 +8,7 @@ mod filtering;
 mod load_state;
 mod selection;
 mod status;
+mod worktrees;
 
 use branch_filter::BranchFilter;
 use selection::OnMiss;
@@ -117,11 +118,11 @@ pub struct DetailsMetrics {
 /// `Msg` is for pure `App` state transitions. Work that needs external side
 /// effects, such as git operations or opening a browser, should stay outside
 /// `App::update` and feed the resulting state change back through a message.
-#[derive(Debug, Clone)]
 pub enum Msg {
     NextBranch,
     PreviousBranch,
     ToggleView,
+    ToggleWorktreeView,
     ToggleShowProtected,
     ScrollDown(u16),
     ScrollUp(u16),
@@ -155,6 +156,8 @@ pub enum Msg {
         key: String,
         error: String,
     },
+    SetWorktrees(Vec<WorktreeInfo>),
+    SetWorktreeError(String),
     SetBackgroundError(String),
     SetDetailsMetrics(DetailsMetrics),
     BranchDeleted {
@@ -179,6 +182,11 @@ pub struct App {
     branches: Vec<BranchInfo>,
     deleted_branches: Vec<DeletedBranch>,
     protected_patterns: Vec<String>, // immutable config
+
+    // Worktree inventory view
+    worktrees: Vec<WorktreeInfo>,
+    worktree_selected_index: usize,
+    worktree_view: bool,
 
     // Selection & scroll (selection.rs)
     active_view: BranchView,
@@ -213,7 +221,12 @@ impl App {
             deleted_branches: Vec::new(),
             protected_patterns,
 
-            // Selection & scroll
+            // Worktree inventory view
+            worktrees: Vec::new(),
+            worktree_selected_index: 0,
+            worktree_view: false,
+
+            // Selection & scroll (selection.rs)
             active_view: BranchView::Local,
             local_selected_index: 0,
             remote_selected_index: 0,
@@ -244,6 +257,7 @@ impl App {
             Msg::NextBranch => self.next(),
             Msg::PreviousBranch => self.previous(),
             Msg::ToggleView => self.toggle_view(),
+            Msg::ToggleWorktreeView => self.toggle_worktree_view(),
             Msg::ToggleShowProtected => self.toggle_show_protected(),
             Msg::ScrollDown(amount) => self.scroll_down(amount),
             Msg::ScrollUp(amount) => self.scroll_up(amount),
@@ -267,6 +281,8 @@ impl App {
             Msg::SetWorkItemError { id, error } => self.apply_work_item_error(id, error),
             Msg::SetBranchStatus { key, status } => self.apply_branch_status(key, status),
             Msg::SetBranchStatusError { key, error } => self.apply_branch_status_error(key, error),
+            Msg::SetWorktrees(worktrees) => self.set_worktrees(worktrees),
+            Msg::SetWorktreeError(error) => self.apply_worktree_error(error),
             Msg::SetBackgroundError(error) => self.apply_background_error(error),
             Msg::SetDetailsMetrics(metrics) => self.apply_details_metrics(metrics),
             Msg::BranchDeleted {
@@ -293,7 +309,7 @@ impl App {
 
     fn scroll_down(&mut self, amount: u16) {
         let max_scroll = self.content_height.saturating_sub(self.visible_height);
-        self.scroll_offset = (self.scroll_offset + amount).min(max_scroll);
+        self.scroll_offset = self.scroll_offset.saturating_add(amount).min(max_scroll);
     }
 
     fn scroll_up(&mut self, amount: u16) {

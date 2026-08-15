@@ -34,7 +34,6 @@ impl FixtureGitRepo {
         self
     }
 }
-
 impl GitBackend for FixtureGitRepo {
     fn list_branches(&self) -> Result<Vec<RepoBranch>> {
         bail!("fixture git repo: list_branches unsupported")

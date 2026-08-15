@@ -19,7 +19,7 @@ use super::{
     },
     background::{
         FetchResult, fetch_branch_status_if_needed, process_fetch_results,
-        trigger_remote_freshness_check, trigger_work_item_fetch,
+        trigger_remote_freshness_check, trigger_work_item_fetch, trigger_worktree_refresh,
     },
     input::{Command, handle_input},
 };
@@ -68,10 +68,16 @@ async fn run_loop(
     git_repo: &GitRepo,
 ) -> Result<()> {
     let mut pending_fetches: HashSet<u32> = HashSet::new();
+    let mut worktree_refresh_pending = false;
 
     loop {
         app.clear_expired_status();
-        process_fetch_results(&mut rx, app, &mut pending_fetches);
+        process_fetch_results(
+            &mut rx,
+            app,
+            &mut pending_fetches,
+            &mut worktree_refresh_pending,
+        );
         trigger_work_item_fetch(app, &client, &tx, &mut pending_fetches);
         trigger_remote_freshness_check(app, git_repo, &tx);
         fetch_branch_status_if_needed(app, git_repo);
@@ -87,6 +93,9 @@ async fn run_loop(
                 Command::Refresh(wi_id) => {
                     pending_fetches.remove(&wi_id);
                     app.reset_work_item(wi_id);
+                }
+                Command::RefreshWorktrees => {
+                    trigger_worktree_refresh(git_repo, &tx, &mut worktree_refresh_pending)
                 }
                 Command::OpenWorkItem => open_current_work_item(app),
                 Command::Checkout(branch) => execute_checkout_branch(app, git_repo, &branch),

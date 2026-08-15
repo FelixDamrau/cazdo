@@ -5,6 +5,7 @@ use std::process::Command;
 use anyhow::{Context, Result};
 use git2::{BranchType, Repository};
 
+use super::worktree::{WorktreeInfo, inventory};
 use crate::pattern::is_protected;
 
 const ORIGIN_REMOTE: &str = "origin";
@@ -200,6 +201,12 @@ impl GitRepo {
         self.backend.repo_dir()
     }
 
+    pub(crate) fn list_worktrees_at(path: &Path) -> Result<Vec<WorktreeInfo>> {
+        let repo = Repository::discover(path)
+            .with_context(|| format!("Failed to discover repository at '{}'", path.display()))?;
+        inventory(&repo)
+    }
+
     pub(crate) fn current_local_branch_name(&self) -> Result<Option<String>> {
         self.backend.current_local_branch_name()
     }
@@ -221,10 +228,13 @@ impl LiveGitRepo {
             .context("Not a git repository (or any of the parent directories)")?;
         Ok(Self { repo })
     }
+    #[cfg(test)]
+    fn list_worktrees(&self) -> Result<Vec<WorktreeInfo>> {
+        inventory(&self.repo)
+    }
 }
 
 impl GitBackend for LiveGitRepo {
-    /// Get all local branches plus origin remote branches.
     fn list_branches(&self) -> Result<Vec<RepoBranch>> {
         let current = self.current_local_branch_name().ok().flatten();
         let mut branches: Vec<RepoBranch> = Vec::new();
@@ -825,11 +835,30 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::super::worktree::worktree_paths_equal;
     use super::*;
+    use crate::git::{WorktreeCleanliness, WorktreeDirtyReason, WorktreeState, WorktreeSubmodules};
     use anyhow::anyhow;
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn worktree_paths_match(left: &Path, right: &Path) -> bool {
+        if worktree_paths_equal(left, right) {
+            return true;
+        }
+
+        let (Some(left_name), Some(left_parent), Some(right_name), Some(right_parent)) = (
+            left.file_name(),
+            left.parent(),
+            right.file_name(),
+            right.parent(),
+        ) else {
+            return false;
+        };
+
+        left_name == right_name && worktree_paths_equal(left_parent, right_parent)
+    }
 
     #[test]
     fn test_extract_work_item_number() {
@@ -1020,21 +1049,214 @@ mod tests {
 
         let _ = fs::remove_dir_all(&worktree_path);
         let _ = fs::remove_dir_all(repo_path);
-        assert_eq!(checked_out_path, Some(worktree_path));
+        let checked_out_path = checked_out_path.expect("linked worktree path should be present");
+        assert!(worktree_paths_match(&checked_out_path, &worktree_path));
     }
 
     #[test]
-    fn test_checked_out_worktree_path_skips_invalid_worktree() {
-        let (repo, repo_path, oid) = init_test_repo("invalid-worktree");
+    fn test_list_worktrees_synthesizes_main_and_preserves_linked_identity() {
+        let (repo, repo_path, oid) = init_test_repo("worktree-inventory");
+        let worktree_path = add_worktree_for_branch(&repo, &repo_path, oid, "feature/test");
+
+        let inventory = repo
+            .list_worktrees()
+            .expect("worktree inventory should succeed");
+
+        assert_eq!(inventory.len(), 2);
+        let main = inventory
+            .iter()
+            .find(|entry| entry.is_main)
+            .expect("main worktree should be synthesized");
+        assert!(main.is_current);
+        assert!(worktree_paths_match(&main.path, &repo_path));
+        assert!(main.branch.is_some());
+        let linked = inventory
+            .iter()
+            .find(|entry| entry.linked_name() == Some("linked-worktree"))
+            .expect("linked identity should be retained");
+        assert!(worktree_paths_match(&linked.path, &worktree_path));
+        assert_eq!(linked.branch.as_deref(), Some("feature/test"));
+        assert!(!linked.is_current);
+        assert!(linked.cleanliness.is_clean());
+
+        let _ = fs::remove_dir_all(&worktree_path);
+        let _ = fs::remove_dir_all(repo_path);
+    }
+
+    #[test]
+    fn test_list_worktrees_marks_missing_linked_entry_without_losing_path() {
+        let (repo, repo_path, oid) = init_test_repo("worktree-inventory-missing");
         let worktree_path = add_worktree_for_branch(&repo, &repo_path, oid, "feature/test");
         fs::remove_dir_all(&worktree_path).expect("worktree dir should be removed");
 
-        let checked_out_path = repo
-            .checked_out_worktree_path("feature/test")
-            .expect("worktree lookup should succeed");
+        let inventory = repo
+            .list_worktrees()
+            .expect("missing worktree inventory should succeed");
+        let linked = inventory
+            .iter()
+            .find(|entry| entry.linked_name() == Some("linked-worktree"))
+            .expect("missing linked entry should remain visible");
+        assert!(worktree_paths_match(&linked.path, &worktree_path));
+        assert!(linked.state.is_missing());
+        assert!(linked.branch.as_deref() == Some("feature/test"));
+        assert!(linked.prunable);
+        assert!(matches!(linked.submodules, WorktreeSubmodules::Unknown(_)));
 
         let _ = fs::remove_dir_all(repo_path);
-        assert_eq!(checked_out_path, None);
+    }
+
+    #[test]
+    fn test_list_worktrees_reports_dirty_locked_and_detached_states() {
+        let (repo, repo_path, oid) = init_test_repo("worktree-inventory-statuses");
+        let dirty_path = repo_path.with_extension("dirty-wt");
+        add_worktree_at(&repo, oid, "feature/dirty", "dirty", &dirty_path);
+        fs::write(dirty_path.join("README.md"), "modified\n").expect("tracked file should change");
+        fs::write(dirty_path.join("untracked.txt"), "new\n").expect("untracked file should exist");
+        repo.repo
+            .find_worktree("dirty")
+            .expect("dirty worktree should exist")
+            .lock(Some("owned by editor"))
+            .expect("worktree should lock");
+
+        let detached_path = repo_path.with_extension("detached-wt");
+        add_worktree_at(&repo, oid, "feature/detached", "detached", &detached_path);
+        Repository::open(&detached_path)
+            .expect("detached worktree should open")
+            .set_head_detached(oid)
+            .expect("HEAD should detach");
+
+        let inventory = repo.list_worktrees().expect("inventory should succeed");
+        let dirty = inventory
+            .iter()
+            .find(|entry| entry.linked_name() == Some("dirty"))
+            .expect("dirty worktree should be listed");
+        let reasons = dirty.cleanliness.dirty_reasons();
+        assert!(reasons.contains(&WorktreeDirtyReason::Worktree));
+        assert!(reasons.contains(&WorktreeDirtyReason::Untracked));
+        assert_eq!(dirty.lock_reason.as_deref(), Some("owned by editor"));
+        assert_eq!(dirty.submodules, WorktreeSubmodules::None);
+
+        let detached = inventory
+            .iter()
+            .find(|entry| entry.linked_name() == Some("detached"))
+            .expect("detached worktree should be listed");
+        assert_eq!(detached.branch, None);
+        assert_eq!(
+            detached.detached_short_sha.as_deref(),
+            Some(short_sha(&oid.to_string()))
+        );
+        assert!(detached.state.is_valid());
+        assert_eq!(detached.submodules, WorktreeSubmodules::None);
+
+        let _ = fs::remove_dir_all(&dirty_path);
+        let _ = fs::remove_dir_all(&detached_path);
+        let _ = fs::remove_dir_all(repo_path);
+    }
+
+    #[test]
+    fn test_list_worktrees_reports_invalid_linked_metadata() {
+        let (repo, repo_path, oid) = init_test_repo("worktree-inventory-invalid");
+        let worktree_path = repo_path.with_extension("invalid-wt");
+        add_worktree_at(&repo, oid, "feature/invalid", "invalid", &worktree_path);
+        fs::remove_dir_all(&worktree_path).expect("worktree directory should be removed");
+        fs::write(&worktree_path, "not a worktree").expect("invalid path should remain present");
+
+        let inventory = repo.list_worktrees().expect("inventory should succeed");
+        let invalid = inventory
+            .iter()
+            .find(|entry| entry.linked_name() == Some("invalid"))
+            .expect("invalid worktree should remain visible");
+        assert!(matches!(invalid.state, WorktreeState::Invalid(_)));
+        assert!(matches!(
+            invalid.cleanliness,
+            WorktreeCleanliness::Unknown(_)
+        ));
+        assert!(matches!(invalid.submodules, WorktreeSubmodules::Unknown(_)));
+        assert!(worktree_paths_match(&invalid.path, &worktree_path));
+
+        let _ = fs::remove_dir_all(&worktree_path);
+        let _ = fs::remove_dir_all(repo_path);
+    }
+
+    #[test]
+    fn test_list_worktrees_marks_linked_process_current_by_path() {
+        let (repo, repo_path, oid) = init_test_repo("worktree-inventory-current");
+        let worktree_path = add_worktree_for_branch(&repo, &repo_path, oid, "feature/test");
+        let linked_repo = LiveGitRepo {
+            repo: Repository::open(&worktree_path).expect("linked repository should open"),
+        };
+
+        let inventory = linked_repo
+            .list_worktrees()
+            .expect("linked worktree inventory should succeed");
+        assert!(inventory.iter().any(|entry| {
+            entry.is_current && worktree_paths_match(&entry.path, &worktree_path)
+        }));
+        assert!(
+            inventory
+                .iter()
+                .any(|entry| entry.is_main && !entry.is_current)
+        );
+        let main = inventory
+            .iter()
+            .find(|entry| entry.is_main)
+            .expect("main worktree should be listed");
+        assert!(worktree_paths_equal(&main.path, &repo_path));
+
+        let _ = fs::remove_dir_all(&worktree_path);
+        let _ = fs::remove_dir_all(repo_path);
+    }
+
+    #[test]
+    fn test_list_worktrees_resolves_main_path_from_external_git_dir() {
+        let (repo, repo_root, repo_path, oid) =
+            init_test_repo_with_external_git_dir("worktree-inventory-external-git-dir");
+        let linked_path = repo_path.with_extension("linked-wt");
+        add_worktree_at(
+            &repo,
+            oid,
+            "feature/external-git-dir",
+            "linked-worktree",
+            &linked_path,
+        );
+        let linked_repo = LiveGitRepo {
+            repo: Repository::open(&linked_path).expect("linked repository should open"),
+        };
+
+        let inventory = linked_repo
+            .list_worktrees()
+            .expect("linked worktree inventory should succeed");
+        let main = inventory
+            .iter()
+            .find(|entry| entry.is_main)
+            .expect("main worktree should be listed");
+
+        assert!(worktree_paths_match(&main.path, &repo_path));
+        assert!(!main.is_current);
+
+        let _ = fs::remove_dir_all(repo_root);
+    }
+
+    #[test]
+    fn test_list_worktrees_preserves_unicode_and_spaced_paths() {
+        let (repo, repo_path, oid) = init_test_repo("worktree-inventory-unicode-spaces");
+        let path = repo_path.join("linked tree über");
+        add_worktree_at(&repo, oid, "feature/unicode-space", "linked ü tree", &path);
+
+        let inventory = repo
+            .list_worktrees()
+            .expect("worktree inventory should support Unicode and spaces");
+        let linked = inventory
+            .iter()
+            .find(|entry| entry.linked_name() == Some("linked ü tree"))
+            .expect("Unicode linked identity should be retained");
+        assert!(worktree_paths_match(&linked.path, &path));
+        assert_eq!(linked.branch.as_deref(), Some("feature/unicode-space"));
+        assert!(linked.state.is_valid());
+        assert!(linked.cleanliness.is_clean());
+
+        let _ = fs::remove_dir_all(&path);
+        let _ = fs::remove_dir_all(repo_path);
     }
 
     fn init_test_repo(name: &str) -> (LiveGitRepo, PathBuf, git2::Oid) {
@@ -1066,6 +1288,65 @@ mod tests {
         drop(tree);
 
         (LiveGitRepo { repo }, repo_path, oid)
+    }
+
+    fn init_test_repo_with_external_git_dir(
+        name: &str,
+    ) -> (LiveGitRepo, PathBuf, PathBuf, git2::Oid) {
+        let repo_root = std::env::temp_dir().join(format!(
+            "cazdo-{name}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time should be after epoch")
+                .as_nanos()
+        ));
+        let repo_path = repo_root.join("worktree");
+        let git_dir = repo_root.join("git-dir");
+
+        fs::create_dir_all(&repo_path).expect("temp repo dir should be created");
+        let mut options = git2::RepositoryInitOptions::new();
+        options.workdir_path(&repo_path);
+        let repo =
+            Repository::init_opts(&git_dir, &options).expect("separate git dir should initialize");
+
+        fs::write(repo_path.join("README.md"), "hello\n").expect("file should be written");
+
+        let mut index = repo.index().expect("repo index should load");
+        index
+            .add_path(Path::new("README.md"))
+            .expect("file should be staged");
+        let tree_id = index.write_tree().expect("tree should write");
+        let tree = repo.find_tree(tree_id).expect("tree should load");
+        let signature =
+            git2::Signature::now("Test User", "test@example.com").expect("signature should create");
+        let oid = repo
+            .commit(Some("HEAD"), &signature, &signature, "init", &tree, &[])
+            .expect("commit should succeed");
+        drop(tree);
+
+        (LiveGitRepo { repo }, repo_root, repo_path, oid)
+    }
+
+    fn add_worktree_at(
+        repo: &LiveGitRepo,
+        oid: git2::Oid,
+        branch_name: &str,
+        name: &str,
+        path: &Path,
+    ) -> PathBuf {
+        let commit = repo.repo.find_commit(oid).expect("commit should be found");
+        let branch = repo
+            .repo
+            .branch(branch_name, &commit, false)
+            .expect("branch should be created");
+        let reference = branch.into_reference();
+        let mut options = git2::WorktreeAddOptions::new();
+        options.reference(Some(&reference));
+        repo.repo
+            .worktree(name, path, Some(&options))
+            .expect("worktree should be added");
+        path.to_path_buf()
     }
 
     fn add_worktree_for_branch(

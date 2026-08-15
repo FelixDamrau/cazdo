@@ -108,7 +108,6 @@ fn centered_rect(r: Rect) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn test_centered_rect_stays_within_tiny_area() {
         let area = Rect::new(0, 0, 1, 1);

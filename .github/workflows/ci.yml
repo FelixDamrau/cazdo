@@ -46,6 +46,24 @@ jobs:
       - name: Run tests
         run: just test-ci
 
+  worktree-platform:
+    name: Worktree behavior (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Rust toolchain
+        run: rustup show
+
+      - name: Run focused worktree tests
+        run: cargo test --locked --bin cazdo worktree
+
   lint:
     name: Lint & Format
     runs-on: ubuntu-latest

@@ -1,13 +1,17 @@
+mod worktrees;
+
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, MouseEvent, MouseEventKind};
 
 use super::app::{App, AppMode, BranchInfo, Msg};
 use super::theme::{scroll, timing};
+use worktrees::handle_worktree_mode_key;
 
 pub(super) enum Command {
     Delete(BranchInfo),
     Prune(BranchInfo),
     Refresh(u32),
+    RefreshWorktrees,
     OpenWorkItem,
     Checkout(BranchInfo),
 }
@@ -32,8 +36,14 @@ fn handle_key_event(app: &mut App, key: KeyEvent) -> Option<Command> {
         return handle_filter_input_key(app, key);
     }
 
-    match app.mode() {
-        AppMode::Normal => handle_normal_mode_key(app, key),
+    match app.mode().clone() {
+        AppMode::Normal => {
+            if app.is_worktree_view() {
+                handle_worktree_mode_key(app, key)
+            } else {
+                handle_normal_mode_key(app, key)
+            }
+        }
         AppMode::ConfirmDelete { branch_key } => {
             let branch_key = branch_key.clone();
             handle_confirm_delete_key(app, key, &branch_key)
@@ -123,6 +133,10 @@ fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Command> {
         }
         KeyCode::Char('o') => Some(Command::OpenWorkItem),
         KeyCode::Enter => app.selected_branch().cloned().map(Command::Checkout),
+        KeyCode::Char('w') => {
+            app.update(Msg::ToggleWorktreeView);
+            Some(Command::RefreshWorktrees)
+        }
         KeyCode::Char('t') => {
             app.update(Msg::ToggleView);
             None
@@ -218,7 +232,10 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
-    use crate::git::BranchScope;
+    use crate::git::{
+        BranchScope, WorktreeCleanliness, WorktreeIdentity, WorktreeInfo, WorktreeState,
+        WorktreeSubmodules,
+    };
     use crate::tui::app::{App, BranchInfo, BranchView};
 
     #[test]
@@ -393,6 +410,57 @@ mod tests {
                 assert_eq!(branch.key, "refs/remotes/origin/feature/1")
             }
             _ => panic!("expected stale branch to trigger prune action"),
+        }
+    }
+    #[test]
+    fn test_worktree_shortcuts_toggle_navigate_and_refresh() {
+        let mut app = App::new(vec![remote_branch(false)], vec![]);
+        app.update(Msg::SetWorktrees(vec![
+            worktree(WorktreeIdentity::Main, true),
+            worktree(
+                WorktreeIdentity::Linked {
+                    name: "linked".to_string(),
+                },
+                false,
+            ),
+        ]));
+
+        assert!(matches!(
+            handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('w'))),
+            Some(Command::RefreshWorktrees)
+        ));
+        assert!(app.is_worktree_view());
+
+        handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('j')));
+        assert_eq!(app.selected_worktree().unwrap().name(), "linked");
+        handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('k')));
+        assert_eq!(app.selected_worktree().unwrap().name(), "main");
+        handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('j')));
+
+        assert!(handle_key_event(&mut app, KeyEvent::from(KeyCode::Enter)).is_none());
+        assert!(app.is_normal_mode());
+        assert!(matches!(
+            handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('r'))),
+            Some(Command::RefreshWorktrees)
+        ));
+        assert!(handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('w'))).is_none());
+        assert!(!app.is_worktree_view());
+    }
+
+    fn worktree(identity: WorktreeIdentity, is_current: bool) -> WorktreeInfo {
+        let is_main = identity.is_main();
+        WorktreeInfo {
+            identity,
+            path: "/tmp/fixture".into(),
+            branch: Some("main".to_string()),
+            detached_short_sha: None,
+            is_main,
+            is_current,
+            cleanliness: WorktreeCleanliness::Clean,
+            lock_reason: None,
+            state: WorktreeState::Valid,
+            prunable: false,
+            submodules: WorktreeSubmodules::None,
         }
     }
 
