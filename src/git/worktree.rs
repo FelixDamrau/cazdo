@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use git2::{Repository, StatusOptions, SubmoduleIgnore, SubmoduleStatus, WorktreeLockStatus};
 
 use super::repo::short_sha;
@@ -164,6 +164,45 @@ impl WorktreeInfo {
     }
 }
 
+pub(crate) fn validate_worktree_prune(entry: &WorktreeInfo) -> Result<&str, String> {
+    if entry.is_main {
+        return Err("Cannot prune the main worktree".to_string());
+    }
+    let Some(name) = entry.identity.linked_name() else {
+        return Err(
+            "Cannot prune worktree: selected entry is not a valid linked worktree".to_string(),
+        );
+    };
+    if name.trim().is_empty() {
+        return Err(
+            "Cannot prune worktree: selected entry is not a valid linked worktree".to_string(),
+        );
+    }
+    if entry.is_current {
+        return Err("Cannot prune the current worktree".to_string());
+    }
+    if entry.is_locked() {
+        return Err(format!(
+            "Cannot prune locked worktree '{}': {}",
+            entry.name(),
+            entry.lock_reason.as_deref().unwrap_or("worktree is locked")
+        ));
+    }
+    if !matches!(entry.state, WorktreeState::Missing) {
+        return Err(format!(
+            "Cannot prune worktree '{}': only entries marked missing and prunable are allowed",
+            entry.name()
+        ));
+    }
+    if !entry.prunable {
+        return Err(format!(
+            "Cannot prune worktree '{}': stale metadata is not marked prunable",
+            entry.name()
+        ));
+    }
+    Ok(name)
+}
+
 /// Compare paths for current-worktree marking while preserving the original
 /// paths in the public inventory. Canonicalization handles `..`, symlinks, and
 /// relative paths; Windows comparisons additionally ignore case for drive and
@@ -256,6 +295,135 @@ pub(crate) fn inventory(repo: &Repository) -> Result<Vec<WorktreeInfo>> {
             .then_with(|| left.name().cmp(right.name()))
     });
     Ok(entries)
+}
+
+/// Prune only the administrative directory for a missing, safely identifiable
+/// linked worktree. No force flags are used, and the working-tree path is
+/// never touched.
+pub(crate) fn prune_metadata(
+    repo: &Repository,
+    identity: &WorktreeIdentity,
+    expected_path: &Path,
+) -> Result<()> {
+    let Some(name) = identity.linked_name() else {
+        bail!("Cannot prune the main worktree; only linked worktrees are supported");
+    };
+    let worktree = repo
+        .find_worktree(name)
+        .with_context(|| format!("Cannot open linked worktree metadata '{name}'"))?;
+    let path = worktree.path().to_path_buf();
+    if !worktree_paths_equal(&path, expected_path) {
+        bail!(
+            "Cannot prune worktree '{}': selected path '{}' no longer matches metadata path '{}'",
+            name,
+            expected_path.display(),
+            path.display()
+        );
+    }
+    let main_path =
+        main_worktree_path(repo).context("Cannot determine main worktree path before pruning")?;
+    if worktree_paths_equal(&path, &main_path) {
+        bail!("Cannot prune the main worktree");
+    }
+    if let Some(current_path) = repo.workdir()
+        && worktree_paths_equal(&path, current_path)
+    {
+        bail!("Cannot prune the current worktree");
+    }
+    match worktree
+        .is_locked()
+        .with_context(|| format!("Cannot determine lock status for worktree '{name}'"))?
+    {
+        WorktreeLockStatus::Unlocked => {}
+        WorktreeLockStatus::Locked(reason) => {
+            bail!(
+                "Cannot prune locked worktree '{}': {}",
+                name,
+                reason.unwrap_or_else(|| "worktree is locked".to_string())
+            );
+        }
+    }
+
+    if path.exists() {
+        bail!(
+            "Cannot prune worktree '{}': path '{}' still exists; only missing worktrees are supported",
+            name,
+            path.display()
+        );
+    }
+
+    let admin_path = linked_worktree_admin_path(repo, name).ok_or_else(|| {
+        anyhow!("Cannot determine administrative metadata path for worktree '{name}'")
+    })?;
+    if !admin_path.is_dir() {
+        bail!(
+            "Cannot prune worktree '{}': administrative metadata '{}' is malformed",
+            name,
+            admin_path.display()
+        );
+    }
+
+    let gitdir = fs::read_to_string(admin_path.join("gitdir")).with_context(|| {
+        format!(
+            "Cannot prune worktree '{}': administrative metadata is missing gitdir",
+            name
+        )
+    })?;
+    if gitdir.trim().is_empty() || !gitdir.trim_end().ends_with(".git") {
+        bail!(
+            "Cannot prune worktree '{}': administrative gitdir metadata is malformed",
+            name
+        );
+    }
+    let linked_path = linked_worktree_path(repo, name).ok_or_else(|| {
+        anyhow!(
+            "Cannot prune worktree '{}': administrative gitdir metadata is malformed",
+            name
+        )
+    })?;
+    if !worktree_paths_equal(&linked_path, &path) {
+        bail!(
+            "Cannot prune worktree '{}': administrative path does not match recorded worktree path '{}'",
+            name,
+            path.display()
+        );
+    }
+
+    let head = fs::read_to_string(admin_path.join("HEAD")).with_context(|| {
+        format!(
+            "Cannot prune worktree '{}': administrative metadata is missing HEAD",
+            name
+        )
+    })?;
+    if !valid_head_metadata(&head) {
+        bail!(
+            "Cannot prune worktree '{}': administrative HEAD metadata is malformed",
+            name
+        );
+    }
+
+    let prunable = worktree
+        .is_prunable(None)
+        .with_context(|| format!("Cannot determine whether worktree '{name}' is prunable"))?;
+    if !prunable {
+        bail!(
+            "Cannot prune worktree '{}': metadata is not marked prunable",
+            name
+        );
+    }
+
+    worktree
+        .prune(None)
+        .with_context(|| format!("Failed to prune stale metadata for worktree '{name}'"))
+}
+
+fn valid_head_metadata(head: &str) -> bool {
+    let head = head.trim();
+    if let Some(branch) = head.strip_prefix("ref: refs/heads/") {
+        !branch.is_empty() && !branch.contains(char::is_whitespace)
+    } else {
+        git2::Oid::from_str(head).is_ok()
+    }
 }
 
 fn inspect_entry(

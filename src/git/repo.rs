@@ -2,10 +2,12 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use git2::{BranchType, Repository};
 
-use super::worktree::{WorktreeInfo, inventory};
+use super::worktree::{
+    WorktreeIdentity, WorktreeInfo, inventory, prune_metadata, validate_worktree_prune,
+};
 use crate::pattern::is_protected;
 
 const ORIGIN_REMOTE: &str = "origin";
@@ -138,6 +140,11 @@ pub(crate) trait GitBackend {
         remote_name: Option<&str>,
     ) -> Result<DeleteResult>;
     fn prune_remote_tracking_branch(&self, branch_name: &str) -> Result<()>;
+    fn prune_worktree_metadata_by_identity(
+        &self,
+        identity: &WorktreeIdentity,
+        expected_path: &Path,
+    ) -> Result<()>;
     fn repo_dir(&self) -> Result<PathBuf>;
     fn current_local_branch_name(&self) -> Result<Option<String>>;
 }
@@ -195,6 +202,24 @@ impl GitRepo {
 
     pub fn prune_remote_tracking_branch(&self, branch_name: &str) -> Result<()> {
         self.backend.prune_remote_tracking_branch(branch_name)
+    }
+
+    /// Remove only stale administrative metadata for a missing linked worktree.
+    ///
+    /// The inventory entry is treated as untrusted UI state: the live backend
+    /// reopens and revalidates the worktree before pruning anything.
+    pub fn prune_worktree_metadata(&self, entry: &WorktreeInfo) -> Result<()> {
+        let name = match validate_worktree_prune(entry) {
+            Ok(name) => name,
+            Err(error) => bail!("{error}"),
+        };
+
+        self.backend.prune_worktree_metadata_by_identity(
+            &WorktreeIdentity::Linked {
+                name: name.to_string(),
+            },
+            &entry.path,
+        )
     }
 
     pub fn repo_dir(&self) -> Result<PathBuf> {
@@ -352,6 +377,13 @@ impl GitBackend for LiveGitRepo {
         Ok(())
     }
 
+    fn prune_worktree_metadata_by_identity(
+        &self,
+        identity: &WorktreeIdentity,
+        expected_path: &Path,
+    ) -> Result<()> {
+        prune_metadata(&self.repo, identity, expected_path)
+    }
     fn repo_dir(&self) -> Result<PathBuf> {
         Ok(self.command_dir()?.to_path_buf())
     }
@@ -1102,6 +1134,206 @@ mod tests {
         assert!(linked.prunable);
         assert!(matches!(linked.submodules, WorktreeSubmodules::Unknown(_)));
 
+        let _ = fs::remove_dir_all(repo_path);
+    }
+
+    #[test]
+    fn test_prune_missing_worktree_metadata_preserves_path_and_branch_with_spaces() {
+        let (repo, repo_path, oid) = init_test_repo("worktree-prune-spaces");
+        let worktree_path = repo_path.join("missing linked path");
+        add_worktree_at(
+            &repo,
+            oid,
+            "feature/preserved",
+            "linked with spaces",
+            &worktree_path,
+        );
+        fs::remove_dir_all(&worktree_path).expect("missing worktree path should be removed");
+
+        let entry = repo
+            .list_worktrees()
+            .expect("inventory should succeed")
+            .into_iter()
+            .find(|entry| entry.linked_name() == Some("linked with spaces"))
+            .expect("linked entry should be present");
+        assert!(entry.state.is_missing());
+        assert!(entry.prunable);
+
+        let admin_path = repo
+            .repo
+            .path()
+            .join("worktrees")
+            .join("linked with spaces");
+        repo.prune_worktree_metadata_by_identity(&entry.identity, &entry.path)
+            .expect("missing worktree metadata should be pruned");
+
+        assert!(!worktree_path.exists());
+        assert!(!admin_path.exists());
+        assert!(
+            repo.repo
+                .find_branch("feature/preserved", BranchType::Local)
+                .is_ok(),
+            "pruning metadata must preserve the associated branch"
+        );
+        let _ = fs::remove_dir_all(repo_path);
+    }
+
+    #[test]
+    fn test_prune_worktree_metadata_rejects_locked_entry_without_mutating_metadata() {
+        let (repo, repo_path, oid) = init_test_repo("worktree-prune-locked");
+        let worktree_path = repo_path.with_extension("locked-wt");
+        add_worktree_at(&repo, oid, "feature/locked", "locked", &worktree_path);
+        repo.repo
+            .find_worktree("locked")
+            .expect("worktree should exist")
+            .lock(Some("in use"))
+            .expect("worktree should lock");
+        fs::remove_dir_all(&worktree_path).expect("missing worktree path should be removed");
+        let admin_path = repo.repo.path().join("worktrees").join("locked");
+        let head_before =
+            fs::read_to_string(admin_path.join("HEAD")).expect("HEAD metadata should exist");
+
+        let entry = repo
+            .list_worktrees()
+            .expect("inventory should succeed")
+            .into_iter()
+            .find(|entry| entry.linked_name() == Some("locked"))
+            .expect("linked entry should be present");
+        let error = repo
+            .prune_worktree_metadata_by_identity(&entry.identity, &entry.path)
+            .expect_err("locked metadata must be protected");
+
+        assert!(error.to_string().contains("locked"));
+        assert!(admin_path.exists());
+        assert_eq!(
+            fs::read_to_string(admin_path.join("HEAD")).expect("HEAD metadata should remain"),
+            head_before
+        );
+        let _ = fs::remove_dir_all(repo_path);
+    }
+
+    #[test]
+    fn test_prune_worktree_metadata_rejects_valid_entry_without_mutating_metadata() {
+        let (repo, repo_path, oid) = init_test_repo("worktree-prune-valid");
+        let worktree_path = repo_path.with_extension("valid-wt");
+        add_worktree_at(&repo, oid, "feature/valid", "valid", &worktree_path);
+        let admin_path = repo.repo.path().join("worktrees").join("valid");
+        let entry = repo
+            .list_worktrees()
+            .expect("inventory should succeed")
+            .into_iter()
+            .find(|entry| entry.linked_name() == Some("valid"))
+            .expect("linked entry should be present");
+
+        let error = repo
+            .prune_worktree_metadata_by_identity(&entry.identity, &entry.path)
+            .expect_err("existing worktree metadata must be protected");
+
+        assert!(error.to_string().contains("missing"));
+        assert!(worktree_path.exists());
+        assert!(admin_path.exists());
+        let _ = fs::remove_dir_all(&worktree_path);
+        let _ = fs::remove_dir_all(repo_path);
+    }
+
+    #[test]
+    fn test_prune_worktree_metadata_rejects_malformed_missing_entry_without_mutating_metadata() {
+        let (repo, repo_path, oid) = init_test_repo("worktree-prune-malformed");
+        let worktree_path = repo_path.with_extension("malformed-wt");
+        add_worktree_at(&repo, oid, "feature/malformed", "malformed", &worktree_path);
+        fs::remove_dir_all(&worktree_path).expect("missing worktree path should be removed");
+        let admin_path = repo.repo.path().join("worktrees").join("malformed");
+        fs::write(admin_path.join("HEAD"), "not a valid HEAD\n")
+            .expect("malformed HEAD should be written");
+
+        let entry = repo
+            .list_worktrees()
+            .expect("inventory should succeed")
+            .into_iter()
+            .find(|entry| entry.linked_name() == Some("malformed"))
+            .expect("linked entry should be present");
+        assert!(entry.state.is_missing());
+        assert!(entry.prunable);
+        let error = repo
+            .prune_worktree_metadata_by_identity(&entry.identity, &entry.path)
+            .expect_err("malformed metadata must be protected");
+
+        assert!(error.to_string().contains("malformed"));
+        assert!(admin_path.exists());
+        assert_eq!(
+            fs::read_to_string(admin_path.join("HEAD")).expect("HEAD metadata should remain"),
+            "not a valid HEAD\n"
+        );
+        let _ = fs::remove_dir_all(repo_path);
+    }
+
+    #[test]
+    fn test_prune_worktree_metadata_rejects_main_entry_without_mutating_repository() {
+        let (repo, repo_path, _oid) = init_test_repo("worktree-prune-main");
+        let main = repo
+            .list_worktrees()
+            .expect("inventory should succeed")
+            .into_iter()
+            .find(|entry| entry.is_main)
+            .expect("main entry should be present");
+
+        let error = repo
+            .prune_worktree_metadata_by_identity(&main.identity, &main.path)
+            .expect_err("main worktree must remain protected");
+
+        assert!(error.to_string().contains("main"));
+        assert!(repo.repo.find_branch("main", BranchType::Local).is_ok());
+        assert!(repo_path.exists());
+        let _ = fs::remove_dir_all(repo_path);
+    }
+
+    #[test]
+    fn test_prune_worktree_metadata_rejects_stale_selected_path_without_mutation() {
+        let (repo, repo_path, oid) = init_test_repo("worktree-prune-stale-path");
+        let worktree_path = repo_path.with_extension("stale-wt");
+        add_worktree_at(&repo, oid, "feature/stale", "stale", &worktree_path);
+        fs::remove_dir_all(&worktree_path).expect("missing worktree path should be removed");
+        let admin_path = repo.repo.path().join("worktrees").join("stale");
+        let entry = repo
+            .list_worktrees()
+            .expect("inventory should succeed")
+            .into_iter()
+            .find(|entry| entry.linked_name() == Some("stale"))
+            .expect("linked entry should be present");
+        let stale_path = repo_path.join("different missing path");
+
+        let error = repo
+            .prune_worktree_metadata_by_identity(&entry.identity, &stale_path)
+            .expect_err("stale selected path must be rejected");
+
+        assert!(error.to_string().contains("selected path"));
+        assert!(admin_path.exists());
+        let _ = fs::remove_dir_all(repo_path);
+    }
+
+    #[test]
+    fn test_prune_worktree_metadata_rejects_current_worktree_after_path_disappears() {
+        let (repo, repo_path, oid) = init_test_repo("worktree-prune-current");
+        let worktree_path = repo_path.with_extension("current-wt");
+        add_worktree_at(&repo, oid, "feature/current", "current", &worktree_path);
+        let current_repo = LiveGitRepo {
+            repo: Repository::open(&worktree_path).expect("linked repository should open"),
+        };
+        fs::remove_dir_all(&worktree_path).expect("current worktree path should be removed");
+        let entry = current_repo
+            .list_worktrees()
+            .expect("inventory should succeed")
+            .into_iter()
+            .find(|entry| entry.linked_name() == Some("current"))
+            .expect("current linked entry should be present");
+        let admin_path = repo.repo.path().join("worktrees").join("current");
+
+        let error = current_repo
+            .prune_worktree_metadata_by_identity(&entry.identity, &entry.path)
+            .expect_err("current worktree metadata must remain protected");
+
+        assert!(error.to_string().contains("current"));
+        assert!(admin_path.exists());
         let _ = fs::remove_dir_all(repo_path);
     }
 

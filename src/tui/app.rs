@@ -66,6 +66,7 @@ impl BranchView {
 pub enum AppMode {
     Normal,
     ConfirmDelete { branch_key: String },
+    ConfirmWorktreePrune { worktree: WorktreeInfo },
     ErrorPopup(String),
 }
 
@@ -134,6 +135,7 @@ pub enum Msg {
     Quit,
     EnterNormalMode,
     EnterDeleteConfirmMode,
+    RequestWorktreePrune,
     ShowErrorPopup(String),
     SetStatus(StatusMessage),
     ClearStatus,
@@ -269,6 +271,7 @@ impl App {
             Msg::Quit => self.should_quit = true,
             Msg::EnterNormalMode => self.mode = AppMode::Normal,
             Msg::EnterDeleteConfirmMode => self.apply_enter_confirm_mode(),
+            Msg::RequestWorktreePrune => self.apply_request_worktree_prune(),
             Msg::ShowErrorPopup(message) => self.mode = AppMode::ErrorPopup(message),
             Msg::SetStatus(message) => self.status_message = Some(message),
             Msg::ClearStatus => self.status_message = None,

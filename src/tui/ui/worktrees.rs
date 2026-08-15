@@ -5,6 +5,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::git::{WorktreeCleanliness, WorktreeInfo, WorktreeState, WorktreeSubmodules};
 use crate::tui::app::App;
@@ -13,7 +14,12 @@ use crate::tui::theme;
 /// Render the inventory list. Selection is deliberately independent from the
 /// branch list so returning to the branch view preserves its selection.
 pub fn render_worktrees(frame: &mut Frame, app: &App, area: Rect) {
-    let items: Vec<ListItem> = app.worktrees().iter().map(worktree_list_item).collect();
+    let content_width = area.width.saturating_sub(2) as usize;
+    let items: Vec<ListItem> = app
+        .worktrees()
+        .iter()
+        .map(|entry| worktree_list_item(entry, content_width))
+        .collect();
 
     let block = Block::default()
         .borders(Borders::ALL)
@@ -33,7 +39,11 @@ pub fn render_worktrees(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_stateful_widget(list, area, &mut state);
 }
 
-fn worktree_list_item(entry: &WorktreeInfo) -> ListItem<'static> {
+fn worktree_list_item(entry: &WorktreeInfo, width: usize) -> ListItem<'static> {
+    ListItem::new(worktree_list_lines(entry, width))
+}
+
+fn worktree_list_lines(entry: &WorktreeInfo, width: usize) -> Vec<Line<'static>> {
     let (marker, marker_style) = if entry.is_current {
         ("* ", theme::branch::CURRENT)
     } else if entry.is_main {
@@ -41,40 +51,48 @@ fn worktree_list_item(entry: &WorktreeInfo) -> ListItem<'static> {
     } else {
         ("  ", theme::styles::TEXT)
     };
-    let mut lines = vec![
-        Line::from(vec![
-            Span::styled(marker, marker_style),
-            Span::styled(entry.name().to_string(), list_name_style(entry)),
-        ]),
-        Line::from(vec![
-            Span::styled("  HEAD: ", theme::styles::MUTED),
-            Span::styled(entry.ref_display(), theme::styles::TEXT),
-        ]),
-        Line::from(vec![
-            Span::styled("  Path: ", theme::styles::MUTED),
-            Span::styled(
-                entry.path.to_string_lossy().into_owned(),
-                theme::styles::TEXT,
-            ),
-        ]),
-        Line::from(vec![
-            Span::styled("  Status: ", theme::styles::MUTED),
-            Span::styled(list_status(entry), status_style(entry)),
-        ]),
-    ];
+    let mut lines = vec![bounded_prefix_line(
+        marker,
+        entry.name(),
+        marker_style,
+        list_name_style(entry),
+        width,
+    )];
+    lines.push(bounded_field_line(
+        "HEAD",
+        entry.ref_display(),
+        theme::styles::TEXT,
+        width,
+    ));
+    lines.push(bounded_field_line(
+        "Path",
+        entry.path.to_string_lossy(),
+        theme::styles::TEXT,
+        width,
+    ));
+    lines.push(bounded_field_line(
+        "Status",
+        list_status(entry),
+        status_style(entry),
+        width,
+    ));
     if let Some(reason) = &entry.lock_reason {
-        lines.push(Line::from(vec![
-            Span::styled("  Lock: ", theme::styles::MUTED),
-            Span::styled(reason.clone(), theme::styles::WARNING),
-        ]));
+        lines.push(bounded_field_line(
+            "Lock",
+            reason.clone(),
+            theme::styles::WARNING,
+            width,
+        ));
     }
     if entry.prunable {
-        lines.push(Line::from(vec![
-            Span::styled("  Prunable: ", theme::styles::MUTED),
-            Span::styled("yes", theme::styles::WARNING),
-        ]));
+        lines.push(bounded_field_line(
+            "Prunable",
+            "yes",
+            theme::styles::WARNING,
+            width,
+        ));
     }
-    ListItem::new(lines)
+    lines
 }
 
 /// Render details for the selected inventory entry.
@@ -97,74 +115,95 @@ pub fn render_worktree_details(frame: &mut Frame, app: &App, area: Rect) {
         return;
     };
 
-    frame.render_widget(Paragraph::new(worktree_diagnostic_lines(entry)), inner);
+    frame.render_widget(
+        Paragraph::new(worktree_diagnostic_lines(entry, inner.width as usize)),
+        inner,
+    );
 }
 
-pub(super) fn worktree_diagnostic_lines(entry: &WorktreeInfo) -> Vec<Line<'static>> {
-    vec![
-        field_line("Name", entry.name(), list_name_style(entry)),
-        field_line("Path", entry.path.to_string_lossy(), theme::styles::TEXT),
-        field_line(
-            "Identity",
-            if entry.is_main { "main" } else { "linked" },
-            if entry.is_main {
-                theme::styles::ACCENT
-            } else {
-                theme::styles::TEXT
-            },
-        ),
-        field_line(
-            "Branch/HEAD",
-            entry.ref_display(),
-            if entry.is_current {
-                theme::branch::CURRENT
-            } else {
-                theme::styles::TEXT
-            },
-        ),
-        field_line(
-            "Current",
-            if entry.is_current { "yes" } else { "no" },
-            if entry.is_current {
-                theme::branch::CURRENT
-            } else {
-                theme::styles::TEXT
-            },
-        ),
-        field_line(
-            "State",
-            state_detail(&entry.state),
-            state_style(&entry.state),
-        ),
-        field_line(
-            "Cleanliness",
-            cleanliness_detail(&entry.cleanliness),
-            cleanliness_style(&entry.cleanliness),
-        ),
-        field_line(
-            "Lock",
-            entry.lock_reason.as_deref().unwrap_or("unlocked"),
-            if entry.is_locked() {
-                theme::styles::WARNING
-            } else {
-                theme::styles::TEXT
-            },
-        ),
-        field_line(
-            "Prunable",
-            if entry.prunable { "yes" } else { "no" },
-            if entry.prunable {
-                theme::styles::WARNING
-            } else {
-                theme::styles::TEXT
-            },
-        ),
-        field_line(
-            "Submodules",
-            submodule_detail(&entry.submodules),
-            submodule_style(&entry.submodules),
-        ),
-    ]
+pub(super) fn worktree_diagnostic_lines(entry: &WorktreeInfo, width: usize) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    lines.extend(wrapped_field_lines(
+        "Name",
+        entry.name(),
+        list_name_style(entry),
+        width,
+    ));
+    lines.extend(wrapped_field_lines(
+        "Path",
+        entry.path.to_string_lossy(),
+        theme::styles::TEXT,
+        width,
+    ));
+    lines.extend(wrapped_field_lines(
+        "Identity",
+        if entry.is_main { "main" } else { "linked" },
+        if entry.is_main {
+            theme::styles::ACCENT
+        } else {
+            theme::styles::TEXT
+        },
+        width,
+    ));
+    lines.extend(wrapped_field_lines(
+        "Branch/HEAD",
+        entry.ref_display(),
+        if entry.is_current {
+            theme::branch::CURRENT
+        } else {
+            theme::styles::TEXT
+        },
+        width,
+    ));
+    lines.extend(wrapped_field_lines(
+        "Current",
+        if entry.is_current { "yes" } else { "no" },
+        if entry.is_current {
+            theme::branch::CURRENT
+        } else {
+            theme::styles::TEXT
+        },
+        width,
+    ));
+    lines.extend(wrapped_field_lines(
+        "State",
+        state_detail(&entry.state),
+        state_style(&entry.state),
+        width,
+    ));
+    lines.extend(wrapped_field_lines(
+        "Cleanliness",
+        cleanliness_detail(&entry.cleanliness),
+        cleanliness_style(&entry.cleanliness),
+        width,
+    ));
+    lines.extend(wrapped_field_lines(
+        "Lock",
+        entry.lock_reason.as_deref().unwrap_or("unlocked"),
+        if entry.is_locked() {
+            theme::styles::WARNING
+        } else {
+            theme::styles::TEXT
+        },
+        width,
+    ));
+    lines.extend(wrapped_field_lines(
+        "Prunable",
+        if entry.prunable { "yes" } else { "no" },
+        if entry.prunable {
+            theme::styles::WARNING
+        } else {
+            theme::styles::TEXT
+        },
+        width,
+    ));
+    lines.extend(wrapped_field_lines(
+        "Submodules",
+        submodule_detail(&entry.submodules),
+        submodule_style(&entry.submodules),
+        width,
+    ));
+    lines
 }
 
 fn state_detail(state: &WorktreeState) -> String {
@@ -207,11 +246,152 @@ fn submodule_detail(submodules: &WorktreeSubmodules) -> String {
     }
 }
 
-fn field_line(label: &str, value: impl Into<String>, value_style: Style) -> Line<'static> {
+fn bounded_field_line(
+    label: &str,
+    value: impl Into<String>,
+    value_style: Style,
+    width: usize,
+) -> Line<'static> {
+    bounded_prefix_line(
+        &format!("  {label}: "),
+        value,
+        theme::styles::MUTED,
+        value_style,
+        width,
+    )
+}
+
+fn bounded_prefix_line(
+    prefix: &str,
+    value: impl Into<String>,
+    prefix_style: Style,
+    value_style: Style,
+    width: usize,
+) -> Line<'static> {
+    let prefix = truncate_to_width(prefix, width);
+    let prefix_width = display_width(&prefix);
+    let value_width = width.saturating_sub(prefix_width);
+    let value = truncate_to_width(&value.into(), value_width);
     Line::from(vec![
-        Span::styled(format!("  {label}: "), theme::styles::MUTED),
-        Span::styled(value.into(), value_style),
+        Span::styled(prefix, prefix_style),
+        Span::styled(value, value_style),
     ])
+}
+
+fn wrapped_field_lines(
+    label: &str,
+    value: impl Into<String>,
+    value_style: Style,
+    width: usize,
+) -> Vec<Line<'static>> {
+    wrapped_prefix_lines(
+        &format!("  {label}: "),
+        value,
+        theme::styles::MUTED,
+        value_style,
+        width,
+    )
+}
+
+fn wrapped_prefix_lines(
+    prefix: &str,
+    value: impl Into<String>,
+    prefix_style: Style,
+    value_style: Style,
+    width: usize,
+) -> Vec<Line<'static>> {
+    let prefix = truncate_to_width(prefix, width);
+    let prefix_width = display_width(&prefix);
+    let value_width = width.saturating_sub(prefix_width).max(1);
+    let continuation = " ".repeat(prefix_width);
+    wrap_value(&value.into(), value_width)
+        .into_iter()
+        .enumerate()
+        .map(|(index, value)| {
+            let line_prefix = if index == 0 {
+                prefix.clone()
+            } else {
+                continuation.clone()
+            };
+            Line::from(vec![
+                Span::styled(line_prefix, prefix_style),
+                Span::styled(value, value_style),
+            ])
+        })
+        .collect()
+}
+
+fn wrap_value(value: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    let mut lines = Vec::new();
+    let mut current = String::new();
+
+    for word in value.split_whitespace() {
+        if !current.is_empty() && display_width(&current) + 1 + display_width(word) > width {
+            lines.push(std::mem::take(&mut current));
+        }
+
+        let mut remainder = word;
+        while display_width(remainder) > width {
+            let (chunk, rest) = split_at_width(remainder, width);
+            lines.push(chunk);
+            remainder = rest;
+        }
+
+        if current.is_empty() {
+            current.push_str(remainder);
+        } else {
+            current.push(' ');
+            current.push_str(remainder);
+        }
+    }
+
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
+}
+
+fn split_at_width(value: &str, width: usize) -> (String, &str) {
+    let mut used = 0;
+    let mut split_at = 0;
+    for (index, character) in value.char_indices() {
+        let character_width = UnicodeWidthChar::width(character).unwrap_or(0);
+        if split_at > 0 && used + character_width > width {
+            break;
+        }
+        used += character_width;
+        split_at = index + character.len_utf8();
+        if used >= width {
+            break;
+        }
+    }
+    if split_at == 0 {
+        let character = value.chars().next().expect("value is not empty");
+        split_at = character.len_utf8();
+    }
+    (value[..split_at].to_string(), &value[split_at..])
+}
+
+fn truncate_to_width(value: &str, width: usize) -> String {
+    if width == 0 {
+        return String::new();
+    }
+    if display_width(value) <= width {
+        return value.to_string();
+    }
+    if width == 1 {
+        return "…".to_string();
+    }
+    let (prefix, _) = split_at_width(value, width - 1);
+    format!("{prefix}…")
+}
+
+fn display_width(value: &str) -> usize {
+    UnicodeWidthStr::width(value)
 }
 
 fn list_name_style(entry: &WorktreeInfo) -> Style {
@@ -276,19 +456,7 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(100, 30)).expect("terminal");
         terminal
             .draw(|frame| {
-                let chunks = ratatui::layout::Layout::default()
-                    .direction(ratatui::layout::Direction::Horizontal)
-                    .constraints([
-                        ratatui::layout::Constraint::Percentage(
-                            theme::layout::BRANCHES_WIDTH_PERCENT,
-                        ),
-                        ratatui::layout::Constraint::Percentage(
-                            100 - theme::layout::BRANCHES_WIDTH_PERCENT,
-                        ),
-                    ])
-                    .split(frame.area());
-                render_worktrees(frame, app, chunks[0]);
-                render_worktree_details(frame, app, chunks[1]);
+                crate::tui::ui::render(frame, app);
             })
             .expect("draw");
         terminal
@@ -337,7 +505,7 @@ mod tests {
         assert!(text.contains("Status: valid / dirty"));
 
         let entry = app.selected_worktree().expect("selected worktree");
-        let lines = worktree_diagnostic_lines(entry);
+        let lines = worktree_diagnostic_lines(entry, 80);
         assert_eq!(
             diagnostic_value_style(&lines, "Current"),
             theme::branch::CURRENT
@@ -350,6 +518,8 @@ mod tests {
             diagnostic_value_style(&lines, "Cleanliness"),
             theme::styles::WARNING
         );
+        assert!(text.contains("Worktree Details"));
+        assert!(!text.contains("Work Item Details"));
         assert_eq!(
             diagnostic_value_style(&lines, "Lock"),
             theme::styles::WARNING
@@ -377,7 +547,7 @@ mod tests {
             prunable: true,
             submodules: WorktreeSubmodules::Unknown("repository unavailable".to_string()),
         };
-        let text = worktree_diagnostic_lines(&entry)
+        let text = worktree_diagnostic_lines(&entry, 80)
             .iter()
             .map(Line::to_string)
             .collect::<Vec<_>>()
@@ -479,5 +649,42 @@ mod tests {
 
         assert!(text.contains("a-very-long-worktree-name"));
         assert!(text.contains("Status: unknown / clean"));
+    }
+
+    #[test]
+    fn worktree_lines_fit_narrow_panels() {
+        let entry = WorktreeInfo {
+            identity: WorktreeIdentity::Linked {
+                name: "invalid-linked".to_string(),
+            },
+            path: "/tmp/cazdo-111-test/invalid linked".into(),
+            branch: Some("feature/invalid".to_string()),
+            detached_short_sha: None,
+            is_main: false,
+            is_current: false,
+            cleanliness: WorktreeCleanliness::Unknown(
+                "could not inspect repository at /tmp/cazdo-111-test/invalid linked".to_string(),
+            ),
+            lock_reason: None,
+            state: WorktreeState::Invalid(
+                "could not find repository at /tmp/cazdo-111-test/invalid linked".to_string(),
+            ),
+            prunable: false,
+            submodules: WorktreeSubmodules::Unknown(
+                "could not inspect repository at /tmp/cazdo-111-test/invalid linked".to_string(),
+            ),
+        };
+        let width = 32;
+
+        for line in worktree_list_lines(&entry, width)
+            .into_iter()
+            .chain(worktree_diagnostic_lines(&entry, width))
+        {
+            assert!(
+                line.width() <= width,
+                "line width {} exceeds panel width {width}: {line:?}",
+                line.width()
+            );
+        }
     }
 }

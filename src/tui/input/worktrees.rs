@@ -21,6 +21,10 @@ pub(super) fn handle_worktree_mode_key(app: &mut App, key: KeyEvent) -> Option<C
             app.update(Msg::PreviousBranch);
             None
         }
+        KeyCode::Char('d') => {
+            app.update(Msg::RequestWorktreePrune);
+            None
+        }
         KeyCode::Char('w') => {
             app.update(Msg::ToggleWorktreeView);
             None
