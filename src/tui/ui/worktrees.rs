@@ -303,7 +303,10 @@ fn wrapped_prefix_lines(
 ) -> Vec<Line<'static>> {
     let prefix = truncate_to_width(prefix, width);
     let prefix_width = display_width(&prefix);
-    let value_width = width.saturating_sub(prefix_width).max(1);
+    let value_width = width.saturating_sub(prefix_width);
+    if value_width == 0 {
+        return vec![Line::from(Span::styled(prefix, prefix_style))];
+    }
     let continuation = " ".repeat(prefix_width);
     wrap_value(&value.into(), value_width)
         .into_iter()
@@ -335,8 +338,14 @@ fn wrap_value(value: &str, width: usize) -> Vec<String> {
         let mut remainder = word;
         while display_width(remainder) > width {
             let (chunk, rest) = split_at_width(remainder, width);
-            lines.push(chunk);
-            remainder = rest;
+            if rest.len() == remainder.len() {
+                let character = remainder.chars().next().expect("value is not empty");
+                lines.push("…".to_string());
+                remainder = &remainder[character.len_utf8()..];
+            } else {
+                lines.push(chunk);
+                remainder = rest;
+            }
         }
 
         if current.is_empty() {
@@ -361,7 +370,7 @@ fn split_at_width(value: &str, width: usize) -> (String, &str) {
     let mut split_at = 0;
     for (index, character) in value.char_indices() {
         let character_width = UnicodeWidthChar::width(character).unwrap_or(0);
-        if split_at > 0 && used + character_width > width {
+        if used + character_width > width {
             break;
         }
         used += character_width;
@@ -371,8 +380,7 @@ fn split_at_width(value: &str, width: usize) -> (String, &str) {
         }
     }
     if split_at == 0 {
-        let character = value.chars().next().expect("value is not empty");
-        split_at = character.len_utf8();
+        return (String::new(), value);
     }
     (value[..split_at].to_string(), &value[split_at..])
 }
@@ -700,5 +708,18 @@ mod tests {
                 line.width()
             );
         }
+    }
+
+    #[test]
+    fn wrapped_lines_fit_narrow_and_wide_values() {
+        let lines = wrapped_prefix_lines("abc", "x", Style::default(), Style::default(), 3);
+        assert!(
+            lines.iter().all(|line| line.width() <= 3),
+            "prefix-filled lines must stay within their width: {lines:?}"
+        );
+
+        let truncated = truncate_to_width("日本語", 2);
+        assert!(display_width(&truncated) <= 2);
+        assert!(truncated.ends_with('…'));
     }
 }
