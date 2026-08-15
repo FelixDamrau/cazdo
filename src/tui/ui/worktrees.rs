@@ -14,7 +14,8 @@ use crate::tui::theme;
 /// Render the inventory list. Selection is deliberately independent from the
 /// branch list so returning to the branch view preserves its selection.
 pub fn render_worktrees(frame: &mut Frame, app: &App, area: Rect) {
-    let content_width = area.width.saturating_sub(2) as usize;
+    // Reserve both borders and the selected-row highlight symbol.
+    let content_width = area.width.saturating_sub(4) as usize;
     let items: Vec<ListItem> = app
         .worktrees()
         .iter()
@@ -649,6 +650,19 @@ mod tests {
 
         assert!(text.contains("a-very-long-worktree-name"));
         assert!(text.contains("Status: unknown / clean"));
+
+        let path_row = terminal
+            .backend()
+            .buffer()
+            .content()
+            .chunks(42)
+            .nth(3)
+            .expect("path row");
+        let path_content: String = path_row[1..41].iter().map(|cell| cell.symbol()).collect();
+        assert!(
+            path_content.trim_end().ends_with('…'),
+            "path row should retain its truncation marker: {path_content:?}"
+        );
     }
 
     #[test]
