@@ -235,12 +235,17 @@ pub(crate) fn inventory(repo: &Repository) -> Result<Vec<WorktreeInfo>> {
                     prunable,
                 ));
             }
-            Err(error) => entries.push(unknown_entry(
-                identity,
-                linked_worktree_path(repo, name).unwrap_or_default(),
-                current_path.as_deref(),
-                format!("unable to open linked worktree: {error}"),
-            )),
+            Err(error) => {
+                let (branch, detached_short_sha) = metadata_head_identity(repo, name);
+                entries.push(unknown_entry(
+                    identity,
+                    linked_worktree_fallback_path(repo, name),
+                    current_path.as_deref(),
+                    branch,
+                    detached_short_sha,
+                    format!("unable to open linked worktree: {error}"),
+                ));
+            }
         }
     }
 
@@ -348,6 +353,8 @@ fn unknown_entry(
     identity: WorktreeIdentity,
     path: PathBuf,
     current_path: Option<&Path>,
+    branch: Option<String>,
+    detached_short_sha: Option<String>,
     error: String,
 ) -> WorktreeInfo {
     WorktreeInfo {
@@ -355,8 +362,8 @@ fn unknown_entry(
         is_main: false,
         identity,
         path,
-        branch: None,
-        detached_short_sha: None,
+        branch,
+        detached_short_sha,
         cleanliness: WorktreeCleanliness::Unknown(error.clone()),
         lock_reason: None,
         submodules: WorktreeSubmodules::Unknown(error.clone()),
@@ -366,10 +373,10 @@ fn unknown_entry(
 }
 
 fn metadata_head_identity(repo: &Repository, name: &str) -> (Option<String>, Option<String>) {
-    let Some(common_git_dir) = common_git_dir(repo) else {
+    let Some(admin_path) = linked_worktree_admin_path(repo, name) else {
         return (None, None);
     };
-    let head_path = common_git_dir.join("worktrees").join(name).join("HEAD");
+    let head_path = admin_path.join("HEAD");
     let Ok(head) = fs::read_to_string(head_path) else {
         return (None, None);
     };
@@ -384,15 +391,24 @@ fn metadata_head_identity(repo: &Repository, name: &str) -> (Option<String>, Opt
     }
 }
 
+fn linked_worktree_admin_path(repo: &Repository, name: &str) -> Option<PathBuf> {
+    common_git_dir(repo).map(|common_git_dir| common_git_dir.join("worktrees").join(name))
+}
+
+fn linked_worktree_fallback_path(repo: &Repository, name: &str) -> PathBuf {
+    linked_worktree_path(repo, name)
+        .or_else(|| linked_worktree_admin_path(repo, name))
+        .unwrap_or_else(|| PathBuf::from(name))
+}
+
 fn linked_worktree_path(repo: &Repository, name: &str) -> Option<PathBuf> {
-    let common_git_dir = common_git_dir(repo)?;
-    let gitdir_path = common_git_dir.join("worktrees").join(name).join("gitdir");
-    let gitdir = fs::read_to_string(gitdir_path).ok()?;
+    let admin_path = linked_worktree_admin_path(repo, name)?;
+    let gitdir = fs::read_to_string(admin_path.join("gitdir")).ok()?;
     let gitdir = PathBuf::from(gitdir.trim());
     let gitdir = if gitdir.is_absolute() {
         gitdir
     } else {
-        common_git_dir.join(gitdir)
+        admin_path.join(gitdir)
     };
     gitdir.parent().map(Path::to_path_buf)
 }
@@ -591,6 +607,64 @@ mod tests {
             WorktreeCleanliness::Dirty(vec![WorktreeDirtyReason::Index])
                 .dirty_reasons()
                 .contains(&WorktreeDirtyReason::Index)
+        );
+    }
+
+    #[test]
+    fn linked_metadata_fallback_preserves_identity_and_admin_path() {
+        let dir = tempdir().expect("temp directory");
+        let repo = Repository::init(dir.path()).expect("repository should initialize");
+        let name = "broken";
+        let admin_path = repo.path().join("worktrees").join(name);
+        fs::create_dir_all(&admin_path).expect("worktree metadata directory should be created");
+        fs::write(
+            admin_path.join("HEAD"),
+            "ref: refs/heads/feature/fallback\n",
+        )
+        .expect("worktree HEAD metadata should be written");
+
+        let (branch, detached_short_sha) = metadata_head_identity(&repo, name);
+        let entry = unknown_entry(
+            WorktreeIdentity::Linked {
+                name: name.to_string(),
+            },
+            linked_worktree_fallback_path(&repo, name),
+            None,
+            branch,
+            detached_short_sha,
+            "metadata unreadable".to_string(),
+        );
+
+        assert_eq!(entry.path, admin_path);
+        assert_eq!(entry.branch.as_deref(), Some("feature/fallback"));
+        assert_eq!(entry.ref_display(), "feature/fallback");
+        assert!(matches!(entry.state, WorktreeState::Unknown(_)));
+    }
+
+    #[test]
+    fn linked_worktree_path_resolves_relative_gitdir_from_admin_directory() {
+        let dir = tempdir().expect("temp directory");
+        let repo = Repository::init(dir.path()).expect("repository should initialize");
+        let linked_path = dir.path().join("linked");
+        fs::create_dir_all(&linked_path).expect("linked worktree directory should be created");
+        fs::write(linked_path.join(".git"), "gitdir: placeholder\n")
+            .expect("linked worktree git file should be written");
+
+        let name = "relative";
+        let admin_path = repo.path().join("worktrees").join(name);
+        fs::create_dir_all(&admin_path).expect("worktree metadata directory should be created");
+        fs::write(admin_path.join("gitdir"), "../../../linked/.git\n")
+            .expect("relative gitdir metadata should be written");
+
+        let resolved = linked_worktree_path(&repo, name)
+            .expect("relative gitdir metadata should resolve")
+            .canonicalize()
+            .expect("resolved worktree path should exist");
+        assert_eq!(
+            resolved,
+            linked_path
+                .canonicalize()
+                .expect("linked worktree path should exist")
         );
     }
 }
