@@ -1207,6 +1207,36 @@ mod tests {
     }
 
     #[test]
+    fn test_list_worktrees_resolves_main_path_from_external_git_dir() {
+        let (repo, repo_root, repo_path, oid) =
+            init_test_repo_with_external_git_dir("worktree-inventory-external-git-dir");
+        let linked_path = repo_path.with_extension("linked-wt");
+        add_worktree_at(
+            &repo,
+            oid,
+            "feature/external-git-dir",
+            "linked-worktree",
+            &linked_path,
+        );
+        let linked_repo = LiveGitRepo {
+            repo: Repository::open(&linked_path).expect("linked repository should open"),
+        };
+
+        let inventory = linked_repo
+            .list_worktrees()
+            .expect("linked worktree inventory should succeed");
+        let main = inventory
+            .iter()
+            .find(|entry| entry.is_main)
+            .expect("main worktree should be listed");
+
+        assert!(worktree_paths_match(&main.path, &repo_path));
+        assert!(!main.is_current);
+
+        let _ = fs::remove_dir_all(repo_root);
+    }
+
+    #[test]
     fn test_list_worktrees_preserves_unicode_and_spaced_paths() {
         let (repo, repo_path, oid) = init_test_repo("worktree-inventory-unicode-spaces");
         let path = repo_path.join("linked tree über");
@@ -1257,6 +1287,44 @@ mod tests {
         drop(tree);
 
         (LiveGitRepo { repo }, repo_path, oid)
+    }
+
+    fn init_test_repo_with_external_git_dir(
+        name: &str,
+    ) -> (LiveGitRepo, PathBuf, PathBuf, git2::Oid) {
+        let repo_root = std::env::temp_dir().join(format!(
+            "cazdo-{name}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time should be after epoch")
+                .as_nanos()
+        ));
+        let repo_path = repo_root.join("worktree");
+        let git_dir = repo_root.join("git-dir");
+
+        fs::create_dir_all(&repo_path).expect("temp repo dir should be created");
+        let mut options = git2::RepositoryInitOptions::new();
+        options.workdir_path(&repo_path);
+        let repo =
+            Repository::init_opts(&git_dir, &options).expect("separate git dir should initialize");
+
+        fs::write(repo_path.join("README.md"), "hello\n").expect("file should be written");
+
+        let mut index = repo.index().expect("repo index should load");
+        index
+            .add_path(Path::new("README.md"))
+            .expect("file should be staged");
+        let tree_id = index.write_tree().expect("tree should write");
+        let tree = repo.find_tree(tree_id).expect("tree should load");
+        let signature =
+            git2::Signature::now("Test User", "test@example.com").expect("signature should create");
+        let oid = repo
+            .commit(Some("HEAD"), &signature, &signature, "init", &tree, &[])
+            .expect("commit should succeed");
+        drop(tree);
+
+        (LiveGitRepo { repo }, repo_root, repo_path, oid)
     }
 
     fn add_worktree_at(

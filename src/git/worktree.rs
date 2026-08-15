@@ -502,6 +502,11 @@ fn main_worktree_path(repo: &Repository) -> Result<PathBuf> {
     }
 
     let common = common_git_dir(repo).context("linked worktree has no common git directory")?;
+    if let Ok(main_repo) = Repository::open(&common)
+        && let Some(workdir) = main_repo.workdir()
+    {
+        return Ok(workdir.to_path_buf());
+    }
     let common = fs::canonicalize(&common).with_context(|| {
         format!(
             "failed to resolve common git directory '{}'",
