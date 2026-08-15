@@ -57,6 +57,10 @@ fn worktree_list_item(entry: &WorktreeInfo) -> ListItem<'static> {
                 theme::styles::TEXT,
             ),
         ]),
+        Line::from(vec![
+            Span::styled("  Status: ", theme::styles::MUTED),
+            Span::styled(list_status(entry), status_style(entry)),
+        ]),
     ];
     if let Some(reason) = &entry.lock_reason {
         lines.push(Line::from(vec![
@@ -187,6 +191,14 @@ fn cleanliness_detail(cleanliness: &WorktreeCleanliness) -> String {
     }
 }
 
+fn list_status(entry: &WorktreeInfo) -> String {
+    let cleanliness = match &entry.cleanliness {
+        WorktreeCleanliness::Clean => "clean",
+        WorktreeCleanliness::Dirty(_) => "dirty",
+        WorktreeCleanliness::Unknown(_) => "unknown",
+    };
+    format!("{} / {cleanliness}", entry.state.label())
+}
 fn submodule_detail(submodules: &WorktreeSubmodules) -> String {
     match submodules {
         WorktreeSubmodules::None => "none".to_string(),
@@ -322,7 +334,7 @@ mod tests {
         assert!(text.contains("dirty"));
         assert!(text.contains("in use"));
         assert!(text.contains("Submodules: present"));
-        assert!(!text.contains("valid/dirty"));
+        assert!(text.contains("Status: valid / dirty"));
 
         let entry = app.selected_worktree().expect("selected worktree");
         let lines = worktree_diagnostic_lines(entry);
@@ -375,7 +387,7 @@ mod tests {
     }
 
     #[test]
-    fn inventory_rows_show_markers_path_head_and_stale_state() {
+    fn inventory_rows_show_markers_path_head_and_status() {
         let mut app = App::new(vec![], vec![]);
         app.update(Msg::SetWorktrees(vec![
             WorktreeInfo {
@@ -428,11 +440,11 @@ mod tests {
         assert!(text.contains("Path: /tmp/missing tree/雪"));
         assert!(text.contains("Lock: owned by editor"));
         assert!(text.contains("Prunable: yes"));
-        assert!(!text.contains("valid/clean"));
-        assert!(!text.contains("missing/unknown/locked/prunable"));
+        assert!(text.contains("Status: valid / clean"));
+        assert!(text.contains("Status: missing / unknown"));
     }
     #[test]
-    fn inventory_names_use_status_colors_without_redundant_labels() {
+    fn inventory_rows_show_compact_status_labels_and_colors() {
         let entry = WorktreeInfo {
             identity: WorktreeIdentity::Linked {
                 name: "a-very-long-worktree-name-that-would-hide-state".to_string(),
@@ -466,6 +478,6 @@ mod tests {
             .collect();
 
         assert!(text.contains("a-very-long-worktree-name"));
-        assert!(!text.contains("unknown/clean"));
+        assert!(text.contains("Status: unknown / clean"));
     }
 }
