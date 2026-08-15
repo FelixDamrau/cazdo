@@ -59,13 +59,6 @@ pub(super) fn execute_prune_branch(app: &mut App, git_repo: &GitRepo, branch: &B
     }
 }
 
-pub(super) fn refresh_worktrees(app: &mut App, git_repo: &GitRepo) {
-    match git_repo.list_worktrees() {
-        Ok(worktrees) => app.update(Msg::SetWorktrees(worktrees)),
-        Err(error) => app.update(Msg::SetWorktreeError(error.to_string())),
-    }
-}
-
 pub(super) fn execute_checkout_branch(app: &mut App, git_repo: &GitRepo, branch: &BranchInfo) {
     if let Some(message) = stale_remote_checkout_error_message(branch) {
         app.set_status_message(message, true, timing::STATUS_DURATION_SECS);
@@ -176,10 +169,7 @@ fn open_url(url: &str) -> Result<()> {
 mod tests {
     use super::*;
     use crate::azure_devops::{WorkItem, WorkItemState, WorkItemType};
-    use crate::git::{
-        FixtureGitRepo, WorktreeCleanliness, WorktreeIdentity, WorktreeInfo, WorktreeState,
-        WorktreeSubmodules,
-    };
+    use crate::git::FixtureGitRepo;
     use crate::tui::app::{AppMode, Msg};
 
     #[test]
@@ -518,53 +508,6 @@ mod tests {
             app.mode(),
             AppMode::ErrorPopup(message) if message.contains("uncommitted changes")
         ));
-    }
-
-    #[test]
-    fn test_refresh_worktrees_replaces_inventory() {
-        let existing = fixture_worktree("old");
-        let replacement = fixture_worktree("new");
-        let mut app = App::new(vec![], vec![]);
-        app.update(Msg::SetWorktrees(vec![existing]));
-        let git_repo = GitRepo::fixture(
-            FixtureGitRepo::new().with_worktrees_result(Ok(vec![replacement.clone()])),
-        );
-
-        refresh_worktrees(&mut app, &git_repo);
-
-        assert_eq!(app.worktrees(), &[replacement]);
-    }
-
-    #[test]
-    fn test_refresh_worktrees_reports_inventory_error() {
-        let mut app = App::new(vec![], vec![]);
-        let git_repo = GitRepo::fixture(
-            FixtureGitRepo::new().with_worktrees_result(Err("metadata unreadable".to_string())),
-        );
-
-        refresh_worktrees(&mut app, &git_repo);
-
-        let status = app.get_status_message().expect("error status");
-        assert!(status.is_error);
-        assert_eq!(status.text, "metadata unreadable");
-    }
-
-    fn fixture_worktree(name: &str) -> WorktreeInfo {
-        WorktreeInfo {
-            identity: WorktreeIdentity::Linked {
-                name: name.to_string(),
-            },
-            path: format!("/tmp/{name}").into(),
-            branch: Some(format!("feature/{name}")),
-            detached_short_sha: None,
-            is_main: false,
-            is_current: false,
-            cleanliness: WorktreeCleanliness::Clean,
-            lock_reason: None,
-            state: WorktreeState::Valid,
-            prunable: false,
-            submodules: WorktreeSubmodules::None,
-        }
     }
 
     fn local_branch(name: &str) -> BranchInfo {

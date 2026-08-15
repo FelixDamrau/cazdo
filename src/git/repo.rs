@@ -119,7 +119,6 @@ pub struct GitRepo {
 
 pub(crate) trait GitBackend {
     fn list_branches(&self) -> Result<Vec<RepoBranch>>;
-    fn list_worktrees(&self) -> Result<Vec<WorktreeInfo>>;
     fn get_branch_status(
         &self,
         scope: BranchScope,
@@ -159,10 +158,6 @@ impl GitRepo {
 
     pub fn list_branches(&self) -> Result<Vec<RepoBranch>> {
         self.backend.list_branches()
-    }
-
-    pub fn list_worktrees(&self) -> Result<Vec<WorktreeInfo>> {
-        self.backend.list_worktrees()
     }
 
     pub fn get_branch_status(
@@ -206,6 +201,12 @@ impl GitRepo {
         self.backend.repo_dir()
     }
 
+    pub(crate) fn list_worktrees_at(path: &Path) -> Result<Vec<WorktreeInfo>> {
+        let repo = Repository::discover(path)
+            .with_context(|| format!("Failed to discover repository at '{}'", path.display()))?;
+        inventory(&repo)
+    }
+
     pub(crate) fn current_local_branch_name(&self) -> Result<Option<String>> {
         self.backend.current_local_branch_name()
     }
@@ -227,13 +228,13 @@ impl LiveGitRepo {
             .context("Not a git repository (or any of the parent directories)")?;
         Ok(Self { repo })
     }
-}
-
-impl GitBackend for LiveGitRepo {
-    /// Get all local branches plus origin remote branches.
+    #[cfg(test)]
     fn list_worktrees(&self) -> Result<Vec<WorktreeInfo>> {
         inventory(&self.repo)
     }
+}
+
+impl GitBackend for LiveGitRepo {
     fn list_branches(&self) -> Result<Vec<RepoBranch>> {
         let current = self.current_local_branch_name().ok().flatten();
         let mut branches: Vec<RepoBranch> = Vec::new();
