@@ -41,6 +41,7 @@ pub fn render_worktrees(frame: &mut Frame, app: &App, area: Rect) {
         .iter()
         .map(|entry| worktree_list_item(entry, content_width))
         .collect();
+    let item_heights: Vec<usize> = items.iter().map(ListItem::height).collect();
 
     let list = List::new(items)
         .block(block)
@@ -51,6 +52,12 @@ pub fn render_worktrees(frame: &mut Frame, app: &App, area: Rect) {
         state.select(Some(app.worktree_selected_index()));
     }
     frame.render_stateful_widget(list, area, &mut state);
+
+    // Scrollbar counts lines, ListState::offset() counts items — convert.
+    let total_lines: usize = item_heights.iter().sum();
+    let line_offset: usize = item_heights.iter().take(state.offset()).sum();
+    let inner_area = Block::default().borders(Borders::ALL).inner(area);
+    super::helpers::render_scrollbar(frame, inner_area, total_lines, line_offset);
 }
 
 fn worktree_list_item(entry: &WorktreeInfo, width: usize) -> ListItem<'static> {
@@ -627,6 +634,55 @@ mod tests {
         assert!(text.contains("Prunable: yes"));
         assert!(text.contains("Status: valid / clean"));
         assert!(text.contains("Status: missing / unknown"));
+    }
+    #[test]
+    fn multi_line_inventory_items_show_scrollbar() {
+        let mut app = App::new(vec![], vec![]);
+        app.update(Msg::SetWorktrees(vec![
+            WorktreeInfo {
+                identity: WorktreeIdentity::Main,
+                path: "/repo".into(),
+                branch: Some("main".to_string()),
+                detached_short_sha: None,
+                is_main: true,
+                is_current: true,
+                cleanliness: WorktreeCleanliness::Clean,
+                lock_reason: None,
+                state: WorktreeState::Valid,
+                prunable: false,
+                submodules: WorktreeSubmodules::None,
+            },
+            WorktreeInfo {
+                identity: WorktreeIdentity::Linked {
+                    name: "feature".to_string(),
+                },
+                path: "/repo-feature".into(),
+                branch: Some("feature".to_string()),
+                detached_short_sha: None,
+                is_main: false,
+                is_current: false,
+                cleanliness: WorktreeCleanliness::Clean,
+                lock_reason: None,
+                state: WorktreeState::Valid,
+                prunable: false,
+                submodules: WorktreeSubmodules::None,
+            },
+        ]));
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 8)).expect("terminal");
+        terminal
+            .draw(|frame| render_worktrees(frame, &app, frame.area()))
+            .expect("draw");
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+
+        assert!(text.contains('↑'));
+        assert!(text.contains('↓'));
     }
     #[test]
     fn inventory_rows_show_compact_status_labels_and_colors() {
