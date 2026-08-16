@@ -30,14 +30,8 @@ impl App {
         self.worktree_selected_index
     }
 
-    pub(super) fn set_worktrees(&mut self, mut worktrees: Vec<WorktreeInfo>) {
+    pub(super) fn set_worktrees(&mut self, worktrees: Vec<WorktreeInfo>) {
         let selected_identity = self.selected_worktree().map(|entry| entry.identity.clone());
-        worktrees.sort_by(|left, right| {
-            left.is_main
-                .cmp(&right.is_main)
-                .reverse()
-                .then_with(|| left.name().cmp(right.name()))
-        });
         self.worktrees = worktrees;
         self.worktree_selected_index = selected_identity
             .and_then(|identity| {
