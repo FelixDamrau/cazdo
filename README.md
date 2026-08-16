@@ -74,7 +74,7 @@ You can set your Azure DevOps PAT in two ways (checked in order):
    export CAZDO_PAT="your-pat-token"
    ```
 
-2. **Config File** (Recommended for daily use):
+2. **Config File** (Recommended for daily use):7NcT71f3xP1WkWoAM8GV2L393Pp29Yydda9o072lcAvWrz65#4v4pqSU3y49QNQQbz1XLPtKKVgG43BHUjRCYF1J8RSs
    Add it to `config.toml`:
    ```toml
    [azure_devops]
@@ -166,13 +166,13 @@ cazdo update
 
 Press `w` to toggle between the branch and worktree views.
 
-| Key                      | Action                                            |
-| ------------------------ | ------------------------------------------------- |
-| `j` / `k` / `Arrow keys` | Navigate worktrees                                |
-| `d`                      | Prune missing worktree metadata with confirmation |
-| `r`                      | Refresh worktree inventory                        |
-| `w`                      | Return to branch view                             |
-| `q` / `Esc`              | Quit                                              |
+| Key                      | Action                                                                   |
+| ------------------------ | ------------------------------------------------------------------------ |
+| `j` / `k` / `Arrow keys` | Navigate worktrees                                                       |
+| `d`                      | Remove clean linked worktree or prune missing metadata with confirmation |
+| `r`                      | Refresh worktree inventory                                               |
+| `w`                      | Return to branch view                                                    |
+| `q` / `Esc`              | Quit                                                                     |
 
 ## Protected Branches
 
