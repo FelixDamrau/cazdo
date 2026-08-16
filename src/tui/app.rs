@@ -67,7 +67,7 @@ pub enum AppMode {
     Normal,
     ConfirmDelete { branch_key: String },
     ConfirmWorktreePrune { worktree: WorktreeInfo },
-    ConfirmRemoveWorktree { worktree: Box<WorktreeInfo> },
+    ConfirmRemoveWorktree { worktree: WorktreeInfo },
     ErrorPopup(String),
 }
 
