@@ -1859,6 +1859,92 @@ mod tests {
     }
 
     #[test]
+    fn test_remove_worktree_revalidates_live_state_after_clean_snapshot() {
+        let (repo, repo_path, oid) = init_test_repo("remove-worktree-live-validation");
+
+        let dirty_path = repo_path.join("live-dirty");
+        add_worktree_at(&repo, oid, "feature/live-dirty", "live-dirty", &dirty_path);
+        let dirty = linked_entry(&repo, "live-dirty");
+        assert!(dirty.state.is_valid());
+        assert!(dirty.cleanliness.is_clean());
+        assert_eq!(dirty.lock_reason, None);
+        assert_eq!(dirty.submodules, WorktreeSubmodules::None);
+        assert!(!dirty.prunable);
+        fs::write(dirty_path.join("README.md"), "changed after snapshot\n")
+            .expect("tracked file should be modified after snapshot");
+
+        let dirty_error = repo
+            .remove_worktree(&dirty)
+            .expect_err("live cleanliness validation should reject the worktree");
+        assert!(dirty_error.to_string().contains("uncommitted changes"));
+        assert!(dirty_path.exists());
+        assert!(
+            repo.repo.find_worktree("live-dirty").is_ok(),
+            "live dirtiness rejection must preserve worktree metadata"
+        );
+
+        let locked_path = repo_path.join("live-locked");
+        add_worktree_at(
+            &repo,
+            oid,
+            "feature/live-locked",
+            "live-locked",
+            &locked_path,
+        );
+        let locked = linked_entry(&repo, "live-locked");
+        assert!(locked.state.is_valid());
+        assert!(locked.cleanliness.is_clean());
+        assert_eq!(locked.lock_reason, None);
+        assert_eq!(locked.submodules, WorktreeSubmodules::None);
+        assert!(!locked.prunable);
+        repo.repo
+            .find_worktree("live-locked")
+            .expect("locked worktree should exist")
+            .lock(Some("acquired after snapshot"))
+            .expect("worktree should lock after snapshot");
+
+        let locked_error = repo
+            .remove_worktree(&locked)
+            .expect_err("live lock validation should reject the worktree");
+        assert!(locked_error.to_string().contains("locked"));
+        assert!(locked_path.exists());
+        assert!(
+            repo.repo.find_worktree("live-locked").is_ok(),
+            "live lock rejection must preserve worktree metadata"
+        );
+
+        let missing_path = repo_path.join("live-missing");
+        add_worktree_at(
+            &repo,
+            oid,
+            "feature/live-missing",
+            "live-missing",
+            &missing_path,
+        );
+        let missing = linked_entry(&repo, "live-missing");
+        assert!(missing.state.is_valid());
+        assert!(missing.cleanliness.is_clean());
+        assert_eq!(missing.lock_reason, None);
+        assert_eq!(missing.submodules, WorktreeSubmodules::None);
+        assert!(!missing.prunable);
+        fs::remove_dir_all(&missing_path).expect("worktree path should disappear after snapshot");
+
+        let missing_error = repo
+            .remove_worktree(&missing)
+            .expect_err("live metadata validation should reject a missing worktree");
+        assert!(missing_error.to_string().contains("invalid"));
+        assert!(!missing_path.exists());
+        assert!(
+            repo.repo.find_worktree("live-missing").is_ok(),
+            "live missing-path rejection must preserve worktree metadata"
+        );
+
+        let _ = fs::remove_dir_all(&dirty_path);
+        let _ = fs::remove_dir_all(&locked_path);
+        let _ = fs::remove_dir_all(repo_path);
+    }
+
+    #[test]
     fn test_remove_worktree_rejects_missing_invalid_and_status_unknown_entries() {
         let (repo, repo_path, oid) = init_test_repo("remove-worktree-invalid");
 
