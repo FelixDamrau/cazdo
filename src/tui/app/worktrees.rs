@@ -1,4 +1,4 @@
-use super::{App, AppMode};
+use super::App;
 use crate::git::{WorktreeInfo, validate_worktree_prune, validate_worktree_removal};
 use crate::tui::theme::timing;
 
@@ -13,13 +13,6 @@ impl App {
 
     pub fn selected_worktree(&self) -> Option<&WorktreeInfo> {
         self.worktrees.get(self.worktree_selected_index)
-    }
-
-    pub fn confirm_worktree_prune(&self) -> Option<&WorktreeInfo> {
-        match &self.mode {
-            AppMode::ConfirmWorktreePrune { worktree } => Some(worktree),
-            _ => None,
-        }
     }
 
     pub(super) fn worktree_prune_error(entry: &WorktreeInfo) -> Result<(), String> {
@@ -44,13 +37,6 @@ impl App {
             return None;
         };
         Some(worktree.clone())
-    }
-
-    pub fn remove_worktree_confirmation_details(&self) -> Option<&WorktreeInfo> {
-        let super::AppMode::ConfirmRemoveWorktree { worktree } = &self.mode else {
-            return None;
-        };
-        Some(worktree)
     }
 
     pub fn worktree_selected_index(&self) -> usize {
