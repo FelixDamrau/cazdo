@@ -119,6 +119,7 @@ pub struct DetailsMetrics {
 /// `Msg` is for pure `App` state transitions. Work that needs external side
 /// effects, such as git operations or opening a browser, should stay outside
 /// `App::update` and feed the resulting state change back through a message.
+#[derive(Debug, Clone)]
 pub enum Msg {
     NextBranch,
     PreviousBranch,
