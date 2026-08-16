@@ -508,9 +508,12 @@ mod tests {
         handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('j')));
 
         assert!(handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('d'))).is_none());
-        let confirmation = app
-            .confirm_worktree_prune()
-            .expect("missing worktree should enter confirmation mode");
+        let AppMode::ConfirmWorktreePrune {
+            worktree: confirmation,
+        } = app.mode()
+        else {
+            panic!("missing worktree should enter confirmation mode");
+        };
         assert_eq!(confirmation.path, entry.path);
         assert_eq!(confirmation.ref_display(), "feature/preserved");
 
@@ -542,7 +545,7 @@ mod tests {
             app.update(Msg::ToggleWorktreeView);
 
             assert!(handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('d'))).is_none());
-            assert!(app.confirm_worktree_prune().is_none());
+            assert!(matches!(app.mode(), AppMode::Normal));
             assert!(
                 app.get_status_message()
                     .expect("rejection should set status")
@@ -568,7 +571,7 @@ mod tests {
 
             handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('d')));
 
-            assert!(app.confirm_worktree_prune().is_none());
+            assert!(matches!(app.mode(), AppMode::Normal));
             let status = app
                 .get_status_message()
                 .expect("rejection should set status");
@@ -588,8 +591,6 @@ mod tests {
 
         assert!(handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('d'))).is_none());
         assert!(app.is_normal_mode());
-        assert!(app.confirm_worktree_prune().is_none());
-        assert!(app.remove_worktree_confirmation_details().is_none());
 
         let status = app
             .get_status_message()
@@ -613,8 +614,6 @@ mod tests {
 
         assert!(handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('d'))).is_none());
         assert!(app.is_normal_mode());
-        assert!(app.confirm_worktree_prune().is_none());
-        assert!(app.remove_worktree_confirmation_details().is_none());
 
         let status = app
             .get_status_message()
@@ -639,9 +638,10 @@ mod tests {
         handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('j')));
 
         assert!(handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('d'))).is_none());
-        let confirmed_worktree = app
-            .remove_worktree_confirmation_details()
-            .expect("d should enter worktree confirmation");
+        let confirmed_worktree = match app.mode() {
+            AppMode::ConfirmRemoveWorktree { worktree } => worktree,
+            _ => panic!("d should enter worktree confirmation"),
+        };
         assert_eq!(
             confirmed_worktree.path,
             std::path::PathBuf::from("/tmp/fixture")
