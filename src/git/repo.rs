@@ -1086,6 +1086,20 @@ mod tests {
     }
 
     #[test]
+    fn test_checked_out_worktree_path_skips_invalid_worktree() {
+        let (repo, repo_path, oid) = init_test_repo("invalid-worktree");
+        let worktree_path = add_worktree_for_branch(&repo, &repo_path, oid, "feature/test");
+        fs::remove_dir_all(&worktree_path).expect("worktree dir should be removed");
+
+        let checked_out_path = repo
+            .checked_out_worktree_path("feature/test")
+            .expect("worktree lookup should succeed");
+
+        let _ = fs::remove_dir_all(repo_path);
+        assert_eq!(checked_out_path, None);
+    }
+
+    #[test]
     fn test_list_worktrees_synthesizes_main_and_preserves_linked_identity() {
         let (repo, repo_path, oid) = init_test_repo("worktree-inventory");
         let worktree_path = add_worktree_for_branch(&repo, &repo_path, oid, "feature/test");
