@@ -110,14 +110,13 @@ async fn run_loop(
                     );
                 }
                 Command::RemoveWorktree(worktree) => {
-                    if execute_remove_worktree(app, git_repo, &worktree) {
-                        trigger_worktree_refresh(
-                            git_repo,
-                            &tx,
-                            &mut worktree_refresh_pending,
-                            &mut worktree_refresh_requested,
-                        );
-                    }
+                    execute_remove_worktree(app, git_repo, &worktree);
+                    trigger_worktree_refresh(
+                        git_repo,
+                        &tx,
+                        &mut worktree_refresh_pending,
+                        &mut worktree_refresh_requested,
+                    );
                 }
                 Command::Refresh(wi_id) => {
                     pending_fetches.remove(&wi_id);
