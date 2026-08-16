@@ -1,6 +1,8 @@
 use std::collections::HashSet;
+use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context, Result, bail};
 use git2::{BranchType, Repository, WorktreeLockStatus, WorktreePruneOptions};
@@ -750,6 +752,112 @@ impl LiveGitRepo {
     }
 }
 
+static REMOVAL_PROBE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn preflight_worktree_removal(path: &Path) -> Result<()> {
+    let metadata = fs::metadata(path).with_context(|| {
+        format!(
+            "Cannot remove worktree '{}': unable to access its directory before removal",
+            path.display()
+        )
+    })?;
+    if !metadata.is_dir() {
+        bail!(
+            "Cannot remove worktree '{}': its path is not a directory",
+            path.display()
+        );
+    }
+
+    #[cfg(windows)]
+    ensure_worktree_tree_writable(path)?;
+
+    let probe_id = REMOVAL_PROBE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let mut probe_path = None;
+    for attempt in 0..16 {
+        let candidate = path.join(format!(
+            ".cazdo-removal-probe-{}-{probe_id}-{attempt}",
+            std::process::id()
+        ));
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(file) => {
+                drop(file);
+                probe_path = Some(candidate);
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "Cannot remove worktree '{}': its directory is not writable",
+                        path.display()
+                    )
+                });
+            }
+        }
+    }
+
+    let Some(probe_path) = probe_path else {
+        bail!(
+            "Cannot remove worktree '{}': unable to create a unique writability probe",
+            path.display()
+        );
+    };
+    fs::remove_file(&probe_path).with_context(|| {
+        format!(
+            "Cannot remove worktree '{}': unable to clean up its writability probe",
+            path.display()
+        )
+    })?;
+    Ok(())
+}
+
+#[cfg(windows)]
+fn ensure_worktree_tree_writable(path: &Path) -> Result<()> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.permissions().readonly() {
+        bail!(
+            "Cannot remove worktree '{}': its path or contents are read-only",
+            path.display()
+        );
+    }
+    if metadata.file_type().is_dir() {
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            ensure_worktree_tree_writable(&entry.path())?;
+        }
+    }
+    Ok(())
+}
+
+fn worktree_metadata_missing(repo: &Repository, name: &str) -> bool {
+    if repo.find_worktree(name).is_err() {
+        return true;
+    }
+
+    let common_git_dir = if repo.is_worktree() {
+        let linked_git_dir = repo.path();
+        let Some(common) = fs::read_to_string(linked_git_dir.join("commondir")).ok() else {
+            return false;
+        };
+        let common = PathBuf::from(common.trim());
+        if common.is_absolute() {
+            common
+        } else {
+            linked_git_dir.join(common)
+        }
+    } else {
+        repo.path().to_path_buf()
+    };
+    matches!(
+        fs::metadata(common_git_dir.join("worktrees").join(name)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound
+    )
+}
+
 fn remove_linked_worktree(repo: &Repository, selected: &WorktreeInfo) -> Result<()> {
     let name = validate_worktree_removal(selected).map_err(anyhow::Error::msg)?;
     let worktree = find_registered_worktree(repo, selected, name)?;
@@ -757,12 +865,22 @@ fn remove_linked_worktree(repo: &Repository, selected: &WorktreeInfo) -> Result<
     validate_linked_worktree(&worktree, selected)?;
 
     let actual_path = worktree.path();
+    preflight_worktree_removal(actual_path)?;
+
     // GIT_WORKTREE_PRUNE_VALID allows pruning a still-valid worktree; this is intentional.
     let mut options = WorktreePruneOptions::new();
     options.valid(true).working_tree(true);
-    worktree
-        .prune(Some(&mut options))
-        .with_context(|| format!("Failed to remove worktree '{}'", actual_path.display()))?;
+    if let Err(error) = worktree.prune(Some(&mut options)) {
+        if worktree_metadata_missing(repo, name) {
+            anyhow::bail!(
+                "Worktree '{}' was deregistered but its directory could not be fully deleted ({}). Remove it manually.",
+                actual_path.display(),
+                error
+            );
+        }
+        return Err(error)
+            .with_context(|| format!("Failed to remove worktree '{}'", actual_path.display()));
+    }
     Ok(())
 }
 
