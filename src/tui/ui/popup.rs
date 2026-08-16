@@ -62,6 +62,27 @@ pub fn render_worktree_prune_confirm(frame: &mut Frame, path: &str, reference: &
     let area = centered_rect(frame.area());
     render_popup_impl(frame, " Prune Worktree Metadata ", content, area);
 }
+/// Render the confirmation popup for removing a linked worktree.
+pub fn render_remove_worktree_popup(frame: &mut Frame, path: &std::path::Path, ref_display: &str) {
+    let content = vec![
+        Line::from(""),
+        Line::from(Span::raw("Remove linked worktree?")),
+        Line::from(vec![
+            Span::raw("Path: "),
+            Span::styled(path.to_string_lossy().into_owned(), theme::branch::CURRENT),
+        ]),
+        Line::from(vec![
+            Span::raw("Branch/HEAD: "),
+            Span::styled(ref_display, theme::branch::CURRENT),
+        ]),
+        Line::from(""),
+        make_key_hint(&["y"], "confirm"),
+        make_key_hint(&["n", "Esc"], "cancel"),
+    ];
+
+    let area = centered_rect(frame.area());
+    render_popup_impl(frame, " Remove Worktree ", content, area);
+}
 
 /// Render an error popup with the given message
 pub fn render_error_popup(frame: &mut Frame, message: &str) {

@@ -25,6 +25,10 @@ impl App {
         self.mode = AppMode::ConfirmWorktreePrune { worktree };
     }
 
+    pub fn enter_remove_worktree_confirm_mode(&mut self) {
+        self.update(Msg::EnterRemoveWorktreeConfirmMode);
+    }
+
     pub fn show_error_popup(&mut self, message: String) {
         self.update(Msg::ShowErrorPopup(message));
     }

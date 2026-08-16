@@ -11,6 +11,7 @@ pub(super) enum Command {
     Delete(BranchInfo),
     Prune(BranchInfo),
     PruneWorktree(crate::git::WorktreeInfo),
+    RemoveWorktree(crate::git::WorktreeInfo),
     Refresh(u32),
     RefreshWorktrees,
     OpenWorkItem,
@@ -52,6 +53,7 @@ fn handle_key_event(app: &mut App, key: KeyEvent) -> Option<Command> {
         AppMode::ConfirmWorktreePrune { worktree } => {
             handle_confirm_worktree_prune_key(app, key, &worktree)
         }
+        AppMode::ConfirmRemoveWorktree { .. } => handle_confirm_remove_worktree_key(app, key),
         AppMode::ErrorPopup(_) => {
             handle_error_popup_key(app, key);
             None
@@ -222,6 +224,21 @@ fn handle_confirm_worktree_prune_key(
             let worktree = worktree.clone();
             app.cancel_mode();
             Some(Command::PruneWorktree(worktree))
+        }
+        KeyCode::Char('n') | KeyCode::Esc | KeyCode::Char('q') => {
+            app.cancel_mode();
+            None
+        }
+        _ => None,
+    }
+}
+
+fn handle_confirm_remove_worktree_key(app: &mut App, key: KeyEvent) -> Option<Command> {
+    match key.code {
+        KeyCode::Char('y') | KeyCode::Enter => {
+            let worktree = app.confirmed_remove_worktree();
+            app.cancel_mode();
+            worktree.map(Command::RemoveWorktree)
         }
         KeyCode::Char('n') | KeyCode::Esc | KeyCode::Char('q') => {
             app.cancel_mode();
@@ -558,6 +575,49 @@ mod tests {
             assert!(status.is_error);
             assert!(status.text.contains("valid linked worktree"));
         }
+    }
+    #[test]
+    fn test_worktree_remove_shortcut_uses_separate_confirmation_action() {
+        let mut app = App::new(vec![remote_branch(false)], vec![]);
+        app.update(Msg::SetWorktrees(vec![
+            worktree(WorktreeIdentity::Main, true),
+            worktree(
+                WorktreeIdentity::Linked {
+                    name: "linked".to_string(),
+                },
+                false,
+            ),
+        ]));
+        app.update(Msg::ToggleWorktreeView);
+        handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('j')));
+
+        assert!(handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('d'))).is_none());
+        let (path, ref_display) = app
+            .remove_worktree_confirmation_details()
+            .expect("d should enter worktree confirmation");
+        assert_eq!(path, std::path::Path::new("/tmp/fixture"));
+        assert_eq!(ref_display, "main");
+        let mut replacement = worktree(
+            WorktreeIdentity::Linked {
+                name: "linked".to_string(),
+            },
+            false,
+        );
+        replacement.path = "/tmp/replaced".into();
+        app.update(Msg::SetWorktrees(vec![
+            worktree(WorktreeIdentity::Main, true),
+            replacement,
+        ]));
+
+        let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Enter));
+        match action {
+            Some(Command::RemoveWorktree(entry)) => {
+                assert_eq!(entry.name(), "linked");
+                assert_eq!(entry.path, std::path::PathBuf::from("/tmp/fixture"));
+            }
+            _ => panic!("expected worktree removal action"),
+        }
+        assert!(app.is_normal_mode());
     }
 
     fn worktree(identity: WorktreeIdentity, is_current: bool) -> WorktreeInfo {

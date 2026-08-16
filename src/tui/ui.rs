@@ -43,6 +43,8 @@ pub fn render(frame: &mut Frame, app: &App) -> DetailsMetrics {
                 &worktree.path.to_string_lossy(),
                 &reference,
             );
+        } else if let Some((path, ref_display)) = app.remove_worktree_confirmation_details() {
+            popup::render_remove_worktree_popup(frame, path, ref_display);
         } else if let AppMode::ErrorPopup(message) = app.mode() {
             popup::render_error_popup(frame, message);
         }
