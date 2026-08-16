@@ -71,9 +71,7 @@ pub(super) fn execute_prune_worktree(app: &mut App, git_repo: &GitRepo, worktree
                 timing::STATUS_DURATION_SECS,
             );
         }
-        Err(error) => {
-            app.set_status_message(error.to_string(), true, timing::STATUS_DURATION_SECS);
-        }
+        Err(error) => app.show_error_popup(error.to_string()),
     }
 }
 
@@ -92,7 +90,7 @@ pub(super) fn execute_remove_worktree(
             true
         }
         Err(error) => {
-            app.set_status_message(error.to_string(), true, timing::STATUS_DURATION_SECS);
+            app.show_error_popup(error.to_string());
             false
         }
     }
@@ -518,7 +516,7 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_prune_worktree_reports_backend_error() {
+    fn test_execute_prune_worktree_reports_backend_error_in_popup() {
         let entry = missing_worktree();
         let mut app = App::new(vec![], vec![]);
         let git_repo = GitRepo::fixture(
@@ -527,9 +525,11 @@ mod tests {
         );
 
         execute_prune_worktree(&mut app, &git_repo, &entry);
-        let status = app.get_status_message().expect("error status");
-        assert!(status.is_error);
-        assert_eq!(status.text, "metadata changed");
+
+        assert!(matches!(
+            app.mode(),
+            AppMode::ErrorPopup(message) if message == "metadata changed"
+        ));
     }
 
     fn missing_worktree() -> WorktreeInfo {
@@ -577,7 +577,7 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_remove_worktree_error_sets_status() {
+    fn test_execute_remove_worktree_error_shows_popup() {
         let mut app = App::new(vec![], vec![]);
         let worktree = test_worktree();
         let git_repo = GitRepo::fixture(
@@ -587,9 +587,10 @@ mod tests {
 
         assert!(!execute_remove_worktree(&mut app, &git_repo, &worktree));
 
-        let status = app.get_status_message().expect("status message");
-        assert!(status.is_error);
-        assert_eq!(status.text, "worktree is locked");
+        assert!(matches!(
+            app.mode(),
+            AppMode::ErrorPopup(message) if message == "worktree is locked"
+        ));
     }
 
     #[test]
