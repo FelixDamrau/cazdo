@@ -1,4 +1,3 @@
-
 ![cazdo logo](docs/images/cazdo.png)
 
 ![CI](https://github.com/FelixDamrau/cazdo/actions/workflows/ci.yml/badge.svg)
@@ -70,6 +69,7 @@ Run `cazdo config init` to create a default config file.
 You can set your Azure DevOps PAT in two ways (checked in order):
 
 1. **Environment Variable** (Recommended for CI/CD or temporary overrides):
+
    ```bash
    export CAZDO_PAT="your-pat-token"
    ```
@@ -86,9 +86,11 @@ The PAT needs **Work Items (Read)** scope.
 ## Usage
 
 ### 1. Setup
+
 First, ensure you have configured your Azure DevOps organization URL and PAT (see [Configuration](#configuration)).
 
 ### 2. Start the TUI
+
 Run the application in your git repository:
 
 ```bash
@@ -96,6 +98,7 @@ cazdo
 ```
 
 ### 3. Navigate
+
 The interface starts with your local branches and can toggle to `origin` remote branches. `cazdo` attempts to match each branch to an Azure DevOps work item based on numbers in the branch name.
 
 ![cazdo TUI open + navigation demo](docs/images/cazdo-open-nav.gif)
@@ -112,6 +115,7 @@ The interface starts with your local branches and can toggle to `origin` remote 
 Use the **Keyboard Shortcuts** below to navigate and interact.
 
 ### CLI Commands
+
 ```bash
 # Initialize config with defaults
 cazdo config init
@@ -140,21 +144,35 @@ cazdo update
 
 ## Keyboard Shortcuts
 
-| Key                      | Action                                |
-| ------------------------ | ------------------------------------- |
-| `j` / `k` / `Arrow keys` | Navigate branches                     |
-| `Enter`                  | Checkout selected branch              |
-| `o`                      | Open work item in browser             |
-| `d`                      | Delete or prune (with confirmation)   |
-| `D`                      | Delete or prune immediately           |
-| `/`                      | Edit branch filter                    |
-| `r`                      | Refresh current work item             |
-| `t`                      | Toggle local / remote branch view     |
-| `p`                      | Toggle protected branches visibility  |
-| `PgUp` / `PgDn`          | Scroll work item details              |
-| `Ctrl+u` / `Ctrl+d`      | Scroll half page (vim-style)          |
-| `Esc`                    | Clear active filter, otherwise quit   |
-| `q`                      | Quit                                  |
+### Branch view
+
+| Key                      | Action                                            |
+| ------------------------ | ------------------------------------------------- |
+| `j` / `k` / `Arrow keys` | Navigate branches                                 |
+| `Enter`                  | Checkout selected branch                          |
+| `o`                      | Open work item in browser                         |
+| `d`                      | Delete selected branch with confirmation          |
+| `D`                      | Delete or prune selected stale branch immediately |
+| `/`                      | Edit branch filter                                |
+| `r`                      | Refresh current work item                         |
+| `t`                      | Toggle local / remote branch view                 |
+| `p`                      | Toggle protected branches visibility              |
+| `PgUp` / `PgDn`          | Scroll work item details                          |
+| `Ctrl+u` / `Ctrl+d`      | Scroll half page (vim-style)                      |
+| `Esc`                    | Clear active filter, otherwise quit               |
+| `q`                      | Quit                                              |
+
+### Worktree view
+
+Press `w` to toggle between the branch and worktree views.
+
+| Key                      | Action                                            |
+| ------------------------ | ------------------------------------------------- |
+| `j` / `k` / `Arrow keys` | Navigate worktrees                                |
+| `d`                      | Prune missing worktree metadata with confirmation |
+| `r`                      | Refresh worktree inventory                        |
+| `w`                      | Return to branch view                             |
+| `q` / `Esc`              | Quit                                              |
 
 ## Protected Branches
 
