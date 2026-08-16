@@ -10,6 +10,18 @@ use ratatui::{
 
 use crate::git::RemoteStatus;
 
+/// Return a one-line area vertically centered within `area`.
+pub fn centered_line_area(area: Rect) -> Rect {
+    let height = 1;
+    let y_offset = area.height.saturating_sub(height) / 2;
+    Rect {
+        x: area.x,
+        y: area.y + y_offset,
+        width: area.width,
+        height,
+    }
+}
+
 /// Helper to render a consistent scrollbar
 pub fn render_scrollbar(
     frame: &mut Frame,
@@ -101,6 +113,13 @@ pub fn format_remote_status(status: &RemoteStatus) -> (String, ratatui::style::C
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn centered_line_area_preserves_width_and_centers_line() {
+        let centered = centered_line_area(Rect::new(4, 3, 20, 8));
+
+        assert_eq!(centered, Rect::new(4, 6, 20, 1));
+    }
 
     #[test]
     #[should_panic(expected = "remote-tracking branches are rendered separately")]

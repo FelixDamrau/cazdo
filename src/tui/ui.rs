@@ -36,7 +36,14 @@ pub fn render(frame: &mut Frame, app: &App) -> DetailsMetrics {
         worktrees::render_worktree_details(frame, app, chunks[1]);
         footer::render_footer(frame, app, main_chunks[1]);
 
-        if let AppMode::ErrorPopup(message) = app.mode() {
+        if let Some(worktree) = app.confirm_worktree_prune() {
+            let reference = worktree.ref_display();
+            popup::render_worktree_prune_confirm(
+                frame,
+                &worktree.path.to_string_lossy(),
+                &reference,
+            );
+        } else if let AppMode::ErrorPopup(message) = app.mode() {
             popup::render_error_popup(frame, message);
         }
         return DetailsMetrics::default();

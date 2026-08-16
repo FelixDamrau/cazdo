@@ -10,6 +10,7 @@ use worktrees::handle_worktree_mode_key;
 pub(super) enum Command {
     Delete(BranchInfo),
     Prune(BranchInfo),
+    PruneWorktree(crate::git::WorktreeInfo),
     Refresh(u32),
     RefreshWorktrees,
     OpenWorkItem,
@@ -47,6 +48,9 @@ fn handle_key_event(app: &mut App, key: KeyEvent) -> Option<Command> {
         AppMode::ConfirmDelete { branch_key } => {
             let branch_key = branch_key.clone();
             handle_confirm_delete_key(app, key, &branch_key)
+        }
+        AppMode::ConfirmWorktreePrune { worktree } => {
+            handle_confirm_worktree_prune_key(app, key, &worktree)
         }
         AppMode::ErrorPopup(_) => {
             handle_error_popup_key(app, key);
@@ -199,6 +203,25 @@ fn handle_confirm_delete_key(app: &mut App, key: KeyEvent, branch_key: &str) -> 
             };
             app.cancel_mode();
             Some(action)
+        }
+        KeyCode::Char('n') | KeyCode::Esc | KeyCode::Char('q') => {
+            app.cancel_mode();
+            None
+        }
+        _ => None,
+    }
+}
+
+fn handle_confirm_worktree_prune_key(
+    app: &mut App,
+    key: KeyEvent,
+    worktree: &crate::git::WorktreeInfo,
+) -> Option<Command> {
+    match key.code {
+        KeyCode::Char('y') | KeyCode::Enter => {
+            let worktree = worktree.clone();
+            app.cancel_mode();
+            Some(Command::PruneWorktree(worktree))
         }
         KeyCode::Char('n') | KeyCode::Esc | KeyCode::Char('q') => {
             app.cancel_mode();
@@ -445,6 +468,96 @@ mod tests {
         ));
         assert!(handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('w'))).is_none());
         assert!(!app.is_worktree_view());
+    }
+
+    #[test]
+    fn test_worktree_d_confirms_only_missing_prunable_metadata_and_routes_action() {
+        let mut app = App::new(vec![remote_branch(false)], vec![]);
+        let mut entry = worktree(
+            WorktreeIdentity::Linked {
+                name: "linked missing".to_string(),
+            },
+            false,
+        );
+        entry.path = "/tmp/missing linked path".into();
+        entry.branch = Some("feature/preserved".to_string());
+        entry.state = WorktreeState::Missing;
+        entry.prunable = true;
+        app.update(Msg::SetWorktrees(vec![
+            worktree(WorktreeIdentity::Main, true),
+            entry.clone(),
+        ]));
+        app.update(Msg::ToggleWorktreeView);
+        handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('j')));
+
+        assert!(handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('d'))).is_none());
+        let confirmation = app
+            .confirm_worktree_prune()
+            .expect("missing worktree should enter confirmation mode");
+        assert_eq!(confirmation.path, entry.path);
+        assert_eq!(confirmation.ref_display(), "feature/preserved");
+
+        match handle_key_event(&mut app, KeyEvent::from(KeyCode::Enter)) {
+            Some(Command::PruneWorktree(worktree)) => {
+                assert_eq!(worktree.identity, entry.identity);
+            }
+            _ => panic!("confirmation should route metadata prune action"),
+        }
+        assert!(app.is_normal_mode());
+    }
+
+    #[test]
+    fn test_worktree_d_rejects_valid_and_unknown_entries() {
+        for state in [
+            WorktreeState::Valid,
+            WorktreeState::Unknown("probe failed".into()),
+        ] {
+            let mut app = App::new(vec![remote_branch(false)], vec![]);
+            let mut entry = worktree(
+                WorktreeIdentity::Linked {
+                    name: "linked".to_string(),
+                },
+                false,
+            );
+            entry.state = state;
+            entry.prunable = true;
+            app.update(Msg::SetWorktrees(vec![entry]));
+            app.update(Msg::ToggleWorktreeView);
+
+            assert!(handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('d'))).is_none());
+            assert!(app.confirm_worktree_prune().is_none());
+            assert!(
+                app.get_status_message()
+                    .expect("rejection should set status")
+                    .is_error
+            );
+        }
+    }
+
+    #[test]
+    fn test_worktree_d_rejects_malformed_linked_identity() {
+        for name in ["", "   "] {
+            let mut app = App::new(vec![remote_branch(false)], vec![]);
+            let mut entry = worktree(
+                WorktreeIdentity::Linked {
+                    name: name.to_string(),
+                },
+                false,
+            );
+            entry.state = WorktreeState::Missing;
+            entry.prunable = true;
+            app.update(Msg::SetWorktrees(vec![entry]));
+            app.update(Msg::ToggleWorktreeView);
+
+            handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('d')));
+
+            assert!(app.confirm_worktree_prune().is_none());
+            let status = app
+                .get_status_message()
+                .expect("rejection should set status");
+            assert!(status.is_error);
+            assert!(status.text.contains("valid linked worktree"));
+        }
     }
 
     fn worktree(identity: WorktreeIdentity, is_current: bool) -> WorktreeInfo {

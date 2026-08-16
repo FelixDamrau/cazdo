@@ -47,6 +47,22 @@ pub fn render_confirm_popup(frame: &mut Frame, branch_name: &str, is_remote: boo
     render_popup_impl(frame, title, content, area);
 }
 
+/// Render confirmation for removing only stale metadata of a missing worktree.
+pub fn render_worktree_prune_confirm(frame: &mut Frame, path: &str, reference: &str) {
+    let content = vec![
+        Line::from(""),
+        Line::from("Remove stale metadata for this missing worktree?"),
+        Line::from(format!("Path: {path}")),
+        Line::from(format!("Branch/HEAD: {reference}")),
+        Line::from("Only metadata will be removed; path and branch are preserved."),
+        Line::from(""),
+        make_key_hint(&["y"], "confirm"),
+        make_key_hint(&["n", "Esc"], "cancel"),
+    ];
+    let area = centered_rect(frame.area());
+    render_popup_impl(frame, " Prune Worktree Metadata ", content, area);
+}
+
 /// Render an error popup with the given message
 pub fn render_error_popup(frame: &mut Frame, message: &str) {
     let content = vec![

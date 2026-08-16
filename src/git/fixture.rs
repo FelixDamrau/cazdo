@@ -12,6 +12,7 @@ pub struct FixtureGitRepo {
     checkout_result: Option<Result<(), String>>,
     delete_result: Option<Result<DeleteResult, String>>,
     prune_result: Option<Result<(), String>>,
+    prune_worktree_metadata_result: Option<Result<(), String>>,
 }
 
 impl FixtureGitRepo {
@@ -31,6 +32,11 @@ impl FixtureGitRepo {
 
     pub fn with_prune_result(mut self, result: Result<(), String>) -> Self {
         self.prune_result = Some(result);
+        self
+    }
+
+    pub fn with_prune_worktree_metadata_result(mut self, result: Result<(), String>) -> Self {
+        self.prune_worktree_metadata_result = Some(result);
         self
     }
 }
@@ -72,6 +78,17 @@ impl GitBackend for FixtureGitRepo {
 
     fn prune_remote_tracking_branch(&self, _branch_name: &str) -> Result<()> {
         preset("prune_remote_tracking_branch", &self.prune_result)
+    }
+
+    fn prune_worktree_metadata_by_identity(
+        &self,
+        _identity: &super::worktree::WorktreeIdentity,
+        _expected_path: &std::path::Path,
+    ) -> Result<()> {
+        preset(
+            "prune_worktree_metadata",
+            &self.prune_worktree_metadata_result,
+        )
     }
 
     fn repo_dir(&self) -> Result<PathBuf> {

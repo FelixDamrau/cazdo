@@ -1,5 +1,5 @@
-use super::App;
-use crate::git::WorktreeInfo;
+use super::{App, AppMode};
+use crate::git::{WorktreeInfo, validate_worktree_prune};
 use crate::tui::theme::timing;
 
 impl App {
@@ -15,18 +15,23 @@ impl App {
         self.worktrees.get(self.worktree_selected_index)
     }
 
+    pub fn confirm_worktree_prune(&self) -> Option<&WorktreeInfo> {
+        match &self.mode {
+            AppMode::ConfirmWorktreePrune { worktree } => Some(worktree),
+            _ => None,
+        }
+    }
+
+    pub(super) fn worktree_prune_error(entry: &WorktreeInfo) -> Option<String> {
+        validate_worktree_prune(entry).err()
+    }
+
     pub fn worktree_selected_index(&self) -> usize {
         self.worktree_selected_index
     }
 
-    pub(super) fn set_worktrees(&mut self, mut worktrees: Vec<WorktreeInfo>) {
+    pub(super) fn set_worktrees(&mut self, worktrees: Vec<WorktreeInfo>) {
         let selected_identity = self.selected_worktree().map(|entry| entry.identity.clone());
-        worktrees.sort_by(|left, right| {
-            left.is_main
-                .cmp(&right.is_main)
-                .reverse()
-                .then_with(|| left.name().cmp(right.name()))
-        });
         self.worktrees = worktrees;
         self.worktree_selected_index = selected_identity
             .and_then(|identity| {

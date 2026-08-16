@@ -15,7 +15,7 @@ use super::ui;
 use super::{
     actions::{
         execute_checkout_branch, execute_delete_branch, execute_prune_branch,
-        open_current_work_item,
+        execute_prune_worktree, open_current_work_item,
     },
     background::{
         FetchResult, fetch_branch_status_if_needed, process_fetch_results,
@@ -69,7 +69,7 @@ async fn run_loop(
 ) -> Result<()> {
     let mut pending_fetches: HashSet<u32> = HashSet::new();
     let mut worktree_refresh_pending = false;
-
+    let mut worktree_refresh_requested = false;
     loop {
         app.clear_expired_status();
         process_fetch_results(
@@ -78,6 +78,15 @@ async fn run_loop(
             &mut pending_fetches,
             &mut worktree_refresh_pending,
         );
+        if worktree_refresh_requested && !worktree_refresh_pending {
+            worktree_refresh_requested = false;
+            trigger_worktree_refresh(
+                git_repo,
+                &tx,
+                &mut worktree_refresh_pending,
+                &mut worktree_refresh_requested,
+            );
+        }
         trigger_work_item_fetch(app, &client, &tx, &mut pending_fetches);
         trigger_remote_freshness_check(app, git_repo, &tx);
         fetch_branch_status_if_needed(app, git_repo);
@@ -90,13 +99,25 @@ async fn run_loop(
             match action {
                 Command::Delete(branch) => execute_delete_branch(app, git_repo, &branch),
                 Command::Prune(branch) => execute_prune_branch(app, git_repo, &branch),
+                Command::PruneWorktree(worktree) => {
+                    execute_prune_worktree(app, git_repo, &worktree);
+                    trigger_worktree_refresh(
+                        git_repo,
+                        &tx,
+                        &mut worktree_refresh_pending,
+                        &mut worktree_refresh_requested,
+                    );
+                }
                 Command::Refresh(wi_id) => {
                     pending_fetches.remove(&wi_id);
                     app.reset_work_item(wi_id);
                 }
-                Command::RefreshWorktrees => {
-                    trigger_worktree_refresh(git_repo, &tx, &mut worktree_refresh_pending)
-                }
+                Command::RefreshWorktrees => trigger_worktree_refresh(
+                    git_repo,
+                    &tx,
+                    &mut worktree_refresh_pending,
+                    &mut worktree_refresh_requested,
+                ),
                 Command::OpenWorkItem => open_current_work_item(app),
                 Command::Checkout(branch) => execute_checkout_branch(app, git_repo, &branch),
             }

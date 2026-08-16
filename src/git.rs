@@ -13,4 +13,5 @@ pub use repo::{
 pub use worktree::WorktreeDirtyReason;
 #[cfg(test)]
 pub use worktree::WorktreeIdentity;
+pub(crate) use worktree::validate_worktree_prune;
 pub use worktree::{WorktreeCleanliness, WorktreeInfo, WorktreeState, WorktreeSubmodules};

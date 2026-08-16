@@ -66,6 +66,7 @@ impl BranchView {
 pub enum AppMode {
     Normal,
     ConfirmDelete { branch_key: String },
+    ConfirmWorktreePrune { worktree: WorktreeInfo },
     ErrorPopup(String),
 }
 
@@ -118,6 +119,7 @@ pub struct DetailsMetrics {
 /// `Msg` is for pure `App` state transitions. Work that needs external side
 /// effects, such as git operations or opening a browser, should stay outside
 /// `App::update` and feed the resulting state change back through a message.
+#[derive(Debug, Clone)]
 pub enum Msg {
     NextBranch,
     PreviousBranch,
@@ -134,6 +136,7 @@ pub enum Msg {
     Quit,
     EnterNormalMode,
     EnterDeleteConfirmMode,
+    RequestWorktreePrune,
     ShowErrorPopup(String),
     SetStatus(StatusMessage),
     ClearStatus,
@@ -269,6 +272,7 @@ impl App {
             Msg::Quit => self.should_quit = true,
             Msg::EnterNormalMode => self.mode = AppMode::Normal,
             Msg::EnterDeleteConfirmMode => self.apply_enter_confirm_mode(),
+            Msg::RequestWorktreePrune => self.apply_request_worktree_prune(),
             Msg::ShowErrorPopup(message) => self.mode = AppMode::ErrorPopup(message),
             Msg::SetStatus(message) => self.status_message = Some(message),
             Msg::ClearStatus => self.status_message = None,

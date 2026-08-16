@@ -46,14 +46,9 @@ jobs:
       - name: Run tests
         run: just test-ci
 
-  worktree-platform:
-    name: Worktree behavior (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os:
-          - ubuntu-latest
-          - windows-latest
+  worktree-windows:
+    name: Worktree behavior (windows)
+    runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v6

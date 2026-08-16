@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use super::app::{App, BranchInfo, BranchView, Msg, WorkItemStatus};
 use super::theme::timing;
-use crate::git::{BranchScope, DeleteResult, GitRepo, short_sha};
+use crate::git::{BranchScope, DeleteResult, GitRepo, WorktreeInfo, short_sha};
 
 pub(super) fn open_current_work_item(app: &mut App) {
     open_current_work_item_with(app, open_url);
@@ -56,6 +56,24 @@ pub(super) fn execute_prune_branch(app: &mut App, git_repo: &GitRepo, branch: &B
             );
         }
         Err(error) => app.set_status_message(error.to_string(), true, timing::STATUS_DURATION_SECS),
+    }
+}
+
+pub(super) fn execute_prune_worktree(app: &mut App, git_repo: &GitRepo, worktree: &WorktreeInfo) {
+    match git_repo.prune_worktree_metadata(worktree) {
+        Ok(()) => {
+            app.set_status_message(
+                format!(
+                    "Pruned stale metadata for missing worktree '{}' (path and branch preserved)",
+                    worktree.name()
+                ),
+                false,
+                timing::STATUS_DURATION_SECS,
+            );
+        }
+        Err(error) => {
+            app.set_status_message(error.to_string(), true, timing::STATUS_DURATION_SECS);
+        }
     }
 }
 
@@ -169,7 +187,10 @@ fn open_url(url: &str) -> Result<()> {
 mod tests {
     use super::*;
     use crate::azure_devops::{WorkItem, WorkItemState, WorkItemType};
-    use crate::git::FixtureGitRepo;
+    use crate::git::{
+        FixtureGitRepo, WorktreeCleanliness, WorktreeIdentity, WorktreeInfo, WorktreeState,
+        WorktreeSubmodules,
+    };
     use crate::tui::app::{AppMode, Msg};
 
     #[test]
@@ -462,6 +483,51 @@ mod tests {
         assert!(status.text.contains("could not prune tracking ref"));
     }
 
+    #[test]
+    fn test_execute_prune_worktree_reports_success_without_branch_or_path_mutation() {
+        let entry = missing_worktree();
+        let mut app = App::new(vec![], vec![]);
+        let git_repo =
+            GitRepo::fixture(FixtureGitRepo::new().with_prune_worktree_metadata_result(Ok(())));
+
+        execute_prune_worktree(&mut app, &git_repo, &entry);
+        let status = app.get_status_message().expect("success status");
+        assert!(!status.is_error);
+        assert!(status.text.contains("path and branch preserved"));
+    }
+
+    #[test]
+    fn test_execute_prune_worktree_reports_backend_error() {
+        let entry = missing_worktree();
+        let mut app = App::new(vec![], vec![]);
+        let git_repo = GitRepo::fixture(
+            FixtureGitRepo::new()
+                .with_prune_worktree_metadata_result(Err("metadata changed".to_string())),
+        );
+
+        execute_prune_worktree(&mut app, &git_repo, &entry);
+        let status = app.get_status_message().expect("error status");
+        assert!(status.is_error);
+        assert_eq!(status.text, "metadata changed");
+    }
+
+    fn missing_worktree() -> WorktreeInfo {
+        WorktreeInfo {
+            identity: WorktreeIdentity::Linked {
+                name: "linked missing".to_string(),
+            },
+            path: "/tmp/missing path".into(),
+            branch: Some("feature/preserved".to_string()),
+            detached_short_sha: None,
+            is_main: false,
+            is_current: false,
+            cleanliness: WorktreeCleanliness::Unknown("missing".to_string()),
+            lock_reason: None,
+            state: WorktreeState::Missing,
+            prunable: true,
+            submodules: WorktreeSubmodules::Unknown("missing".to_string()),
+        }
+    }
     #[test]
     fn test_execute_prune_branch_via_fixture() {
         let branch = remote_branch(true);

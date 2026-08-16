@@ -87,8 +87,10 @@ pub(super) fn trigger_worktree_refresh(
     git_repo: &GitRepo,
     tx: &mpsc::UnboundedSender<FetchResult>,
     worktree_refresh_pending: &mut bool,
+    worktree_refresh_requested: &mut bool,
 ) {
     if *worktree_refresh_pending {
+        *worktree_refresh_requested = true;
         return;
     }
 
@@ -231,8 +233,8 @@ mod tests {
     use super::*;
     use crate::azure_devops::{WorkItem, WorkItemState, WorkItemType};
     use crate::git::{
-        BranchScope, WorktreeCleanliness, WorktreeIdentity, WorktreeInfo, WorktreeState,
-        WorktreeSubmodules,
+        BranchScope, FixtureGitRepo, GitRepo, WorktreeCleanliness, WorktreeIdentity, WorktreeInfo,
+        WorktreeState, WorktreeSubmodules,
     };
     use crate::tui::app::BranchInfo;
 
@@ -447,6 +449,24 @@ mod tests {
             .expect("worktree inventory error should be visible");
         assert!(status.is_error);
         assert_eq!(status.text, "metadata unreadable");
+    }
+
+    #[test]
+    fn test_refresh_request_is_retained_while_inventory_is_pending() {
+        let git_repo = GitRepo::fixture(FixtureGitRepo::new());
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let mut worktree_refresh_pending = true;
+        let mut worktree_refresh_requested = false;
+
+        trigger_worktree_refresh(
+            &git_repo,
+            &tx,
+            &mut worktree_refresh_pending,
+            &mut worktree_refresh_requested,
+        );
+
+        assert!(worktree_refresh_pending);
+        assert!(worktree_refresh_requested);
     }
 
     fn remote_branch(is_stale: bool) -> BranchInfo {

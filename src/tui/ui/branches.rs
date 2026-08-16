@@ -53,14 +53,7 @@ pub fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
             .style(theme::styles::MUTED)
             .alignment(Alignment::Center);
 
-        let msg_height = 1;
-        let y_offset = inner_area.height.saturating_sub(msg_height) / 2;
-        let centered_area = Rect {
-            x: inner_area.x,
-            y: inner_area.y + y_offset,
-            width: inner_area.width,
-            height: msg_height,
-        };
+        let centered_area = super::helpers::centered_line_area(inner_area);
 
         frame.render_widget(empty_msg, centered_area);
         return;

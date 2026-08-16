@@ -13,6 +13,18 @@ impl App {
         }
     }
 
+    pub(super) fn apply_request_worktree_prune(&mut self) {
+        let Some(worktree) = self.selected_worktree().cloned() else {
+            self.apply_worktree_error("No worktree selected".to_string());
+            return;
+        };
+        if let Some(error) = Self::worktree_prune_error(&worktree) {
+            self.apply_worktree_error(error);
+            return;
+        }
+        self.mode = AppMode::ConfirmWorktreePrune { worktree };
+    }
+
     pub fn show_error_popup(&mut self, message: String) {
         self.update(Msg::ShowErrorPopup(message));
     }
