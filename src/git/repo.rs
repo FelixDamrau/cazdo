@@ -6,9 +6,9 @@ use anyhow::{Context, Result, bail};
 use git2::{BranchType, Repository, WorktreeLockStatus, WorktreePruneOptions};
 
 use super::worktree::{
-    WorktreeCleanliness, WorktreeIdentity, WorktreeInfo, WorktreeSubmodules,
-    cleanliness, inventory, main_worktree_path, prune_metadata, submodules,
-    validate_worktree_prune, validate_worktree_removal, worktree_paths_equal,
+    WorktreeCleanliness, WorktreeIdentity, WorktreeInfo, WorktreeSubmodules, cleanliness,
+    inventory, main_worktree_path, prune_metadata, submodules, validate_worktree_prune,
+    validate_worktree_removal, worktree_paths_equal,
 };
 use crate::pattern::is_protected;
 
@@ -936,6 +936,7 @@ fn validate_worktree_submodules(linked_repo: &Repository, actual_path: &Path) ->
         }
     }
 }
+
 fn worktree_head_identity(repo: &Repository) -> Result<(Option<String>, Option<String>)> {
     let head = repo.head().context("Failed to read worktree HEAD")?;
     if head.is_branch() {
