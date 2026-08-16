@@ -74,7 +74,7 @@ You can set your Azure DevOps PAT in two ways (checked in order):
    export CAZDO_PAT="your-pat-token"
    ```
 
-2. **Config File** (Recommended for daily use):7NcT71f3xP1WkWoAM8GV2L393Pp29Yydda9o072lcAvWrz65#4v4pqSU3y49QNQQbz1XLPtKKVgG43BHUjRCYF1J8RSs
+2. **Config File** (Recommended for daily use):
    Add it to `config.toml`:
    ```toml
    [azure_devops]
