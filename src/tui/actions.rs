@@ -59,11 +59,7 @@ pub(super) fn execute_prune_branch(app: &mut App, git_repo: &GitRepo, branch: &B
     }
 }
 
-pub(super) fn execute_prune_worktree(
-    app: &mut App,
-    git_repo: &GitRepo,
-    worktree: &WorktreeInfo,
-) {
+pub(super) fn execute_prune_worktree(app: &mut App, git_repo: &GitRepo, worktree: &WorktreeInfo) {
     match git_repo.prune_worktree_metadata(worktree) {
         Ok(()) => {
             app.set_status_message(
