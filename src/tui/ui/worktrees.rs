@@ -1,6 +1,6 @@
 use ratatui::{
     Frame,
-    layout::Rect,
+    layout::{Alignment, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
@@ -14,6 +14,26 @@ use crate::tui::theme;
 /// Render the inventory list. Selection is deliberately independent from the
 /// branch list so returning to the branch view preserves its selection.
 pub fn render_worktrees(frame: &mut Frame, app: &App, area: Rect) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(theme::ui::BORDER)
+        .title(Line::from(vec![Span::styled(
+            format!(" Worktrees ({}) ", app.worktrees().len()),
+            theme::ui::TITLE,
+        )]));
+
+    if app.worktrees().is_empty() {
+        let inner_area = block.inner(area);
+        frame.render_widget(block, area);
+
+        let empty_msg = Paragraph::new("Loading worktree inventory…")
+            .style(theme::styles::MUTED)
+            .alignment(Alignment::Center);
+        let centered_area = super::helpers::centered_line_area(inner_area);
+        frame.render_widget(empty_msg, centered_area);
+        return;
+    }
+
     // Reserve both borders and the selected-row highlight symbol.
     let content_width = area.width.saturating_sub(4) as usize;
     let items: Vec<ListItem> = app
@@ -22,13 +42,6 @@ pub fn render_worktrees(frame: &mut Frame, app: &App, area: Rect) {
         .map(|entry| worktree_list_item(entry, content_width))
         .collect();
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(theme::ui::BORDER)
-        .title(Line::from(vec![Span::styled(
-            format!(" Worktrees ({}) ", app.worktrees().len()),
-            theme::ui::TITLE,
-        )]));
     let list = List::new(items)
         .block(block)
         .highlight_style(theme::ui::SELECTED_BACKGROUND.add_modifier(Modifier::BOLD))
@@ -110,7 +123,7 @@ pub fn render_worktree_details(frame: &mut Frame, app: &App, area: Rect) {
 
     let Some(entry) = app.selected_worktree() else {
         frame.render_widget(
-            Paragraph::new("  No worktree inventory loaded").style(theme::styles::MUTED),
+            Paragraph::new("  Loading worktree inventory…").style(theme::styles::MUTED),
             inner,
         );
         return;
@@ -465,6 +478,17 @@ mod tests {
             .expect("diagnostic field should exist")
             .spans[1]
             .style
+    }
+
+    #[test]
+    fn renders_loading_state_for_empty_inventory() {
+        let mut app = App::new(vec![], vec![]);
+        app.update(Msg::ToggleWorktreeView);
+
+        let text = rendered_text(&app);
+
+        assert!(text.contains("Loading worktree inventory…"));
+        assert!(!text.contains("No worktree inventory loaded"));
     }
 
     #[test]
