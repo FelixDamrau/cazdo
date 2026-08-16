@@ -89,7 +89,6 @@ impl WorktreeCleanliness {
 pub enum WorktreeState {
     Valid,
     Missing,
-    Prunable,
     Invalid(String),
     Unknown(String),
 }
@@ -108,7 +107,6 @@ impl WorktreeState {
         match self {
             Self::Valid => "valid",
             Self::Missing => "missing",
-            Self::Prunable => "prunable",
             Self::Invalid(_) => "invalid",
             Self::Unknown(_) => "unknown",
         }
@@ -257,8 +255,6 @@ pub(crate) fn inventory(repo: &Repository) -> Result<Vec<WorktreeInfo>> {
                     WorktreeState::Missing
                 } else if let Err(error) = validated {
                     WorktreeState::Invalid(error.to_string())
-                } else if prunable {
-                    WorktreeState::Prunable
                 } else {
                     WorktreeState::Valid
                 };
@@ -826,6 +822,34 @@ mod tests {
 
         let resolved = linked_worktree_path(&repo, name)
             .expect("relative gitdir metadata should resolve")
+            .canonicalize()
+            .expect("resolved worktree path should exist");
+        assert_eq!(
+            resolved,
+            linked_path
+                .canonicalize()
+                .expect("linked worktree path should exist")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn linked_worktree_path_resolves_windows_relative_gitdir() {
+        let dir = tempdir().expect("temp directory");
+        let repo = Repository::init(dir.path()).expect("repository should initialize");
+        let linked_path = dir.path().join("linked");
+        fs::create_dir_all(&linked_path).expect("linked worktree directory should be created");
+        fs::write(linked_path.join(".git"), "gitdir: placeholder\n")
+            .expect("linked worktree git file should be written");
+
+        let name = "windows-relative";
+        let admin_path = repo.path().join("worktrees").join(name);
+        fs::create_dir_all(&admin_path).expect("worktree metadata directory should be created");
+        fs::write(admin_path.join("gitdir"), "..\\..\\..\\linked\\.git\n")
+            .expect("Windows relative gitdir metadata should be written");
+
+        let resolved = linked_worktree_path(&repo, name)
+            .expect("Windows relative gitdir metadata should resolve")
             .canonicalize()
             .expect("resolved worktree path should exist");
         assert_eq!(
