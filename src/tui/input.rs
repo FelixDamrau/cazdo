@@ -273,8 +273,8 @@ mod tests {
 
     use super::*;
     use crate::git::{
-        BranchScope, WorktreeCleanliness, WorktreeIdentity, WorktreeInfo, WorktreeState,
-        WorktreeSubmodules,
+        BranchScope, WorktreeCleanliness, WorktreeDirtyReason, WorktreeIdentity, WorktreeInfo,
+        WorktreeState, WorktreeSubmodules,
     };
     use crate::tui::app::{App, BranchInfo, BranchView};
 
@@ -576,6 +576,53 @@ mod tests {
             assert!(status.text.contains("valid linked worktree"));
         }
     }
+
+    #[test]
+    fn test_worktree_d_rejects_main_worktree_with_status() {
+        let mut app = App::new(vec![remote_branch(false)], vec![]);
+        app.update(Msg::SetWorktrees(vec![worktree(
+            WorktreeIdentity::Main,
+            true,
+        )]));
+        app.update(Msg::ToggleWorktreeView);
+
+        assert!(handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('d'))).is_none());
+        assert!(app.is_normal_mode());
+        assert!(app.confirm_worktree_prune().is_none());
+        assert!(app.remove_worktree_confirmation_details().is_none());
+
+        let status = app
+            .get_status_message()
+            .expect("main worktree rejection should set a status");
+        assert!(status.is_error);
+        assert!(status.text.contains("main worktree is protected"));
+    }
+
+    #[test]
+    fn test_worktree_d_rejects_dirty_valid_linked_worktree_with_status() {
+        let mut app = App::new(vec![remote_branch(false)], vec![]);
+        let mut entry = worktree(
+            WorktreeIdentity::Linked {
+                name: "dirty linked".to_string(),
+            },
+            false,
+        );
+        entry.cleanliness = WorktreeCleanliness::Dirty(vec![WorktreeDirtyReason::Worktree]);
+        app.update(Msg::SetWorktrees(vec![entry]));
+        app.update(Msg::ToggleWorktreeView);
+
+        assert!(handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('d'))).is_none());
+        assert!(app.is_normal_mode());
+        assert!(app.confirm_worktree_prune().is_none());
+        assert!(app.remove_worktree_confirmation_details().is_none());
+
+        let status = app
+            .get_status_message()
+            .expect("dirty worktree rejection should set a status");
+        assert!(status.is_error);
+        assert!(status.text.contains("uncommitted changes"));
+    }
+
     #[test]
     fn test_worktree_remove_shortcut_uses_separate_confirmation_action() {
         let mut app = App::new(vec![remote_branch(false)], vec![]);
