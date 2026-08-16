@@ -6,9 +6,9 @@ use anyhow::{Context, Result, bail};
 use git2::{BranchType, Repository, WorktreeLockStatus, WorktreePruneOptions};
 
 use super::worktree::{
-    WorktreeCleanliness, WorktreeIdentity, WorktreeInfo, WorktreeState, WorktreeSubmodules,
+    WorktreeCleanliness, WorktreeIdentity, WorktreeInfo, WorktreeSubmodules,
     cleanliness, inventory, main_worktree_path, prune_metadata, submodules,
-    validate_worktree_prune, worktree_paths_equal,
+    validate_worktree_prune, validate_worktree_removal, worktree_paths_equal,
 };
 use crate::pattern::is_protected;
 
@@ -751,79 +751,25 @@ impl LiveGitRepo {
 }
 
 fn remove_linked_worktree(repo: &Repository, selected: &WorktreeInfo) -> Result<()> {
-    if selected.is_main {
-        anyhow::bail!(
-            "Cannot remove worktree '{}': the main worktree is protected",
-            selected.path.display()
-        );
-    }
-    let name = selected
-        .identity
-        .linked_name()
-        .filter(|name| !name.trim().is_empty())
-        .ok_or_else(|| {
-            anyhow::anyhow!("Cannot remove malformed worktree entry: missing linked name")
-        })?;
-    if selected.path.as_os_str().is_empty() {
-        anyhow::bail!("Cannot remove malformed worktree '{}': path is empty", name);
-    }
-    if !matches!(selected.state, WorktreeState::Valid) {
-        anyhow::bail!(
-            "Cannot remove worktree '{}': inventory state is '{}'; refresh worktree inventory first",
-            selected.path.display(),
-            selected.state.label()
-        );
-    }
-    match &selected.cleanliness {
-        WorktreeCleanliness::Clean => {}
-        WorktreeCleanliness::Dirty(reasons) => {
-            let reasons = reasons
-                .iter()
-                .map(|reason| reason.label())
-                .collect::<Vec<_>>()
-                .join(", ");
-            anyhow::bail!(
-                "Cannot remove worktree '{}': it has uncommitted changes ({reasons})",
-                selected.path.display()
-            );
-        }
-        WorktreeCleanliness::Unknown(error) => {
-            anyhow::bail!(
-                "Cannot remove worktree '{}': status is unknown ({error})",
-                selected.path.display()
-            );
-        }
-    }
-    if !matches!(selected.submodules, WorktreeSubmodules::None) {
-        let detail = match &selected.submodules {
-            WorktreeSubmodules::Present => "worktree contains submodules".to_string(),
-            WorktreeSubmodules::Unknown(error) => {
-                format!("submodule status is unknown ({error})")
-            }
-            WorktreeSubmodules::None => unreachable!(),
-        };
-        anyhow::bail!(
-            "Cannot remove worktree '{}': {detail}",
-            selected.path.display()
-        );
-    }
-    if selected.is_locked() {
-        anyhow::bail!(
-            "Cannot remove worktree '{}': it is locked ({})",
-            selected.path.display(),
-            selected
-                .lock_reason
-                .as_deref()
-                .unwrap_or("lock status unknown")
-        );
-    }
-    if selected.prunable {
-        anyhow::bail!(
-            "Cannot remove worktree '{}': it is prunable or missing; refresh worktree inventory first",
-            selected.path.display()
-        );
-    }
+    let name = validate_worktree_removal(selected).map_err(anyhow::Error::msg)?;
+    let worktree = find_registered_worktree(repo, selected, name)?;
+    validate_worktree_metadata(repo, &worktree)?;
+    validate_linked_worktree(&worktree, selected)?;
 
+    let actual_path = worktree.path();
+    let mut options = WorktreePruneOptions::new();
+    options.valid(true).working_tree(true);
+    worktree
+        .prune(Some(&mut options))
+        .with_context(|| format!("Failed to remove worktree '{}'", actual_path.display()))?;
+    Ok(())
+}
+
+fn find_registered_worktree(
+    repo: &Repository,
+    selected: &WorktreeInfo,
+    name: &str,
+) -> Result<git2::Worktree> {
     let worktree_names = repo
         .worktrees()
         .context("Cannot remove worktree: failed to list linked worktrees")?;
@@ -852,7 +798,11 @@ fn remove_linked_worktree(repo: &Repository, selected: &WorktreeInfo) -> Result<
             actual_path.display()
         );
     }
+    Ok(worktree)
+}
 
+fn validate_worktree_metadata(repo: &Repository, worktree: &git2::Worktree) -> Result<()> {
+    let actual_path = worktree.path();
     let main_path = main_worktree_path(repo)
         .context("Cannot remove worktree: failed to determine the main worktree path")?;
     if worktree_paths_equal(actual_path, &main_path) {
@@ -861,6 +811,7 @@ fn remove_linked_worktree(repo: &Repository, selected: &WorktreeInfo) -> Result<
             actual_path.display()
         );
     }
+
     let current_path = repo
         .workdir()
         .context("Cannot remove worktree: current worktree path is unavailable")?;
@@ -877,7 +828,6 @@ fn remove_linked_worktree(repo: &Repository, selected: &WorktreeInfo) -> Result<
             actual_path.display()
         )
     })?;
-
     if worktree.is_prunable(None).with_context(|| {
         format!(
             "Cannot remove worktree '{}': unable to determine whether it is prunable",
@@ -906,13 +856,30 @@ fn remove_linked_worktree(repo: &Repository, selected: &WorktreeInfo) -> Result<
         }
     }
 
-    let linked_repo = Repository::open_from_worktree(&worktree).with_context(|| {
+    Ok(())
+}
+
+fn validate_linked_worktree(worktree: &git2::Worktree, selected: &WorktreeInfo) -> Result<()> {
+    let actual_path = worktree.path();
+    let linked_repo = Repository::open_from_worktree(worktree).with_context(|| {
         format!(
             "Cannot remove worktree '{}': unable to open its repository",
             actual_path.display()
         )
     })?;
-    let (branch, detached_short_sha) = worktree_head_identity(&linked_repo).with_context(|| {
+    validate_worktree_head(&linked_repo, selected, actual_path)?;
+    validate_worktree_cleanliness(&linked_repo, actual_path)?;
+    validate_worktree_submodules(&linked_repo, actual_path)?;
+    validate_worktree_head(&linked_repo, selected, actual_path)?;
+    Ok(())
+}
+
+fn validate_worktree_head(
+    linked_repo: &Repository,
+    selected: &WorktreeInfo,
+    actual_path: &Path,
+) -> Result<()> {
+    let (branch, detached_short_sha) = worktree_head_identity(linked_repo).with_context(|| {
         format!(
             "Cannot remove worktree '{}': unable to read its HEAD",
             actual_path.display()
@@ -926,9 +893,12 @@ fn remove_linked_worktree(repo: &Repository, selected: &WorktreeInfo) -> Result<
             actual_path.display()
         );
     }
+    Ok(())
+}
 
-    match cleanliness(&linked_repo) {
-        WorktreeCleanliness::Clean => {}
+fn validate_worktree_cleanliness(linked_repo: &Repository, actual_path: &Path) -> Result<()> {
+    match cleanliness(linked_repo) {
+        WorktreeCleanliness::Clean => Ok(()),
         WorktreeCleanliness::Dirty(reasons) => {
             let reasons = reasons
                 .iter()
@@ -947,8 +917,11 @@ fn remove_linked_worktree(repo: &Repository, selected: &WorktreeInfo) -> Result<
             );
         }
     }
-    match submodules(&linked_repo) {
-        WorktreeSubmodules::None => {}
+}
+
+fn validate_worktree_submodules(linked_repo: &Repository, actual_path: &Path) -> Result<()> {
+    match submodules(linked_repo) {
+        WorktreeSubmodules::None => Ok(()),
         WorktreeSubmodules::Present => {
             anyhow::bail!(
                 "Cannot remove worktree '{}': it contains submodules",
@@ -962,29 +935,6 @@ fn remove_linked_worktree(repo: &Repository, selected: &WorktreeInfo) -> Result<
             );
         }
     }
-    let (branch, detached_short_sha) = worktree_head_identity(&linked_repo).with_context(|| {
-        format!(
-            "Cannot remove worktree '{}': unable to recheck its HEAD",
-            actual_path.display()
-        )
-    })?;
-    if branch.as_deref() != selected.branch.as_deref()
-        || detached_short_sha.as_deref() != selected.detached_short_sha.as_deref()
-    {
-        anyhow::bail!(
-            "Cannot remove worktree '{}': branch or HEAD changed; refresh worktree inventory",
-            actual_path.display()
-        );
-    }
-
-    drop(linked_repo);
-
-    let mut options = WorktreePruneOptions::new();
-    options.valid(true).working_tree(true);
-    worktree
-        .prune(Some(&mut options))
-        .with_context(|| format!("Failed to remove worktree '{}'", actual_path.display()))?;
-    Ok(())
 }
 fn worktree_head_identity(repo: &Repository) -> Result<(Option<String>, Option<String>)> {
     let head = repo.head().context("Failed to read worktree HEAD")?;
