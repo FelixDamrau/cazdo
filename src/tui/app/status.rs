@@ -18,7 +18,7 @@ impl App {
             self.apply_worktree_error("No worktree selected".to_string());
             return;
         };
-        if let Some(error) = Self::worktree_prune_error(&worktree) {
+        if let Err(error) = Self::worktree_prune_error(&worktree) {
             self.apply_worktree_error(error);
             return;
         }
