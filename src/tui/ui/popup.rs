@@ -75,6 +75,8 @@ pub fn render_remove_worktree_popup(frame: &mut Frame, path: &std::path::Path, r
             Span::raw("Branch/HEAD: "),
             Span::styled(ref_display, theme::branch::CURRENT),
         ]),
+        Line::from("The directory and its contents are deleted;"),
+        Line::from("The branch is preserved."),
         Line::from(""),
         make_key_hint(&["y"], "confirm"),
         make_key_hint(&["n", "Esc"], "cancel"),
@@ -145,6 +147,7 @@ fn centered_rect(r: Rect) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::{Terminal, backend::TestBackend};
     #[test]
     fn test_centered_rect_stays_within_tiny_area() {
         let area = Rect::new(0, 0, 1, 1);
@@ -163,5 +166,31 @@ mod tests {
 
         assert_eq!(popup.width, 8);
         assert_eq!(popup.height, 5);
+    }
+    #[test]
+    fn test_remove_popup_explains_deletion_and_preserves_confirmation_hints() {
+        let mut terminal = Terminal::new(TestBackend::new(80, 20)).expect("terminal");
+        terminal
+            .draw(|frame| {
+                render_remove_worktree_popup(
+                    frame,
+                    std::path::Path::new("/tmp/worktree"),
+                    "feature/example",
+                );
+            })
+            .expect("draw");
+
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+
+        assert!(rendered.contains("The directory and its contents are deleted;"));
+        assert!(rendered.contains("The branch is preserved."));
+        assert!(rendered.contains("Press y to confirm."));
+        assert!(rendered.contains("Press n or Esc to cancel."));
     }
 }
