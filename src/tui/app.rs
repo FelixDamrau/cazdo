@@ -65,16 +65,9 @@ impl BranchView {
 #[derive(Debug, Clone)]
 pub enum AppMode {
     Normal,
-    ConfirmDelete {
-        branch_key: String,
-    },
-    ConfirmWorktreePrune {
-        worktree: WorktreeInfo,
-    },
-    ConfirmRemoveWorktree {
-        worktree: Box<WorktreeInfo>,
-        ref_display: String,
-    },
+    ConfirmDelete { branch_key: String },
+    ConfirmWorktreePrune { worktree: WorktreeInfo },
+    ConfirmRemoveWorktree { worktree: Box<WorktreeInfo> },
     ErrorPopup(String),
 }
 
