@@ -525,6 +525,8 @@ mod tests {
         assert!(text.contains("in use"));
         assert!(text.contains("Submodules: present"));
         assert!(text.contains("Status: valid / dirty"));
+        assert!(text.contains("Worktree Details"));
+        assert!(!text.contains("Work Item Details"));
 
         let entry = app.selected_worktree().expect("selected worktree");
         let lines = worktree_diagnostic_lines(entry, 80);

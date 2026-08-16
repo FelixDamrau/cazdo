@@ -144,7 +144,6 @@ impl WorktreeInfo {
         self.identity.name()
     }
 
-    #[cfg(test)]
     pub fn linked_name(&self) -> Option<&str> {
         self.identity.linked_name()
     }
@@ -506,7 +505,7 @@ fn inspect_entry_with_state(
     }
 }
 
-fn submodules(repo: &Repository) -> WorktreeSubmodules {
+pub(crate) fn submodules(repo: &Repository) -> WorktreeSubmodules {
     match repo.submodules() {
         Ok(submodules) if submodules.is_empty() => WorktreeSubmodules::None,
         Ok(_) => WorktreeSubmodules::Present,
@@ -594,7 +593,7 @@ fn head_identity(repo: &Repository) -> (Option<String>, Option<String>) {
     }
 }
 
-fn cleanliness(repo: &Repository) -> WorktreeCleanliness {
+pub(crate) fn cleanliness(repo: &Repository) -> WorktreeCleanliness {
     let mut options = StatusOptions::new();
     options
         .include_untracked(true)
@@ -678,7 +677,7 @@ fn normalized(path: &Path) -> PathBuf {
     path.components().collect()
 }
 
-fn main_worktree_path(repo: &Repository) -> Result<PathBuf> {
+pub(crate) fn main_worktree_path(repo: &Repository) -> Result<PathBuf> {
     if !repo.is_worktree() {
         return repo
             .workdir()

@@ -94,6 +94,8 @@ pub(super) fn trigger_worktree_refresh(
         return;
     }
 
+    *worktree_refresh_requested = false;
+
     let repo_dir = match git_repo.repo_dir() {
         Ok(repo_dir) => repo_dir,
         Err(error) => {
@@ -454,7 +456,7 @@ mod tests {
     #[test]
     fn test_refresh_request_is_retained_while_inventory_is_pending() {
         let git_repo = GitRepo::fixture(FixtureGitRepo::new());
-        let (tx, _rx) = mpsc::unbounded_channel();
+        let (tx, mut rx) = mpsc::unbounded_channel();
         let mut worktree_refresh_pending = true;
         let mut worktree_refresh_requested = false;
 
@@ -467,6 +469,7 @@ mod tests {
 
         assert!(worktree_refresh_pending);
         assert!(worktree_refresh_requested);
+        assert!(rx.try_recv().is_err());
     }
 
     fn remote_branch(is_stale: bool) -> BranchInfo {
