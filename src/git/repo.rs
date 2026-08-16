@@ -757,6 +757,7 @@ fn remove_linked_worktree(repo: &Repository, selected: &WorktreeInfo) -> Result<
     validate_linked_worktree(&worktree, selected)?;
 
     let actual_path = worktree.path();
+    // GIT_WORKTREE_PRUNE_VALID allows pruning a still-valid worktree; this is intentional.
     let mut options = WorktreePruneOptions::new();
     options.valid(true).working_tree(true);
     worktree
