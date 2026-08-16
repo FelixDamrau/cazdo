@@ -203,11 +203,12 @@ pub(crate) fn validate_worktree_prune(entry: &WorktreeInfo) -> Result<&str, Stri
 
 /// Compare paths for current-worktree marking while preserving the original
 /// paths in the public inventory. Canonicalization handles `..`, symlinks, and
-/// relative paths; Windows comparisons additionally ignore case for drive and
-/// UNC paths.
+/// relative paths; missing paths are component-normalized to remove trailing
+/// separators. Windows comparisons additionally ignore case for drive and UNC
+/// paths.
 pub fn worktree_paths_equal(left: &Path, right: &Path) -> bool {
-    let left = fs::canonicalize(left).unwrap_or_else(|_| left.to_path_buf());
-    let right = fs::canonicalize(right).unwrap_or_else(|_| right.to_path_buf());
+    let left = fs::canonicalize(left).unwrap_or_else(|_| normalized(left));
+    let right = fs::canonicalize(right).unwrap_or_else(|_| normalized(right));
 
     if cfg!(windows) {
         left.to_string_lossy()
@@ -752,6 +753,20 @@ mod tests {
             &nested,
             &dir.path().join("nested/..").join("nested")
         ));
+    }
+
+    #[test]
+    fn path_comparison_normalizes_missing_trailing_separator() {
+        let dir = tempdir().expect("temp directory");
+        let missing = dir.path().join("missing");
+        let missing_with_separator = PathBuf::from(format!(
+            "{}{}",
+            missing.display(),
+            std::path::MAIN_SEPARATOR
+        ));
+
+        assert!(!missing.exists());
+        assert!(worktree_paths_equal(&missing, &missing_with_separator));
     }
 
     #[cfg(windows)]

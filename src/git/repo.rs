@@ -1290,13 +1290,20 @@ mod tests {
             .into_iter()
             .find(|entry| entry.is_main)
             .expect("main entry should be present");
+        let initial_branch = current_local_branch_name(&repo.repo)
+            .expect("current branch lookup should succeed")
+            .expect("test repository should have a local branch");
 
         let error = repo
             .prune_worktree_metadata_by_identity(&main.identity, &main.path)
             .expect_err("main worktree must remain protected");
 
         assert!(error.to_string().contains("main"));
-        assert!(repo.repo.find_branch("main", BranchType::Local).is_ok());
+        assert!(
+            repo.repo
+                .find_branch(&initial_branch, BranchType::Local)
+                .is_ok()
+        );
         assert!(repo_path.exists());
         let _ = fs::remove_dir_all(repo_path);
     }
