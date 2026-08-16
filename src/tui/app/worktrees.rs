@@ -22,8 +22,8 @@ impl App {
         }
     }
 
-    pub(super) fn worktree_prune_error(entry: &WorktreeInfo) -> Option<String> {
-        validate_worktree_prune(entry).err()
+    pub(super) fn worktree_prune_error(entry: &WorktreeInfo) -> Result<(), String> {
+        validate_worktree_prune(entry).map(|_| ())
     }
 
     pub fn can_remove_selected_worktree(&self) -> Result<(), String> {
