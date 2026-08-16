@@ -592,11 +592,14 @@ mod tests {
         handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('j')));
 
         assert!(handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('d'))).is_none());
-        let (path, ref_display) = app
+        let confirmed_worktree = app
             .remove_worktree_confirmation_details()
             .expect("d should enter worktree confirmation");
-        assert_eq!(path, std::path::Path::new("/tmp/fixture"));
-        assert_eq!(ref_display, "main");
+        assert_eq!(
+            confirmed_worktree.path,
+            std::path::PathBuf::from("/tmp/fixture")
+        );
+        assert_eq!(confirmed_worktree.ref_display(), "main");
         let mut replacement = worktree(
             WorktreeIdentity::Linked {
                 name: "linked".to_string(),

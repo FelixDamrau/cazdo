@@ -35,30 +35,24 @@ impl App {
 
     pub(super) fn apply_enter_remove_worktree_confirm_mode(&mut self) {
         if let Some(worktree) = self.selected_worktree().cloned() {
-            let ref_display = worktree.ref_display();
             self.mode = super::AppMode::ConfirmRemoveWorktree {
                 worktree: Box::new(worktree),
-                ref_display,
             };
         }
     }
 
     pub fn confirmed_remove_worktree(&self) -> Option<WorktreeInfo> {
-        let super::AppMode::ConfirmRemoveWorktree { worktree, .. } = &self.mode else {
+        let super::AppMode::ConfirmRemoveWorktree { worktree } = &self.mode else {
             return None;
         };
         Some(worktree.as_ref().clone())
     }
 
-    pub fn remove_worktree_confirmation_details(&self) -> Option<(&std::path::Path, &str)> {
-        let super::AppMode::ConfirmRemoveWorktree {
-            worktree,
-            ref_display,
-        } = &self.mode
-        else {
+    pub fn remove_worktree_confirmation_details(&self) -> Option<&WorktreeInfo> {
+        let super::AppMode::ConfirmRemoveWorktree { worktree } = &self.mode else {
             return None;
         };
-        Some((&worktree.path, ref_display))
+        Some(worktree.as_ref())
     }
 
     pub fn worktree_selected_index(&self) -> usize {
