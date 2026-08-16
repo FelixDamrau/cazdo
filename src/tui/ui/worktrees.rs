@@ -327,40 +327,22 @@ fn wrapped_prefix_lines(
 
 fn wrap_value(value: &str, width: usize) -> Vec<String> {
     let width = width.max(1);
+    if value.is_empty() {
+        return vec![String::new()];
+    }
+
     let mut lines = Vec::new();
-    let mut current = String::new();
-
-    for word in value.split_whitespace() {
-        if !current.is_empty() && display_width(&current) + 1 + display_width(word) > width {
-            lines.push(std::mem::take(&mut current));
-        }
-
-        let mut remainder = word;
-        while display_width(remainder) > width {
-            let (chunk, rest) = split_at_width(remainder, width);
-            if rest.len() == remainder.len() {
-                let character = remainder.chars().next().expect("value is not empty");
-                lines.push("…".to_string());
-                remainder = &remainder[character.len_utf8()..];
-            } else {
-                lines.push(chunk);
-                remainder = rest;
-            }
-        }
-
-        if current.is_empty() {
-            current.push_str(remainder);
+    let mut remainder = value;
+    while !remainder.is_empty() {
+        let (line, rest) = split_at_width(remainder, width);
+        if rest.len() == remainder.len() {
+            let character = remainder.chars().next().expect("value is not empty");
+            lines.push(character.to_string());
+            remainder = &remainder[character.len_utf8()..];
         } else {
-            current.push(' ');
-            current.push_str(remainder);
+            lines.push(line);
+            remainder = rest;
         }
-    }
-
-    if !current.is_empty() {
-        lines.push(current);
-    }
-    if lines.is_empty() {
-        lines.push(String::new());
     }
     lines
 }
@@ -414,7 +396,7 @@ fn list_name_style(entry: &WorktreeInfo) -> Style {
 fn status_style(entry: &WorktreeInfo) -> Style {
     match &entry.state {
         WorktreeState::Invalid(_) | WorktreeState::Unknown(_) => theme::styles::ERROR,
-        WorktreeState::Missing | WorktreeState::Prunable => theme::styles::WARNING,
+        WorktreeState::Missing => theme::styles::WARNING,
         WorktreeState::Valid if entry.is_locked() || entry.prunable => theme::styles::WARNING,
         WorktreeState::Valid => {
             if entry.cleanliness.is_clean() {
@@ -433,7 +415,7 @@ fn status_style(entry: &WorktreeInfo) -> Style {
 fn state_style(state: &WorktreeState) -> Style {
     match state {
         WorktreeState::Valid => theme::styles::SUCCESS,
-        WorktreeState::Missing | WorktreeState::Prunable => theme::styles::WARNING,
+        WorktreeState::Missing => theme::styles::WARNING,
         WorktreeState::Invalid(_) | WorktreeState::Unknown(_) => theme::styles::ERROR,
     }
 }
@@ -721,5 +703,14 @@ mod tests {
         let truncated = truncate_to_width("日本語", 2);
         assert!(display_width(&truncated) <= 2);
         assert!(truncated.ends_with('…'));
+    }
+
+    #[test]
+    fn wrapped_values_preserve_whitespace() {
+        let value = "  feature  with spaces  ";
+        let lines = wrap_value(value, 8);
+
+        assert_eq!(lines.concat(), value);
+        assert!(lines.iter().all(|line| display_width(line) <= 8));
     }
 }
