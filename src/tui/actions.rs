@@ -622,11 +622,11 @@ mod tests {
         execute_checkout_branch(&mut app, &git_repo, &branch);
 
         assert!(matches!(
-
             app.mode(),
             AppMode::ErrorPopup(message) if message.contains("uncommitted changes")
         ));
     }
+
     fn test_worktree() -> WorktreeInfo {
         WorktreeInfo {
             identity: WorktreeIdentity::Linked {
