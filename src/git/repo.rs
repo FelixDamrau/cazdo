@@ -870,7 +870,6 @@ fn validate_linked_worktree(worktree: &git2::Worktree, selected: &WorktreeInfo) 
     validate_worktree_head(&linked_repo, selected, actual_path)?;
     validate_worktree_cleanliness(&linked_repo, actual_path)?;
     validate_worktree_submodules(&linked_repo, actual_path)?;
-    validate_worktree_head(&linked_repo, selected, actual_path)?;
     Ok(())
 }
 
