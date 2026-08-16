@@ -80,7 +80,6 @@ async fn run_loop(
             &mut worktree_refresh_pending,
         );
         if worktree_refresh_requested && !worktree_refresh_pending {
-            worktree_refresh_requested = false;
             trigger_worktree_refresh(
                 git_repo,
                 &tx,
