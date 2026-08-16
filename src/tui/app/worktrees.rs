@@ -25,6 +25,7 @@ impl App {
     pub(super) fn worktree_prune_error(entry: &WorktreeInfo) -> Option<String> {
         validate_worktree_prune(entry).err()
     }
+
     pub fn can_remove_selected_worktree(&self) -> Result<(), String> {
         let Some(worktree) = self.selected_worktree() else {
             return Err("No worktree selected".to_string());
