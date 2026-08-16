@@ -100,14 +100,13 @@ async fn run_loop(
                 Command::Delete(branch) => execute_delete_branch(app, git_repo, &branch),
                 Command::Prune(branch) => execute_prune_branch(app, git_repo, &branch),
                 Command::PruneWorktree(worktree) => {
-                    if execute_prune_worktree(app, git_repo, &worktree) {
-                        trigger_worktree_refresh(
-                            git_repo,
-                            &tx,
-                            &mut worktree_refresh_pending,
-                            &mut worktree_refresh_requested,
-                        );
-                    }
+                    execute_prune_worktree(app, git_repo, &worktree);
+                    trigger_worktree_refresh(
+                        git_repo,
+                        &tx,
+                        &mut worktree_refresh_pending,
+                        &mut worktree_refresh_requested,
+                    );
                 }
                 Command::Refresh(wi_id) => {
                     pending_fetches.remove(&wi_id);

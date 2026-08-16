@@ -63,7 +63,7 @@ pub(super) fn execute_prune_worktree(
     app: &mut App,
     git_repo: &GitRepo,
     worktree: &WorktreeInfo,
-) -> bool {
+) {
     match git_repo.prune_worktree_metadata(worktree) {
         Ok(()) => {
             app.set_status_message(
@@ -74,11 +74,9 @@ pub(super) fn execute_prune_worktree(
                 false,
                 timing::STATUS_DURATION_SECS,
             );
-            true
         }
         Err(error) => {
             app.set_status_message(error.to_string(), true, timing::STATUS_DURATION_SECS);
-            false
         }
     }
 }
@@ -496,7 +494,7 @@ mod tests {
         let git_repo =
             GitRepo::fixture(FixtureGitRepo::new().with_prune_worktree_metadata_result(Ok(())));
 
-        assert!(execute_prune_worktree(&mut app, &git_repo, &entry));
+        execute_prune_worktree(&mut app, &git_repo, &entry);
         let status = app.get_status_message().expect("success status");
         assert!(!status.is_error);
         assert!(status.text.contains("path and branch preserved"));
@@ -511,7 +509,7 @@ mod tests {
                 .with_prune_worktree_metadata_result(Err("metadata changed".to_string())),
         );
 
-        assert!(!execute_prune_worktree(&mut app, &git_repo, &entry));
+        execute_prune_worktree(&mut app, &git_repo, &entry);
         let status = app.get_status_message().expect("error status");
         assert!(status.is_error);
         assert_eq!(status.text, "metadata changed");
