@@ -673,11 +673,15 @@ fn push_reason(reasons: &mut Vec<WorktreeDirtyReason>, reason: WorktreeDirtyReas
     }
 }
 
+fn normalized(path: &Path) -> PathBuf {
+    path.components().collect()
+}
+
 fn main_worktree_path(repo: &Repository) -> Result<PathBuf> {
     if !repo.is_worktree() {
         return repo
             .workdir()
-            .map(Path::to_path_buf)
+            .map(normalized)
             .ok_or_else(|| anyhow!("bare repositories do not have a main worktree"));
     }
 
@@ -685,7 +689,7 @@ fn main_worktree_path(repo: &Repository) -> Result<PathBuf> {
     if let Ok(main_repo) = Repository::open(&common)
         && let Some(workdir) = main_repo.workdir()
     {
-        return Ok(workdir.to_path_buf());
+        return Ok(normalized(workdir));
     }
     let common = fs::canonicalize(&common).with_context(|| {
         format!(
@@ -727,6 +731,16 @@ mod tests {
         };
         assert_eq!(identity.name(), "feature with spaces/雪");
         assert_eq!(identity.linked_name(), Some("feature with spaces/雪"));
+    }
+
+    #[test]
+    fn main_worktree_path_has_no_trailing_separator() {
+        let dir = tempdir().expect("temp directory");
+        let repo = Repository::init(dir.path()).expect("repository should initialize");
+
+        let path = main_worktree_path(&repo).expect("main worktree path");
+
+        assert!(!path.to_string_lossy().ends_with(std::path::MAIN_SEPARATOR));
     }
 
     #[test]
