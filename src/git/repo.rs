@@ -1484,11 +1484,12 @@ mod tests {
     fn test_list_worktrees_from_bare_repository_has_only_linked_entries() {
         let (repo, repo_path, linked_path) = init_bare_test_repo("bare-worktree-inventory");
 
-        assert_eq!(
-            repo.repo_dir()
+        assert!(worktree_paths_match(
+            &repo
+                .repo_dir()
                 .expect("bare repository path should be available"),
-            repo_path
-        );
+            &repo_path
+        ));
         let inventory = repo
             .list_worktrees()
             .expect("bare worktree inventory should succeed");
@@ -2250,7 +2251,6 @@ mod tests {
         options.reference(Some(&reference));
         repo.worktree("linked-worktree", &linked_path, Some(&options))
             .expect("linked worktree should be added");
-        drop(options);
         drop(reference);
         drop(commit);
 
