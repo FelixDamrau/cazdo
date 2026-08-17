@@ -68,6 +68,7 @@ pub enum AppMode {
     ConfirmDelete { branch_key: String },
     ConfirmWorktreePrune { worktree: WorktreeInfo },
     ConfirmRemoveWorktree { worktree: WorktreeInfo },
+    RemovingWorktree { worktree: WorktreeInfo },
     ErrorPopup(String),
 }
 
@@ -139,6 +140,9 @@ pub enum Msg {
     EnterDeleteConfirmMode,
     RequestWorktreePrune,
     EnterRemoveWorktreeConfirmMode,
+    EnterWorktreeRemovalMode {
+        worktree: WorktreeInfo,
+    },
     ShowErrorPopup(String),
     SetStatus(StatusMessage),
     ClearStatus,
@@ -276,6 +280,9 @@ impl App {
             Msg::EnterDeleteConfirmMode => self.apply_enter_confirm_mode(),
             Msg::RequestWorktreePrune => self.apply_request_worktree_prune(),
             Msg::EnterRemoveWorktreeConfirmMode => self.apply_enter_remove_worktree_confirm_mode(),
+            Msg::EnterWorktreeRemovalMode { worktree } => {
+                self.mode = AppMode::RemovingWorktree { worktree };
+            }
             Msg::ShowErrorPopup(message) => self.mode = AppMode::ErrorPopup(message),
             Msg::SetStatus(message) => self.status_message = Some(message),
             Msg::ClearStatus => self.status_message = None,

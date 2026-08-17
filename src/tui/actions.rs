@@ -75,6 +75,7 @@ pub(super) fn execute_prune_worktree(app: &mut App, git_repo: &GitRepo, worktree
     }
 }
 
+#[cfg(test)]
 pub(super) fn execute_remove_worktree(
     app: &mut App,
     git_repo: &GitRepo,

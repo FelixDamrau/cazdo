@@ -86,6 +86,32 @@ pub fn render_remove_worktree_popup(frame: &mut Frame, path: &std::path::Path, r
     render_popup_impl(frame, " Remove Worktree ", content, area);
 }
 
+/// Render the busy state while a linked worktree is removed in the background.
+pub fn render_worktree_removal_busy(frame: &mut Frame, path: &std::path::Path, ref_display: &str) {
+    const SPINNER: &[&str] = &["|", "/", "-", "\\"];
+    let spinner_index = (std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_millis() / 100)
+        % SPINNER.len() as u128) as usize;
+    let content = vec![
+        Line::from(""),
+        Line::from("Removing linked worktree..."),
+        Line::from(vec![
+            Span::raw("Path: "),
+            Span::styled(path.to_string_lossy().into_owned(), theme::branch::CURRENT),
+        ]),
+        Line::from(vec![
+            Span::raw("Branch/HEAD: "),
+            Span::styled(ref_display, theme::branch::CURRENT),
+        ]),
+        Line::from(format!("{} Working; please wait.", SPINNER[spinner_index])),
+        Line::from(""),
+        Line::from("Input is disabled until removal completes."),
+    ];
+    let area = centered_rect(frame.area());
+    render_popup_impl(frame, " Removing Worktree ", content, area);
+}
+
 /// Render an error popup with the given message
 pub fn render_error_popup(frame: &mut Frame, message: &str) {
     let content = vec![
@@ -192,5 +218,31 @@ mod tests {
         assert!(rendered.contains("The branch is preserved."));
         assert!(rendered.contains("Press y to confirm."));
         assert!(rendered.contains("Press n or Esc to cancel."));
+    }
+    #[test]
+    fn test_removal_busy_popup_names_target_and_disables_input() {
+        let mut terminal = Terminal::new(TestBackend::new(80, 20)).expect("terminal");
+        terminal
+            .draw(|frame| {
+                render_worktree_removal_busy(
+                    frame,
+                    std::path::Path::new("/tmp/worktree"),
+                    "feature/example",
+                );
+            })
+            .expect("draw");
+
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+
+        assert!(rendered.contains("Removing linked worktree..."));
+        assert!(rendered.contains("/tmp/worktree"));
+        assert!(rendered.contains("feature/example"));
+        assert!(rendered.contains("Input is disabled"));
     }
 }

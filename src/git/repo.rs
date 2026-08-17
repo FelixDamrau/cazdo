@@ -149,6 +149,7 @@ pub(crate) trait GitBackend {
         identity: &WorktreeIdentity,
         expected_path: &Path,
     ) -> Result<()>;
+    #[cfg(test)]
     fn remove_worktree(&self, worktree: &WorktreeInfo) -> Result<()>;
     fn repo_dir(&self) -> Result<PathBuf>;
     fn current_local_branch_name(&self) -> Result<Option<String>>;
@@ -226,9 +227,20 @@ impl GitRepo {
             &entry.path,
         )
     }
-
+    #[cfg(test)]
     pub fn remove_worktree(&self, worktree: &WorktreeInfo) -> Result<()> {
         self.backend.remove_worktree(worktree)
+    }
+
+    /// Reopen a repository from an owned path before revalidating and removing
+    /// a linked worktree. The caller must pass the inventory snapshot by value
+    /// so the operation can run on a blocking worker without borrowing TUI
+    /// state or the live `GitRepo` facade.
+    pub fn remove_worktree_at(repo_path: &Path, worktree: &WorktreeInfo) -> Result<()> {
+        let repo = Repository::discover(repo_path).with_context(|| {
+            format!("Failed to discover repository at '{}'", repo_path.display())
+        })?;
+        remove_linked_worktree(&repo, worktree)
     }
 
     pub fn repo_dir(&self) -> Result<PathBuf> {
@@ -393,7 +405,7 @@ impl GitBackend for LiveGitRepo {
     ) -> Result<()> {
         prune_metadata(&self.repo, identity, expected_path)
     }
-
+    #[cfg(test)]
     fn remove_worktree(&self, worktree: &WorktreeInfo) -> Result<()> {
         remove_linked_worktree(&self.repo, worktree)
     }
@@ -1908,7 +1920,7 @@ mod tests {
         );
         let target = linked_entry(&repo, "linked name with spaces");
 
-        repo.remove_worktree(&target)
+        GitRepo::remove_worktree_at(&repo_path, &target)
             .expect("clean linked worktree should be removed");
 
         assert!(!worktree_path.exists());

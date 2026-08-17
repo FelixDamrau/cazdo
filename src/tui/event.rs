@@ -1,9 +1,10 @@
 use std::collections::HashSet;
 use std::io;
+use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture},
+    event::{self, DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -15,11 +16,12 @@ use super::ui;
 use super::{
     actions::{
         execute_checkout_branch, execute_delete_branch, execute_prune_branch,
-        execute_prune_worktree, execute_remove_worktree, open_current_work_item,
+        execute_prune_worktree, open_current_work_item,
     },
     background::{
         FetchResult, fetch_branch_status_if_needed, process_fetch_results,
         trigger_remote_freshness_check, trigger_work_item_fetch, trigger_worktree_refresh,
+        trigger_worktree_removal,
     },
     input::{Command, handle_input},
 };
@@ -70,15 +72,21 @@ async fn run_loop(
     let mut pending_fetches: HashSet<u32> = HashSet::new();
     let mut worktree_refresh_pending = false;
     let mut worktree_refresh_requested = false;
+    let mut worktree_removal_pending = false;
 
     loop {
         app.clear_expired_status();
-        process_fetch_results(
+        let removal_finished = process_fetch_results(
             &mut rx,
             app,
             &mut pending_fetches,
             &mut worktree_refresh_pending,
+            &mut worktree_refresh_requested,
         );
+        if removal_finished {
+            worktree_removal_pending = false;
+            discard_buffered_input()?;
+        }
         if worktree_refresh_requested && !worktree_refresh_pending {
             trigger_worktree_refresh(
                 git_repo,
@@ -109,13 +117,28 @@ async fn run_loop(
                     );
                 }
                 Command::RemoveWorktree(worktree) => {
-                    execute_remove_worktree(app, git_repo, &worktree);
-                    trigger_worktree_refresh(
-                        git_repo,
-                        &tx,
-                        &mut worktree_refresh_pending,
-                        &mut worktree_refresh_requested,
-                    );
+                    if worktree_removal_pending {
+                        continue;
+                    }
+
+                    app.update(Msg::EnterWorktreeRemovalMode {
+                        worktree: worktree.clone(),
+                    });
+
+                    match git_repo.repo_dir() {
+                        Ok(repo_dir) => trigger_worktree_removal(
+                            repo_dir,
+                            worktree,
+                            &tx,
+                            &mut worktree_removal_pending,
+                        ),
+                        Err(error) => {
+                            worktree_removal_pending = true;
+                            let _ = tx.send(FetchResult::WorktreeRemovalError {
+                                error: error.to_string(),
+                            });
+                        }
+                    }
                 }
                 Command::Refresh(wi_id) => {
                     pending_fetches.remove(&wi_id);
@@ -132,8 +155,15 @@ async fn run_loop(
             }
         }
 
-        if app.should_quit() {
+        if app.should_quit() && !worktree_removal_pending {
             return Ok(());
         }
     }
+}
+
+fn discard_buffered_input() -> Result<()> {
+    while event::poll(Duration::ZERO)? {
+        let _ = event::read()?;
+    }
+    Ok(())
 }
