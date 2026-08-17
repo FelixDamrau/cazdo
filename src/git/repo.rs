@@ -398,7 +398,11 @@ impl GitBackend for LiveGitRepo {
         remove_linked_worktree(&self.repo, worktree)
     }
     fn repo_dir(&self) -> Result<PathBuf> {
-        Ok(self.command_dir()?.to_path_buf())
+        Ok(self
+            .repo
+            .workdir()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| self.repo.path().to_path_buf()))
     }
 
     fn current_local_branch_name(&self) -> Result<Option<String>> {
@@ -922,19 +926,19 @@ fn find_registered_worktree(
 
 fn validate_worktree_metadata(repo: &Repository, worktree: &git2::Worktree) -> Result<()> {
     let actual_path = worktree.path();
-    let main_path = main_worktree_path(repo)
-        .context("Cannot remove worktree: failed to determine the main worktree path")?;
-    if worktree_paths_equal(actual_path, &main_path) {
+    if let Some(main_path) = main_worktree_path(repo)
+        .context("Cannot remove worktree: failed to determine the main worktree path")?
+        && worktree_paths_equal(actual_path, &main_path)
+    {
         anyhow::bail!(
             "Cannot remove worktree '{}': the main worktree is protected",
             actual_path.display()
         );
     }
 
-    let current_path = repo
-        .workdir()
-        .context("Cannot remove worktree: current worktree path is unavailable")?;
-    if worktree_paths_equal(actual_path, current_path) {
+    if let Some(current_path) = repo.workdir()
+        && worktree_paths_equal(actual_path, current_path)
+    {
         anyhow::bail!(
             "Cannot remove worktree '{}': the current worktree is protected",
             actual_path.display()
@@ -1473,6 +1477,38 @@ mod tests {
         assert!(linked.cleanliness.is_clean());
 
         let _ = fs::remove_dir_all(&worktree_path);
+        let _ = fs::remove_dir_all(repo_path);
+    }
+
+    #[test]
+    fn test_list_worktrees_from_bare_repository_has_only_linked_entries() {
+        let (repo, repo_path, linked_path) = init_bare_test_repo("bare-worktree-inventory");
+
+        assert_eq!(
+            repo.repo_dir()
+                .expect("bare repository path should be available"),
+            repo_path
+        );
+        let inventory = repo
+            .list_worktrees()
+            .expect("bare worktree inventory should succeed");
+
+        let linked = inventory
+            .first()
+            .expect("linked worktree should be present");
+        assert!(!linked.is_main);
+        assert!(!linked.is_current);
+        assert_eq!(linked.linked_name(), Some("linked-worktree"));
+        assert!(worktree_paths_match(&linked.path, &linked_path));
+        assert_eq!(linked.branch.as_deref(), Some("feature/bare"));
+        assert!(linked.cleanliness.is_clean());
+        assert!(matches!(linked.submodules, WorktreeSubmodules::None));
+
+        let static_inventory =
+            GitRepo::list_worktrees_at(&repo_path).expect("static bare inventory should succeed");
+        assert_eq!(static_inventory, inventory);
+
+        let _ = fs::remove_dir_all(&linked_path);
         let _ = fs::remove_dir_all(repo_path);
     }
 
@@ -2139,6 +2175,7 @@ mod tests {
         assert!(path.exists());
         let mut changed_head = target.clone();
         changed_head.branch = Some("feature/other".to_string());
+
         let changed_head_error = repo
             .remove_worktree(&changed_head)
             .expect_err("changed worktree HEAD should be protected");
@@ -2168,6 +2205,56 @@ mod tests {
 
         let _ = fs::remove_dir_all(&path);
         let _ = fs::remove_dir_all(repo_path);
+    }
+
+    fn init_bare_test_repo(name: &str) -> (LiveGitRepo, PathBuf, PathBuf) {
+        let repo_path = std::env::temp_dir().join(format!(
+            "cazdo-{name}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time should be after epoch")
+                .as_nanos()
+        ));
+        let linked_path = repo_path.with_extension("wt");
+        fs::create_dir_all(&repo_path).expect("temp bare repo dir should be created");
+        let repo = Repository::init_bare(&repo_path).expect("bare repo should initialize");
+
+        let blob = repo.blob(b"hello\n").expect("blob should be written");
+        let mut treebuilder = repo.treebuilder(None).expect("treebuilder should open");
+        treebuilder
+            .insert("README.md", blob, 0o100644)
+            .expect("tree entry should be written");
+        let tree_id = treebuilder.write().expect("tree should write");
+        drop(treebuilder);
+        let tree = repo.find_tree(tree_id).expect("tree should load");
+        let signature =
+            git2::Signature::now("Test User", "test@example.com").expect("signature should create");
+        let oid = repo
+            .commit(
+                Some("refs/heads/main"),
+                &signature,
+                &signature,
+                "init",
+                &tree,
+                &[],
+            )
+            .expect("commit should succeed");
+        drop(tree);
+        let commit = repo.find_commit(oid).expect("commit should be found");
+        let branch = repo
+            .branch("feature/bare", &commit, false)
+            .expect("branch should be created");
+        let reference = branch.into_reference();
+        let mut options = git2::WorktreeAddOptions::new();
+        options.reference(Some(&reference));
+        repo.worktree("linked-worktree", &linked_path, Some(&options))
+            .expect("linked worktree should be added");
+        drop(options);
+        drop(reference);
+        drop(commit);
+
+        (LiveGitRepo { repo }, repo_path, linked_path)
     }
 
     fn init_test_repo(name: &str) -> (LiveGitRepo, PathBuf, git2::Oid) {

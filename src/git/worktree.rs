@@ -308,13 +308,15 @@ pub(crate) fn inventory(repo: &Repository) -> Result<Vec<WorktreeInfo>> {
     let main_path = main_worktree_path(repo).context("Failed to determine main worktree path")?;
 
     let mut entries = Vec::new();
-    entries.push(inspect_entry(
-        repo,
-        WorktreeIdentity::Main,
-        main_path,
-        current_path.as_deref(),
-        true,
-    ));
+    if let Some(main_path) = main_path {
+        entries.push(inspect_entry(
+            repo,
+            WorktreeIdentity::Main,
+            main_path,
+            current_path.as_deref(),
+            true,
+        ));
+    }
 
     let worktrees = repo
         .worktrees()
@@ -400,9 +402,10 @@ pub(crate) fn prune_metadata(
             path.display()
         );
     }
-    let main_path =
-        main_worktree_path(repo).context("Cannot determine main worktree path before pruning")?;
-    if worktree_paths_equal(&path, &main_path) {
+    if let Some(main_path) =
+        main_worktree_path(repo).context("Cannot determine main worktree path before pruning")?
+        && worktree_paths_equal(&path, &main_path)
+    {
         bail!("Cannot prune the main worktree");
     }
     if let Some(current_path) = repo.workdir()
@@ -541,7 +544,8 @@ fn inspect_entry_with_state(
     mut state: WorktreeState,
     prunable: bool,
 ) -> WorktreeInfo {
-    let same_as_inventory = worktree_paths_equal(&path, inventory_repo.workdir().unwrap_or(&path));
+    let same_as_inventory =
+        current_path.is_some_and(|current| worktree_paths_equal(current, &path));
     let (branch, detached_short_sha, cleanliness, submodules) = if same_as_inventory {
         let (branch, detached_short_sha) = head_identity(inventory_repo);
         let cleanliness = cleanliness(inventory_repo);
@@ -761,19 +765,17 @@ fn normalized(path: &Path) -> PathBuf {
     path.components().collect()
 }
 
-pub(crate) fn main_worktree_path(repo: &Repository) -> Result<PathBuf> {
+pub(crate) fn main_worktree_path(repo: &Repository) -> Result<Option<PathBuf>> {
     if !repo.is_worktree() {
-        return repo
-            .workdir()
-            .map(normalized)
-            .ok_or_else(|| anyhow!("bare repositories do not have a main worktree"));
+        return Ok(repo.workdir().map(normalized));
     }
 
     let common = common_git_dir(repo).context("linked worktree has no common git directory")?;
-    if let Ok(main_repo) = Repository::open(&common)
-        && let Some(workdir) = main_repo.workdir()
-    {
-        return Ok(normalized(workdir));
+    if let Ok(main_repo) = Repository::open(&common) {
+        if let Some(workdir) = main_repo.workdir() {
+            return Ok(Some(normalized(workdir)));
+        }
+        return Ok(None);
     }
     let common = fs::canonicalize(&common).with_context(|| {
         format!(
@@ -781,10 +783,9 @@ pub(crate) fn main_worktree_path(repo: &Repository) -> Result<PathBuf> {
             common.display()
         )
     })?;
-    common
-        .parent()
-        .map(Path::to_path_buf)
-        .ok_or_else(|| anyhow!("common git directory has no parent"))
+    Ok(Some(common.parent().map(Path::to_path_buf).ok_or_else(
+        || anyhow!("common git directory has no parent"),
+    )?))
 }
 
 fn common_git_dir(repo: &Repository) -> Option<PathBuf> {
@@ -816,13 +817,14 @@ mod tests {
         assert_eq!(identity.name(), "feature with spaces/雪");
         assert_eq!(identity.linked_name(), Some("feature with spaces/雪"));
     }
-
     #[test]
     fn main_worktree_path_has_no_trailing_separator() {
         let dir = tempdir().expect("temp directory");
         let repo = Repository::init(dir.path()).expect("repository should initialize");
 
-        let path = main_worktree_path(&repo).expect("main worktree path");
+        let path = main_worktree_path(&repo)
+            .expect("main worktree path lookup should succeed")
+            .expect("non-bare repository should have a main worktree path");
 
         assert!(!path.to_string_lossy().ends_with(std::path::MAIN_SEPARATOR));
     }
