@@ -144,7 +144,6 @@ impl WorktreeInfo {
         self.identity.name()
     }
 
-    #[cfg(test)]
     pub fn linked_name(&self) -> Option<&str> {
         self.identity.linked_name()
     }
@@ -196,6 +195,90 @@ pub(crate) fn validate_worktree_prune(entry: &WorktreeInfo) -> Result<&str, Stri
         return Err(format!(
             "Cannot prune worktree '{}': stale metadata is not marked prunable",
             entry.name()
+        ));
+    }
+    Ok(name)
+}
+
+/// Validate the inventory snapshot before attempting removal.
+///
+/// The live worktree metadata and repository contents must still be rechecked
+/// before pruning because this snapshot may be stale.
+pub(crate) fn validate_worktree_removal(entry: &WorktreeInfo) -> Result<&str, String> {
+    if entry.is_main {
+        return Err(format!(
+            "Cannot remove worktree '{}': the main worktree is protected",
+            entry.path.display()
+        ));
+    }
+    if entry.is_current {
+        return Err(format!(
+            "Cannot remove worktree '{}': the current worktree is protected",
+            entry.path.display()
+        ));
+    }
+    let name = entry
+        .linked_name()
+        .filter(|name| !name.trim().is_empty())
+        .ok_or_else(|| "Cannot remove malformed worktree entry: missing linked name".to_string())?;
+    if entry.path.as_os_str().is_empty() {
+        return Err(format!(
+            "Cannot remove malformed worktree '{}': path is empty",
+            name
+        ));
+    }
+    if !entry.state.is_valid() {
+        return Err(format!(
+            "Cannot remove worktree '{}': inventory state is '{}'; refresh worktree inventory first",
+            entry.path.display(),
+            entry.state.label()
+        ));
+    }
+    match &entry.cleanliness {
+        WorktreeCleanliness::Clean => {}
+        WorktreeCleanliness::Dirty(reasons) => {
+            let reasons = reasons
+                .iter()
+                .map(|reason| reason.label())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(format!(
+                "Cannot remove worktree '{}': it has uncommitted changes ({reasons})",
+                entry.path.display()
+            ));
+        }
+        WorktreeCleanliness::Unknown(error) => {
+            return Err(format!(
+                "Cannot remove worktree '{}': status is unknown ({error})",
+                entry.path.display()
+            ));
+        }
+    }
+    match &entry.submodules {
+        WorktreeSubmodules::None => {}
+        WorktreeSubmodules::Present => {
+            return Err(format!(
+                "Cannot remove worktree '{}': it contains submodules",
+                entry.path.display()
+            ));
+        }
+        WorktreeSubmodules::Unknown(error) => {
+            return Err(format!(
+                "Cannot remove worktree '{}': submodule status is unknown ({error})",
+                entry.path.display()
+            ));
+        }
+    }
+    if let Some(reason) = &entry.lock_reason {
+        return Err(format!(
+            "Cannot remove worktree '{}': it is locked ({reason})",
+            entry.path.display()
+        ));
+    }
+    if entry.prunable {
+        return Err(format!(
+            "Cannot remove worktree '{}': it is prunable or missing; refresh worktree inventory first",
+            entry.path.display()
         ));
     }
     Ok(name)
@@ -506,7 +589,7 @@ fn inspect_entry_with_state(
     }
 }
 
-fn submodules(repo: &Repository) -> WorktreeSubmodules {
+pub(crate) fn submodules(repo: &Repository) -> WorktreeSubmodules {
     match repo.submodules() {
         Ok(submodules) if submodules.is_empty() => WorktreeSubmodules::None,
         Ok(_) => WorktreeSubmodules::Present,
@@ -594,7 +677,7 @@ fn head_identity(repo: &Repository) -> (Option<String>, Option<String>) {
     }
 }
 
-fn cleanliness(repo: &Repository) -> WorktreeCleanliness {
+pub(crate) fn cleanliness(repo: &Repository) -> WorktreeCleanliness {
     let mut options = StatusOptions::new();
     options
         .include_untracked(true)
@@ -678,7 +761,7 @@ fn normalized(path: &Path) -> PathBuf {
     path.components().collect()
 }
 
-fn main_worktree_path(repo: &Repository) -> Result<PathBuf> {
+pub(crate) fn main_worktree_path(repo: &Repository) -> Result<PathBuf> {
     if !repo.is_worktree() {
         return repo
             .workdir()

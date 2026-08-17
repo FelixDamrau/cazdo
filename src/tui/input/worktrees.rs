@@ -2,6 +2,7 @@ use crossterm::event::{self, KeyCode, KeyEvent};
 
 use super::Command;
 use crate::tui::app::{App, Msg};
+use crate::tui::theme::timing;
 
 pub(super) fn handle_worktree_mode_key(app: &mut App, key: KeyEvent) -> Option<Command> {
     match key.code {
@@ -22,7 +23,16 @@ pub(super) fn handle_worktree_mode_key(app: &mut App, key: KeyEvent) -> Option<C
             None
         }
         KeyCode::Char('d') => {
-            app.update(Msg::RequestWorktreePrune);
+            let needs_metadata_prune = app
+                .selected_worktree()
+                .is_some_and(|entry| !entry.state.is_valid() || entry.prunable);
+            if needs_metadata_prune {
+                app.update(Msg::RequestWorktreePrune);
+            } else if let Err(error) = app.can_remove_selected_worktree() {
+                app.set_status_message(error, true, timing::STATUS_DURATION_SECS);
+            } else {
+                app.enter_remove_worktree_confirm_mode();
+            }
             None
         }
         KeyCode::Char('w') => {

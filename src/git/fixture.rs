@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use anyhow::{Result, anyhow, bail};
 
 use super::repo::{BranchScope, BranchStatus, DeleteResult, GitBackend, RepoBranch};
+use super::worktree::WorktreeInfo;
 
 /// In-memory `GitRepo` backend for tests: returns preset checkout/delete/prune
 /// outcomes. Ops it isn't configured for (branch listing, status, freshness) are
@@ -13,6 +14,7 @@ pub struct FixtureGitRepo {
     delete_result: Option<Result<DeleteResult, String>>,
     prune_result: Option<Result<(), String>>,
     prune_worktree_metadata_result: Option<Result<(), String>>,
+    remove_worktree_result: Option<Result<(), String>>,
 }
 
 impl FixtureGitRepo {
@@ -37,6 +39,11 @@ impl FixtureGitRepo {
 
     pub fn with_prune_worktree_metadata_result(mut self, result: Result<(), String>) -> Self {
         self.prune_worktree_metadata_result = Some(result);
+        self
+    }
+
+    pub fn with_remove_worktree_result(mut self, result: Result<(), String>) -> Self {
+        self.remove_worktree_result = Some(result);
         self
     }
 }
@@ -89,6 +96,10 @@ impl GitBackend for FixtureGitRepo {
             "prune_worktree_metadata",
             &self.prune_worktree_metadata_result,
         )
+    }
+
+    fn remove_worktree(&self, _worktree: &WorktreeInfo) -> Result<()> {
+        preset("remove_worktree", &self.remove_worktree_result)
     }
 
     fn repo_dir(&self) -> Result<PathBuf> {

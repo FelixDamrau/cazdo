@@ -11,6 +11,7 @@ pub(super) enum Command {
     Delete(BranchInfo),
     Prune(BranchInfo),
     PruneWorktree(crate::git::WorktreeInfo),
+    RemoveWorktree(crate::git::WorktreeInfo),
     Refresh(u32),
     RefreshWorktrees,
     OpenWorkItem,
@@ -52,6 +53,7 @@ fn handle_key_event(app: &mut App, key: KeyEvent) -> Option<Command> {
         AppMode::ConfirmWorktreePrune { worktree } => {
             handle_confirm_worktree_prune_key(app, key, &worktree)
         }
+        AppMode::ConfirmRemoveWorktree { .. } => handle_confirm_remove_worktree_key(app, key),
         AppMode::ErrorPopup(_) => {
             handle_error_popup_key(app, key);
             None
@@ -231,6 +233,21 @@ fn handle_confirm_worktree_prune_key(
     }
 }
 
+fn handle_confirm_remove_worktree_key(app: &mut App, key: KeyEvent) -> Option<Command> {
+    match key.code {
+        KeyCode::Char('y') | KeyCode::Enter => {
+            let worktree = app.confirmed_remove_worktree();
+            app.cancel_mode();
+            worktree.map(Command::RemoveWorktree)
+        }
+        KeyCode::Char('n') | KeyCode::Esc | KeyCode::Char('q') => {
+            app.cancel_mode();
+            None
+        }
+        _ => None,
+    }
+}
+
 fn handle_error_popup_key(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') => app.cancel_mode(),
@@ -256,8 +273,8 @@ mod tests {
 
     use super::*;
     use crate::git::{
-        BranchScope, WorktreeCleanliness, WorktreeIdentity, WorktreeInfo, WorktreeState,
-        WorktreeSubmodules,
+        BranchScope, WorktreeCleanliness, WorktreeDirtyReason, WorktreeIdentity, WorktreeInfo,
+        WorktreeState, WorktreeSubmodules,
     };
     use crate::tui::app::{App, BranchInfo, BranchView};
 
@@ -491,9 +508,12 @@ mod tests {
         handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('j')));
 
         assert!(handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('d'))).is_none());
-        let confirmation = app
-            .confirm_worktree_prune()
-            .expect("missing worktree should enter confirmation mode");
+        let AppMode::ConfirmWorktreePrune {
+            worktree: confirmation,
+        } = app.mode()
+        else {
+            panic!("missing worktree should enter confirmation mode");
+        };
         assert_eq!(confirmation.path, entry.path);
         assert_eq!(confirmation.ref_display(), "feature/preserved");
 
@@ -525,7 +545,7 @@ mod tests {
             app.update(Msg::ToggleWorktreeView);
 
             assert!(handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('d'))).is_none());
-            assert!(app.confirm_worktree_prune().is_none());
+            assert!(matches!(app.mode(), AppMode::Normal));
             assert!(
                 app.get_status_message()
                     .expect("rejection should set status")
@@ -551,13 +571,103 @@ mod tests {
 
             handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('d')));
 
-            assert!(app.confirm_worktree_prune().is_none());
+            assert!(matches!(app.mode(), AppMode::Normal));
             let status = app
                 .get_status_message()
                 .expect("rejection should set status");
             assert!(status.is_error);
             assert!(status.text.contains("valid linked worktree"));
         }
+    }
+
+    #[test]
+    fn test_worktree_d_rejects_main_worktree_with_status() {
+        let mut app = App::new(vec![remote_branch(false)], vec![]);
+        app.update(Msg::SetWorktrees(vec![worktree(
+            WorktreeIdentity::Main,
+            true,
+        )]));
+        app.update(Msg::ToggleWorktreeView);
+
+        assert!(handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('d'))).is_none());
+        assert!(app.is_normal_mode());
+
+        let status = app
+            .get_status_message()
+            .expect("main worktree rejection should set a status");
+        assert!(status.is_error);
+        assert!(status.text.contains("main worktree is protected"));
+    }
+
+    #[test]
+    fn test_worktree_d_rejects_dirty_valid_linked_worktree_with_status() {
+        let mut app = App::new(vec![remote_branch(false)], vec![]);
+        let mut entry = worktree(
+            WorktreeIdentity::Linked {
+                name: "dirty linked".to_string(),
+            },
+            false,
+        );
+        entry.cleanliness = WorktreeCleanliness::Dirty(vec![WorktreeDirtyReason::Worktree]);
+        app.update(Msg::SetWorktrees(vec![entry]));
+        app.update(Msg::ToggleWorktreeView);
+
+        assert!(handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('d'))).is_none());
+        assert!(app.is_normal_mode());
+
+        let status = app
+            .get_status_message()
+            .expect("dirty worktree rejection should set a status");
+        assert!(status.is_error);
+        assert!(status.text.contains("uncommitted changes"));
+    }
+
+    #[test]
+    fn test_worktree_remove_shortcut_uses_separate_confirmation_action() {
+        let mut app = App::new(vec![remote_branch(false)], vec![]);
+        app.update(Msg::SetWorktrees(vec![
+            worktree(WorktreeIdentity::Main, true),
+            worktree(
+                WorktreeIdentity::Linked {
+                    name: "linked".to_string(),
+                },
+                false,
+            ),
+        ]));
+        app.update(Msg::ToggleWorktreeView);
+        handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('j')));
+
+        assert!(handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('d'))).is_none());
+        let confirmed_worktree = match app.mode() {
+            AppMode::ConfirmRemoveWorktree { worktree } => worktree,
+            _ => panic!("d should enter worktree confirmation"),
+        };
+        assert_eq!(
+            confirmed_worktree.path,
+            std::path::PathBuf::from("/tmp/fixture")
+        );
+        assert_eq!(confirmed_worktree.ref_display(), "main");
+        let mut replacement = worktree(
+            WorktreeIdentity::Linked {
+                name: "linked".to_string(),
+            },
+            false,
+        );
+        replacement.path = "/tmp/replaced".into();
+        app.update(Msg::SetWorktrees(vec![
+            worktree(WorktreeIdentity::Main, true),
+            replacement,
+        ]));
+
+        let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Enter));
+        match action {
+            Some(Command::RemoveWorktree(entry)) => {
+                assert_eq!(entry.name(), "linked");
+                assert_eq!(entry.path, std::path::PathBuf::from("/tmp/fixture"));
+            }
+            _ => panic!("expected worktree removal action"),
+        }
+        assert!(app.is_normal_mode());
     }
 
     fn worktree(identity: WorktreeIdentity, is_current: bool) -> WorktreeInfo {

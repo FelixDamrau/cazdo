@@ -166,13 +166,13 @@ cazdo update
 
 Press `w` to toggle between the branch and worktree views.
 
-| Key                      | Action                                            |
-| ------------------------ | ------------------------------------------------- |
-| `j` / `k` / `Arrow keys` | Navigate worktrees                                |
-| `d`                      | Prune missing worktree metadata with confirmation |
-| `r`                      | Refresh worktree inventory                        |
-| `w`                      | Return to branch view                             |
-| `q` / `Esc`              | Quit                                              |
+| Key                      | Action                                                                   |
+| ------------------------ | ------------------------------------------------------------------------ |
+| `j` / `k` / `Arrow keys` | Navigate worktrees                                                       |
+| `d`                      | Remove clean linked worktree or prune missing metadata with confirmation |
+| `r`                      | Refresh worktree inventory                                               |
+| `w`                      | Return to branch view                                                    |
+| `q` / `Esc`              | Quit                                                                     |
 
 ## Protected Branches
 

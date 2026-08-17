@@ -18,11 +18,15 @@ impl App {
             self.apply_worktree_error("No worktree selected".to_string());
             return;
         };
-        if let Some(error) = Self::worktree_prune_error(&worktree) {
+        if let Err(error) = Self::worktree_prune_error(&worktree) {
             self.apply_worktree_error(error);
             return;
         }
         self.mode = AppMode::ConfirmWorktreePrune { worktree };
+    }
+
+    pub fn enter_remove_worktree_confirm_mode(&mut self) {
+        self.update(Msg::EnterRemoveWorktreeConfirmMode);
     }
 
     pub fn show_error_popup(&mut self, message: String) {
