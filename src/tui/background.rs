@@ -131,7 +131,9 @@ pub(super) fn trigger_work_item_fetch(
     tx: &mpsc::UnboundedSender<FetchResult>,
     pending_fetches: &mut HashSet<u32>,
 ) {
-    if let Some(wi_id) = app.selected_work_item_id() {
+    if !app.is_worktree_view()
+        && let Some(wi_id) = app.selected_work_item_id()
+    {
         let status = app.get_work_item_status(wi_id);
         if matches!(status, WorkItemStatus::NotFetched) && !pending_fetches.contains(&wi_id) {
             app.set_work_item_loading(wi_id);
@@ -158,7 +160,9 @@ pub(super) fn trigger_work_item_fetch(
 }
 
 pub(super) fn fetch_branch_status_if_needed(app: &mut App, git_repo: &GitRepo) {
-    if let Some(branch) = app.selected_branch() {
+    if !app.is_worktree_view()
+        && let Some(branch) = app.selected_branch()
+    {
         let branch_key = branch.key.clone();
         let branch_display_name = branch.display_name.clone();
 
@@ -470,6 +474,46 @@ mod tests {
         assert!(worktree_refresh_pending);
         assert!(worktree_refresh_requested);
         assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn test_background_branch_and_work_item_fetches_skip_worktree_view() {
+        let branch = BranchInfo {
+            key: "refs/heads/feature/117".to_string(),
+            display_name: "feature/117".to_string(),
+            branch_name: "feature/117".to_string(),
+            remote_name: None,
+            scope: BranchScope::Local,
+            work_item_id: Some(101),
+            is_current: false,
+            is_protected: false,
+            is_stale: false,
+        };
+        let mut app = App::new(vec![branch], vec![]);
+        app.update(Msg::ToggleWorktreeView);
+
+        let client = AzureDevOpsClient::new_fixture(format!(
+            "{}/docs/tapes/demo-work-items.json",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .expect("demo work item fixture should load");
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut pending_fetches = HashSet::new();
+
+        trigger_work_item_fetch(&mut app, &client, &tx, &mut pending_fetches);
+
+        assert!(pending_fetches.is_empty());
+        assert!(rx.try_recv().is_err());
+        assert!(matches!(
+            app.get_work_item_status(101),
+            WorkItemStatus::NotFetched
+        ));
+
+        let git_repo = GitRepo::fixture(FixtureGitRepo::new());
+        fetch_branch_status_if_needed(&mut app, &git_repo);
+
+        assert!(app.get_branch_status_error("refs/heads/feature/117").is_none());
+        assert!(app.get_status_message().is_none());
     }
 
     fn remote_branch(is_stale: bool) -> BranchInfo {
