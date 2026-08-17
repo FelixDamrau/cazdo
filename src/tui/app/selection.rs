@@ -2,9 +2,6 @@ use super::*;
 
 impl App {
     pub fn selected_branch(&self) -> Option<&BranchInfo> {
-        if self.worktree_view {
-            return None;
-        }
         let visible = self.visible_branches();
         visible.get(self.selected_index()).copied()
     }
@@ -237,5 +234,29 @@ mod tests {
         assert_eq!(resolve_selection(Some("a"), &keys, 5, OnMiss::First), 0);
         assert_eq!(resolve_selection(Some("a"), &keys, 5, OnMiss::Clamp), 0);
         assert_eq!(resolve_selection(None, &keys, 5, OnMiss::Clamp), 0);
+    }
+
+    #[test]
+    fn selected_branch_remains_available_in_worktree_view() {
+        let branch = BranchInfo {
+            key: "refs/heads/feature/117".to_string(),
+            display_name: "feature/117".to_string(),
+            branch_name: "feature/117".to_string(),
+            remote_name: None,
+            scope: BranchScope::Local,
+            work_item_id: Some(117),
+            is_current: false,
+            is_protected: false,
+            is_stale: false,
+        };
+        let mut app = App::new(vec![branch], vec![]);
+
+        app.update(Msg::ToggleWorktreeView);
+
+        assert!(app.is_worktree_view());
+        assert_eq!(
+            app.selected_branch().map(|branch| branch.key.as_str()),
+            Some("refs/heads/feature/117")
+        );
     }
 }
