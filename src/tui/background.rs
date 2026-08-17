@@ -23,6 +23,7 @@ pub(super) enum FetchResult {
     WorktreeRemovalError { error: String },
     WorktreeRemovalTaskError { error: String },
 }
+
 pub(super) fn process_fetch_results(
     rx: &mut mpsc::UnboundedReceiver<FetchResult>,
     app: &mut App,
@@ -165,7 +166,7 @@ pub(super) fn trigger_worktree_removal(
 
     tokio::spawn(async move {
         let result =
-            tokio::task::spawn_blocking(move || GitRepo::remove_worktree_at(&repo_dir, &target))
+            tokio::task::spawn_blocking(move || GitRepo::remove_worktree_at(repo_dir, target))
                 .await;
         let result = match result {
             Ok(Ok(())) => FetchResult::WorktreeRemovalSuccess { worktree },
@@ -674,6 +675,7 @@ mod tests {
         );
         assert!(app.get_status_message().is_none());
     }
+
     #[test]
     fn test_removal_trigger_rejects_concurrent_operation() {
         let (tx, mut rx) = mpsc::unbounded_channel();

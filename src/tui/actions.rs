@@ -75,28 +75,6 @@ pub(super) fn execute_prune_worktree(app: &mut App, git_repo: &GitRepo, worktree
     }
 }
 
-#[cfg(test)]
-pub(super) fn execute_remove_worktree(
-    app: &mut App,
-    git_repo: &GitRepo,
-    worktree: &WorktreeInfo,
-) -> bool {
-    match git_repo.remove_worktree(worktree) {
-        Ok(()) => {
-            app.set_status_message(
-                format!("Removed worktree '{}'", worktree.path.display()),
-                false,
-                timing::STATUS_DURATION_SECS,
-            );
-            true
-        }
-        Err(error) => {
-            app.show_error_popup(error.to_string());
-            false
-        }
-    }
-}
-
 pub(super) fn execute_checkout_branch(app: &mut App, git_repo: &GitRepo, branch: &BranchInfo) {
     if let Some(message) = stale_remote_checkout_error_message(branch) {
         app.set_status_message(message, true, timing::STATUS_DURATION_SECS);
@@ -565,36 +543,6 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_remove_worktree_success_sets_status() {
-        let mut app = App::new(vec![], vec![]);
-        let worktree = test_worktree();
-        let git_repo = GitRepo::fixture(FixtureGitRepo::new().with_remove_worktree_result(Ok(())));
-
-        assert!(execute_remove_worktree(&mut app, &git_repo, &worktree));
-
-        let status = app.get_status_message().expect("status message");
-        assert!(!status.is_error);
-        assert_eq!(status.text, "Removed worktree '/tmp/linked tree'");
-    }
-
-    #[test]
-    fn test_execute_remove_worktree_error_shows_popup() {
-        let mut app = App::new(vec![], vec![]);
-        let worktree = test_worktree();
-        let git_repo = GitRepo::fixture(
-            FixtureGitRepo::new()
-                .with_remove_worktree_result(Err("worktree is locked".to_string())),
-        );
-
-        assert!(!execute_remove_worktree(&mut app, &git_repo, &worktree));
-
-        assert!(matches!(
-            app.mode(),
-            AppMode::ErrorPopup(message) if message == "worktree is locked"
-        ));
-    }
-
-    #[test]
     fn test_execute_checkout_branch_success_via_fixture() {
         let branch = local_branch("feature/4");
         let mut app = App::new(vec![branch.clone()], vec![]);
@@ -626,24 +574,6 @@ mod tests {
             app.mode(),
             AppMode::ErrorPopup(message) if message.contains("uncommitted changes")
         ));
-    }
-
-    fn test_worktree() -> WorktreeInfo {
-        WorktreeInfo {
-            identity: WorktreeIdentity::Linked {
-                name: "linked".to_string(),
-            },
-            path: "/tmp/linked tree".into(),
-            branch: Some("feature/linked".to_string()),
-            detached_short_sha: None,
-            is_main: false,
-            is_current: false,
-            cleanliness: WorktreeCleanliness::Clean,
-            lock_reason: None,
-            state: WorktreeState::Valid,
-            prunable: false,
-            submodules: WorktreeSubmodules::None,
-        }
     }
 
     fn local_branch(name: &str) -> BranchInfo {
