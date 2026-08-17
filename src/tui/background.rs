@@ -512,7 +512,10 @@ mod tests {
         let git_repo = GitRepo::fixture(FixtureGitRepo::new());
         fetch_branch_status_if_needed(&mut app, &git_repo);
 
-        assert!(app.get_branch_status_error("refs/heads/feature/117").is_none());
+        assert!(
+            app.get_branch_status_error("refs/heads/feature/117")
+                .is_none()
+        );
         assert!(app.get_status_message().is_none());
     }
 
