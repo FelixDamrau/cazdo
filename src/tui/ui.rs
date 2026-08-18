@@ -49,6 +49,10 @@ pub fn render(frame: &mut Frame, app: &App) -> DetailsMetrics {
                 let reference = worktree.ref_display();
                 popup::render_remove_worktree_popup(frame, &worktree.path, &reference);
             }
+            AppMode::RemovingWorktree { worktree } => {
+                let reference = worktree.ref_display();
+                popup::render_worktree_removal_busy(frame, &worktree.path, &reference);
+            }
             AppMode::ErrorPopup(message) => popup::render_error_popup(frame, message),
             _ => {}
         }

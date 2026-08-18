@@ -39,6 +39,11 @@ impl App {
         Some(worktree.clone())
     }
 
+    #[cfg(test)]
+    pub fn is_worktree_removal_pending(&self) -> bool {
+        matches!(self.mode, super::AppMode::RemovingWorktree { .. })
+    }
+
     pub fn worktree_selected_index(&self) -> usize {
         self.worktree_selected_index
     }

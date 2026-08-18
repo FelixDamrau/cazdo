@@ -149,7 +149,6 @@ pub(crate) trait GitBackend {
         identity: &WorktreeIdentity,
         expected_path: &Path,
     ) -> Result<()>;
-    fn remove_worktree(&self, worktree: &WorktreeInfo) -> Result<()>;
     fn repo_dir(&self) -> Result<PathBuf>;
     fn current_local_branch_name(&self) -> Result<Option<String>>;
 }
@@ -227,8 +226,14 @@ impl GitRepo {
         )
     }
 
-    pub fn remove_worktree(&self, worktree: &WorktreeInfo) -> Result<()> {
-        self.backend.remove_worktree(worktree)
+    /// Reopen an owned repository path before revalidating and removing
+    /// a linked worktree. The owned inputs let this operation run on a
+    /// blocking worker without borrowing TUI state or a live `GitRepo`.
+    pub(crate) fn remove_worktree_at(repo_path: PathBuf, worktree: WorktreeInfo) -> Result<()> {
+        let repo = Repository::discover(&repo_path).with_context(|| {
+            format!("Failed to discover repository at '{}'", repo_path.display())
+        })?;
+        remove_linked_worktree(&repo, &worktree)
     }
 
     pub fn repo_dir(&self) -> Result<PathBuf> {
@@ -392,10 +397,6 @@ impl GitBackend for LiveGitRepo {
         expected_path: &Path,
     ) -> Result<()> {
         prune_metadata(&self.repo, identity, expected_path)
-    }
-
-    fn remove_worktree(&self, worktree: &WorktreeInfo) -> Result<()> {
-        remove_linked_worktree(&self.repo, worktree)
     }
     fn repo_dir(&self) -> Result<PathBuf> {
         Ok(self
@@ -1908,7 +1909,7 @@ mod tests {
         );
         let target = linked_entry(&repo, "linked name with spaces");
 
-        repo.remove_worktree(&target)
+        GitRepo::remove_worktree_at(repo_path.clone(), target)
             .expect("clean linked worktree should be removed");
 
         assert!(!worktree_path.exists());
@@ -1939,8 +1940,7 @@ mod tests {
             .into_iter()
             .find(|entry| entry.is_main)
             .expect("main worktree should be present");
-        let main_error = repo
-            .remove_worktree(&main)
+        let main_error = GitRepo::remove_worktree_at(repo_path.clone(), main)
             .expect_err("main worktree should be protected");
         assert!(main_error.to_string().contains("main worktree"));
         assert!(repo_path.exists());
@@ -1962,8 +1962,7 @@ mod tests {
             .into_iter()
             .find(|entry| entry.is_current && !entry.is_main)
             .expect("current linked worktree should be present");
-        let current_error = linked_repo
-            .remove_worktree(&current)
+        let current_error = GitRepo::remove_worktree_at(repo_path.clone(), current)
             .expect_err("current worktree should be protected");
         assert!(current_error.to_string().contains("current worktree"));
         assert!(linked_path.exists());
@@ -1981,8 +1980,7 @@ mod tests {
         fs::write(dirty_path.join("README.md"), "changed\n")
             .expect("tracked file should be modified");
         let dirty = linked_entry(&repo, "dirty");
-        let dirty_error = repo
-            .remove_worktree(&dirty)
+        let dirty_error = GitRepo::remove_worktree_at(repo_path.clone(), dirty)
             .expect_err("dirty worktree should be protected");
         assert!(dirty_error.to_string().contains("uncommitted changes"));
         assert!(dirty_path.exists());
@@ -1995,16 +1993,14 @@ mod tests {
             .lock(Some("in use"))
             .expect("worktree should lock");
         let locked = linked_entry(&repo, "locked");
-        let locked_error = repo
-            .remove_worktree(&locked)
+        let locked_error = GitRepo::remove_worktree_at(repo_path.clone(), locked)
             .expect_err("locked worktree should be protected");
         assert!(locked_error.to_string().contains("locked"));
         assert!(locked_path.exists());
 
         let mut submodule = linked_entry(&repo, "locked");
         submodule.submodules = WorktreeSubmodules::Present;
-        let submodule_error = repo
-            .remove_worktree(&submodule)
+        let submodule_error = GitRepo::remove_worktree_at(repo_path.clone(), submodule)
             .expect_err("worktrees containing submodules should be protected");
         assert!(submodule_error.to_string().contains("submodules"));
         assert!(locked_path.exists());
@@ -2029,8 +2025,7 @@ mod tests {
         fs::write(dirty_path.join("README.md"), "changed after snapshot\n")
             .expect("tracked file should be modified after snapshot");
 
-        let dirty_error = repo
-            .remove_worktree(&dirty)
+        let dirty_error = GitRepo::remove_worktree_at(repo_path.clone(), dirty)
             .expect_err("live cleanliness validation should reject the worktree");
         assert!(dirty_error.to_string().contains("uncommitted changes"));
         assert!(dirty_path.exists());
@@ -2059,8 +2054,7 @@ mod tests {
             .lock(Some("acquired after snapshot"))
             .expect("worktree should lock after snapshot");
 
-        let locked_error = repo
-            .remove_worktree(&locked)
+        let locked_error = GitRepo::remove_worktree_at(repo_path.clone(), locked)
             .expect_err("live lock validation should reject the worktree");
         assert!(locked_error.to_string().contains("locked"));
         assert!(locked_path.exists());
@@ -2085,8 +2079,7 @@ mod tests {
         assert!(!missing.prunable);
         fs::remove_dir_all(&missing_path).expect("worktree path should disappear after snapshot");
 
-        let missing_error = repo
-            .remove_worktree(&missing)
+        let missing_error = GitRepo::remove_worktree_at(repo_path.clone(), missing)
             .expect_err("live metadata validation should reject a missing worktree");
         assert!(missing_error.to_string().contains("invalid"));
         assert!(!missing_path.exists());
@@ -2108,8 +2101,7 @@ mod tests {
         add_worktree_at(&repo, oid, "feature/missing", "missing", &missing_path);
         fs::remove_dir_all(&missing_path).expect("worktree directory should be removable");
         let missing = linked_entry(&repo, "missing");
-        let missing_error = repo
-            .remove_worktree(&missing)
+        let missing_error = GitRepo::remove_worktree_at(repo_path.clone(), missing)
             .expect_err("missing worktree should be protected");
         assert!(missing_error.to_string().contains("state is 'missing'"));
         assert!(
@@ -2128,8 +2120,7 @@ mod tests {
         fs::remove_dir_all(&invalid_path).expect("worktree directory should be removable");
         fs::write(&invalid_path, "not a worktree").expect("invalid path should remain present");
         let invalid = linked_entry(&repo, "invalid");
-        let invalid_error = repo
-            .remove_worktree(&invalid)
+        let invalid_error = GitRepo::remove_worktree_at(repo_path.clone(), invalid)
             .expect_err("invalid worktree should be protected");
         assert!(invalid_error.to_string().contains("state is 'invalid'"));
         assert!(invalid_path.exists());
@@ -2149,8 +2140,7 @@ mod tests {
             unknown.cleanliness,
             WorktreeCleanliness::Unknown(_)
         ));
-        let unknown_error = repo
-            .remove_worktree(&unknown)
+        let unknown_error = GitRepo::remove_worktree_at(repo_path.clone(), unknown)
             .expect_err("unknown status should be protected");
         assert!(unknown_error.to_string().contains("status is unknown"));
         assert!(unknown_path.exists());
@@ -2169,16 +2159,14 @@ mod tests {
 
         let mut stale_path = target.clone();
         stale_path.path = repo_path.join("different");
-        let stale_error = repo
-            .remove_worktree(&stale_path)
+        let stale_error = GitRepo::remove_worktree_at(repo_path.clone(), stale_path)
             .expect_err("stale path should be protected");
         assert!(stale_error.to_string().contains("inventory path is stale"));
         assert!(path.exists());
         let mut changed_head = target.clone();
         changed_head.branch = Some("feature/other".to_string());
 
-        let changed_head_error = repo
-            .remove_worktree(&changed_head)
+        let changed_head_error = GitRepo::remove_worktree_at(repo_path.clone(), changed_head)
             .expect_err("changed worktree HEAD should be protected");
         assert!(
             changed_head_error
@@ -2189,8 +2177,7 @@ mod tests {
 
         let mut prunable = target.clone();
         prunable.prunable = true;
-        let prunable_error = repo
-            .remove_worktree(&prunable)
+        let prunable_error = GitRepo::remove_worktree_at(repo_path.clone(), prunable)
             .expect_err("prunable worktree should be protected");
         assert!(prunable_error.to_string().contains("prunable"));
         assert!(path.exists());
@@ -2198,8 +2185,7 @@ mod tests {
         malformed.identity = WorktreeIdentity::Linked {
             name: String::new(),
         };
-        let malformed_error = repo
-            .remove_worktree(&malformed)
+        let malformed_error = GitRepo::remove_worktree_at(repo_path.clone(), malformed)
             .expect_err("malformed identity should be protected");
         assert!(malformed_error.to_string().contains("malformed"));
         assert!(path.exists());

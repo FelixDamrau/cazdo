@@ -19,6 +19,9 @@ pub(super) enum FetchResult {
     RemoteFreshnessError { error: String },
     WorktreeInventorySuccess { worktrees: Vec<WorktreeInfo> },
     WorktreeInventoryError { error: String },
+    WorktreeRemovalSuccess { worktree: WorktreeInfo },
+    WorktreeRemovalError { error: String },
+    WorktreeRemovalTaskError { error: String },
 }
 
 pub(super) fn process_fetch_results(
@@ -26,7 +29,10 @@ pub(super) fn process_fetch_results(
     app: &mut App,
     pending_fetches: &mut HashSet<u32>,
     worktree_refresh_pending: &mut bool,
-) {
+    worktree_refresh_requested: &mut bool,
+) -> bool {
+    let mut worktree_removal_finished = false;
+
     while let Ok(result) = rx.try_recv() {
         match result {
             FetchResult::Success { id, work_item } => {
@@ -54,8 +60,27 @@ pub(super) fn process_fetch_results(
                 *worktree_refresh_pending = false;
                 app.update(Msg::SetWorktreeError(error));
             }
+            FetchResult::WorktreeRemovalSuccess { worktree } => {
+                worktree_removal_finished = true;
+                *worktree_refresh_requested = true;
+                app.cancel_mode();
+                app.set_status_message(
+                    format!("Removed worktree '{}'", worktree.path.display()),
+                    false,
+                    timing::STATUS_DURATION_SECS,
+                );
+            }
+            FetchResult::WorktreeRemovalError { error }
+            | FetchResult::WorktreeRemovalTaskError { error } => {
+                worktree_removal_finished = true;
+                *worktree_refresh_requested = true;
+                app.cancel_mode();
+                app.show_error_popup(error);
+            }
         }
     }
+
+    worktree_removal_finished
 }
 
 pub(super) fn trigger_remote_freshness_check(
@@ -119,6 +144,37 @@ pub(super) fn trigger_worktree_refresh(
             },
             Err(error) => FetchResult::WorktreeInventoryError {
                 error: format!("Worktree inventory task failed: {error}"),
+            },
+        };
+        let _ = tx.send(result);
+    });
+}
+
+pub(super) fn trigger_worktree_removal(
+    repo_dir: PathBuf,
+    worktree: WorktreeInfo,
+    tx: &mpsc::UnboundedSender<FetchResult>,
+    removal_pending: &mut bool,
+) {
+    if *removal_pending {
+        return;
+    }
+
+    *removal_pending = true;
+    let tx = tx.clone();
+    let target = worktree.clone();
+
+    tokio::spawn(async move {
+        let result =
+            tokio::task::spawn_blocking(move || GitRepo::remove_worktree_at(repo_dir, target))
+                .await;
+        let result = match result {
+            Ok(Ok(())) => FetchResult::WorktreeRemovalSuccess { worktree },
+            Ok(Err(error)) => FetchResult::WorktreeRemovalError {
+                error: error.to_string(),
+            },
+            Err(error) => FetchResult::WorktreeRemovalTaskError {
+                error: format!("Worktree removal task failed: {error}"),
             },
         };
         let _ = tx.send(result);
@@ -335,6 +391,7 @@ mod tests {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let mut pending_fetches = HashSet::from([42]);
         let mut worktree_refresh_pending = false;
+        let mut worktree_refresh_requested = false;
 
         tx.send(FetchResult::Success {
             id: 42,
@@ -356,6 +413,7 @@ mod tests {
             &mut app,
             &mut pending_fetches,
             &mut worktree_refresh_pending,
+            &mut worktree_refresh_requested,
         );
 
         assert!(pending_fetches.is_empty());
@@ -371,6 +429,7 @@ mod tests {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let mut pending_fetches = HashSet::new();
         let mut worktree_refresh_pending = false;
+        let mut worktree_refresh_requested = false;
 
         tx.send(FetchResult::RemoteFreshnessError {
             error: "origin unreachable".to_string(),
@@ -382,6 +441,7 @@ mod tests {
             &mut app,
             &mut pending_fetches,
             &mut worktree_refresh_pending,
+            &mut worktree_refresh_requested,
         );
 
         assert_eq!(app.remote_freshness_error(), Some("origin unreachable"));
@@ -398,6 +458,7 @@ mod tests {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let mut pending_fetches = HashSet::new();
         let mut worktree_refresh_pending = true;
+        let mut worktree_refresh_requested = false;
         let replacement = WorktreeInfo {
             identity: WorktreeIdentity::Linked {
                 name: "feature/test".to_string(),
@@ -424,6 +485,7 @@ mod tests {
             &mut app,
             &mut pending_fetches,
             &mut worktree_refresh_pending,
+            &mut worktree_refresh_requested,
         );
 
         assert!(!worktree_refresh_pending);
@@ -436,6 +498,7 @@ mod tests {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let mut pending_fetches = HashSet::new();
         let mut worktree_refresh_pending = true;
+        let mut worktree_refresh_requested = false;
 
         tx.send(FetchResult::WorktreeInventoryError {
             error: "metadata unreadable".to_string(),
@@ -447,6 +510,7 @@ mod tests {
             &mut app,
             &mut pending_fetches,
             &mut worktree_refresh_pending,
+            &mut worktree_refresh_requested,
         );
 
         assert!(!worktree_refresh_pending);
@@ -455,6 +519,99 @@ mod tests {
             .expect("worktree inventory error should be visible");
         assert!(status.is_error);
         assert_eq!(status.text, "metadata unreadable");
+    }
+
+    #[test]
+    fn test_process_fetch_results_maps_removal_success_and_clears_pending_mode() {
+        let target = removal_target();
+        let mut app = App::new(vec![], vec![]);
+        app.update(Msg::EnterWorktreeRemovalMode {
+            worktree: target.clone(),
+        });
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut pending_fetches = HashSet::new();
+        let mut worktree_refresh_pending = false;
+        let mut worktree_refresh_requested = false;
+
+        tx.send(FetchResult::WorktreeRemovalSuccess { worktree: target })
+            .expect("send should succeed");
+
+        assert!(process_fetch_results(
+            &mut rx,
+            &mut app,
+            &mut pending_fetches,
+            &mut worktree_refresh_pending,
+            &mut worktree_refresh_requested,
+        ));
+        assert!(!app.is_worktree_removal_pending());
+        assert!(worktree_refresh_requested);
+        let status = app
+            .get_status_message()
+            .expect("success status should be visible");
+        assert_eq!(status.text, "Removed worktree '/repo/feature-test'");
+        assert!(!status.is_error);
+    }
+
+    #[test]
+    fn test_process_fetch_results_maps_removal_operation_and_task_errors() {
+        for task_error in [false, true] {
+            let target = removal_target();
+            let mut app = App::new(vec![], vec![]);
+            app.update(Msg::EnterWorktreeRemovalMode {
+                worktree: target.clone(),
+            });
+            let (tx, mut rx) = mpsc::unbounded_channel();
+            let mut pending_fetches = HashSet::new();
+            let mut worktree_refresh_pending = false;
+            let mut worktree_refresh_requested = false;
+            let error = if task_error {
+                FetchResult::WorktreeRemovalTaskError {
+                    error: "Worktree removal task failed: join failed".to_string(),
+                }
+            } else {
+                FetchResult::WorktreeRemovalError {
+                    error: "worktree is locked".to_string(),
+                }
+            };
+            tx.send(error).expect("send should succeed");
+
+            assert!(process_fetch_results(
+                &mut rx,
+                &mut app,
+                &mut pending_fetches,
+                &mut worktree_refresh_pending,
+                &mut worktree_refresh_requested,
+            ));
+            assert!(!app.is_worktree_removal_pending());
+            assert!(worktree_refresh_requested);
+            assert!(matches!(
+                app.mode(),
+                crate::tui::app::AppMode::ErrorPopup(message)
+                    if message == if task_error {
+                        "Worktree removal task failed: join failed"
+                    } else {
+                        "worktree is locked"
+                    }
+            ));
+        }
+    }
+
+    fn removal_target() -> WorktreeInfo {
+        WorktreeInfo {
+            identity: WorktreeIdentity::Linked {
+                name: "feature/test".to_string(),
+            },
+            path: "/repo/feature-test".into(),
+            branch: Some("feature/test".to_string()),
+            detached_short_sha: None,
+            is_main: false,
+            is_current: false,
+            cleanliness: WorktreeCleanliness::Clean,
+            lock_reason: None,
+            state: WorktreeState::Valid,
+            prunable: false,
+            submodules: WorktreeSubmodules::None,
+        }
     }
 
     #[test]
@@ -517,6 +674,17 @@ mod tests {
                 .is_none()
         );
         assert!(app.get_status_message().is_none());
+    }
+
+    #[test]
+    fn test_removal_trigger_rejects_concurrent_operation() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut removal_pending = true;
+
+        trigger_worktree_removal("/repo".into(), removal_target(), &tx, &mut removal_pending);
+
+        assert!(removal_pending);
+        assert!(rx.try_recv().is_err());
     }
 
     fn remote_branch(is_stale: bool) -> BranchInfo {

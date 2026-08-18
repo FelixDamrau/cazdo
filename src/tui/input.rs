@@ -54,6 +54,7 @@ fn handle_key_event(app: &mut App, key: KeyEvent) -> Option<Command> {
             handle_confirm_worktree_prune_key(app, key, &worktree)
         }
         AppMode::ConfirmRemoveWorktree { .. } => handle_confirm_remove_worktree_key(app, key),
+        AppMode::RemovingWorktree { .. } => handle_pending_worktree_removal_key(app, key),
         AppMode::ErrorPopup(_) => {
             handle_error_popup_key(app, key);
             None
@@ -61,24 +62,32 @@ fn handle_key_event(app: &mut App, key: KeyEvent) -> Option<Command> {
     }
 }
 
-fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Command> {
+pub(super) fn is_quit_key(key: &KeyEvent) -> bool {
     match key.code {
-        KeyCode::Esc => {
-            if app.has_active_filter() {
-                app.update(Msg::ClearFilter);
-            } else {
-                app.update(Msg::Quit);
-            }
-            None
-        }
-        KeyCode::Char('q') => {
+        KeyCode::Char('q') | KeyCode::Esc => true,
+        KeyCode::Char('c') => key.modifiers.contains(event::KeyModifiers::CONTROL),
+        _ => false,
+    }
+}
+
+fn handle_pending_worktree_removal_key(app: &mut App, key: KeyEvent) -> Option<Command> {
+    if is_quit_key(&key) {
+        app.update(Msg::Quit);
+    }
+    None
+}
+
+fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Command> {
+    if is_quit_key(&key) {
+        if key.code == KeyCode::Esc && app.has_active_filter() {
+            app.update(Msg::ClearFilter);
+        } else {
             app.update(Msg::Quit);
-            None
         }
-        KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
-            app.update(Msg::Quit);
-            None
-        }
+        return None;
+    }
+
+    match key.code {
         KeyCode::Down | KeyCode::Char('j') => {
             if key.modifiers.contains(event::KeyModifiers::SHIFT) {
                 app.update(Msg::ScrollDown(scroll::LINE_SCROLL_AMOUNT));
@@ -668,6 +677,35 @@ mod tests {
             _ => panic!("expected worktree removal action"),
         }
         assert!(app.is_normal_mode());
+    }
+
+    #[test]
+    fn test_worktree_removal_pending_consumes_mutations_and_defers_quit() {
+        let target = worktree(
+            WorktreeIdentity::Linked {
+                name: "linked".to_string(),
+            },
+            false,
+        );
+        let mut app = App::new(vec![remote_branch(false)], vec![]);
+        app.update(Msg::SetWorktrees(vec![target.clone()]));
+        app.update(Msg::ToggleWorktreeView);
+        app.update(Msg::EnterWorktreeRemovalMode { worktree: target });
+
+        for key in [
+            KeyCode::Char('d'),
+            KeyCode::Char('r'),
+            KeyCode::Char('j'),
+            KeyCode::Down,
+        ] {
+            assert!(handle_key_event(&mut app, KeyEvent::from(key)).is_none());
+        }
+        assert!(matches!(app.mode(), AppMode::RemovingWorktree { .. }));
+        assert!(!app.should_quit());
+
+        assert!(handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('q'))).is_none());
+        assert!(app.should_quit());
+        assert!(matches!(app.mode(), AppMode::RemovingWorktree { .. }));
     }
 
     fn worktree(identity: WorktreeIdentity, is_current: bool) -> WorktreeInfo {
