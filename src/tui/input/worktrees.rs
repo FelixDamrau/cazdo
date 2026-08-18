@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use super::{is_quit_key, Command};
+use super::{Command, is_quit_key};
 use crate::tui::app::{App, Msg};
 use crate::tui::theme::timing;
 

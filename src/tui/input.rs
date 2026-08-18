@@ -506,7 +506,10 @@ mod tests {
     fn test_worktree_view_quit_shortcuts_quit_immediately() {
         for key in [KeyCode::Char('q'), KeyCode::Esc] {
             let mut app = App::new(vec![remote_branch(false)], vec![]);
-            app.update(Msg::SetWorktrees(vec![worktree(WorktreeIdentity::Main, true)]));
+            app.update(Msg::SetWorktrees(vec![worktree(
+                WorktreeIdentity::Main,
+                true,
+            )]));
             app.update(Msg::ToggleWorktreeView);
 
             assert!(handle_key_event(&mut app, KeyEvent::from(key)).is_none());
