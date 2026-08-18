@@ -62,35 +62,32 @@ fn handle_key_event(app: &mut App, key: KeyEvent) -> Option<Command> {
     }
 }
 
-fn handle_pending_worktree_removal_key(app: &mut App, key: KeyEvent) -> Option<Command> {
+pub(super) fn is_quit_key(key: &KeyEvent) -> bool {
     match key.code {
-        KeyCode::Char('q') | KeyCode::Esc => app.update(Msg::Quit),
-        KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
-            app.update(Msg::Quit)
-        }
-        _ => {}
+        KeyCode::Char('q') | KeyCode::Esc => true,
+        KeyCode::Char('c') => key.modifiers.contains(event::KeyModifiers::CONTROL),
+        _ => false,
+    }
+}
+
+fn handle_pending_worktree_removal_key(app: &mut App, key: KeyEvent) -> Option<Command> {
+    if is_quit_key(&key) {
+        app.update(Msg::Quit);
     }
     None
 }
 
 fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Command> {
+    if is_quit_key(&key) {
+        if key.code == KeyCode::Esc && app.has_active_filter() {
+            app.update(Msg::ClearFilter);
+        } else {
+            app.update(Msg::Quit);
+        }
+        return None;
+    }
+
     match key.code {
-        KeyCode::Esc => {
-            if app.has_active_filter() {
-                app.update(Msg::ClearFilter);
-            } else {
-                app.update(Msg::Quit);
-            }
-            None
-        }
-        KeyCode::Char('q') => {
-            app.update(Msg::Quit);
-            None
-        }
-        KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
-            app.update(Msg::Quit);
-            None
-        }
         KeyCode::Down | KeyCode::Char('j') => {
             if key.modifiers.contains(event::KeyModifiers::SHIFT) {
                 app.update(Msg::ScrollDown(scroll::LINE_SCROLL_AMOUNT));

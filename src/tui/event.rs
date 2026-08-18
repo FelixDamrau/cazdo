@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -23,7 +23,7 @@ use super::{
         trigger_remote_freshness_check, trigger_work_item_fetch, trigger_worktree_refresh,
         trigger_worktree_removal,
     },
-    input::{Command, handle_input},
+    input::{Command, handle_input, is_quit_key},
 };
 use crate::azure_devops::{AzureDevOpsClient, work_item_client};
 use crate::git::GitRepo;
@@ -85,7 +85,7 @@ async fn run_loop(
         );
         if removal_finished {
             worktree_removal_pending = false;
-            discard_buffered_input()?;
+            discard_buffered_input(app)?;
         }
         if worktree_refresh_requested && !worktree_refresh_pending {
             trigger_worktree_refresh(
@@ -161,9 +161,41 @@ async fn run_loop(
     }
 }
 
-fn discard_buffered_input() -> Result<()> {
+fn discard_buffered_input(app: &mut App) -> Result<()> {
     while event::poll(Duration::ZERO)? {
-        let _ = event::read()?;
+        handle_buffered_input_event(app, event::read()?);
     }
     Ok(())
+}
+
+fn handle_buffered_input_event(app: &mut App, input: Event) {
+    if let Event::Key(key) = input
+        && key.kind == KeyEventKind::Press
+        && is_quit_key(&key)
+    {
+        app.update(Msg::Quit);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::KeyCode;
+
+    #[test]
+    fn buffered_quit_is_preserved_while_other_input_is_discarded() {
+        let mut app = App::new(vec![], vec![]);
+
+        handle_buffered_input_event(
+            &mut app,
+            Event::Key(crossterm::event::KeyEvent::from(KeyCode::Char('d'))),
+        );
+        assert!(!app.should_quit());
+
+        handle_buffered_input_event(
+            &mut app,
+            Event::Key(crossterm::event::KeyEvent::from(KeyCode::Char('q'))),
+        );
+        assert!(app.should_quit());
+    }
 }
