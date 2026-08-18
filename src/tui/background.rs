@@ -8,6 +8,7 @@ use tokio::sync::mpsc;
 use super::app::{App, Msg, WorkItemStatus};
 use super::theme::timing;
 use crate::azure_devops::{AzureDevOpsClient, WorkItem};
+use crate::error::format_error_chain;
 use crate::git::{GitRepo, WorktreeInfo, list_origin_remote_heads_in_dir};
 
 const REMOTE_FRESHNESS_TIMEOUT: Duration = Duration::from_secs(10);
@@ -94,11 +95,10 @@ pub(super) fn trigger_remote_freshness_check(
 
     app.set_remote_freshness_checking();
     let tx = tx.clone();
-
     let repo_dir = match git_repo.repo_dir() {
         Ok(repo_dir) => repo_dir,
         Err(error) => {
-            app.set_remote_freshness_error(error.to_string());
+            app.set_remote_freshness_error(format_error_chain(&error));
             return;
         }
     };
@@ -125,7 +125,7 @@ pub(super) fn trigger_worktree_refresh(
         Ok(repo_dir) => repo_dir,
         Err(error) => {
             let _ = tx.send(FetchResult::WorktreeInventoryError {
-                error: error.to_string(),
+                error: format_error_chain(&error),
             });
             return;
         }
@@ -140,10 +140,13 @@ pub(super) fn trigger_worktree_refresh(
         let result = match result {
             Ok(Ok(worktrees)) => FetchResult::WorktreeInventorySuccess { worktrees },
             Ok(Err(error)) => FetchResult::WorktreeInventoryError {
-                error: error.to_string(),
+                error: format_error_chain(&error),
             },
             Err(error) => FetchResult::WorktreeInventoryError {
-                error: format!("Worktree inventory task failed: {error}"),
+                error: format!(
+                    "Worktree inventory task failed: {}",
+                    format_error_chain(&error)
+                ),
             },
         };
         let _ = tx.send(result);
@@ -171,10 +174,13 @@ pub(super) fn trigger_worktree_removal(
         let result = match result {
             Ok(Ok(())) => FetchResult::WorktreeRemovalSuccess { worktree },
             Ok(Err(error)) => FetchResult::WorktreeRemovalError {
-                error: error.to_string(),
+                error: format_error_chain(&error),
             },
             Err(error) => FetchResult::WorktreeRemovalTaskError {
-                error: format!("Worktree removal task failed: {error}"),
+                error: format!(
+                    "Worktree removal task failed: {}",
+                    format_error_chain(&error)
+                ),
             },
         };
         let _ = tx.send(result);
@@ -206,7 +212,7 @@ pub(super) fn trigger_work_item_fetch(
                     },
                     Err(error) => FetchResult::Error {
                         id: wi_id,
-                        error: error.to_string(),
+                        error: format_error_chain(&error),
                     },
                 };
                 let _ = tx.send(result);
@@ -257,7 +263,7 @@ async fn fetch_remote_freshness(repo_dir: PathBuf) -> FetchResult {
     match branch_result {
         Ok(live_branches) => FetchResult::RemoteFreshnessSuccess { live_branches },
         Err(error) => FetchResult::RemoteFreshnessError {
-            error: error.to_string(),
+            error: format_error_chain(&error),
         },
     }
 }
@@ -271,7 +277,7 @@ fn apply_branch_status_result(
     match result {
         Ok(status) => app.set_branch_status(branch_key.to_string(), status),
         Err(error) => {
-            let error_text = error.to_string();
+            let error_text = format_error_chain(&error);
             let should_show_status = app.get_branch_status_error(branch_key) != Some(&error_text);
 
             app.set_branch_status_error(branch_key.to_string(), error_text.clone());
@@ -293,7 +299,7 @@ fn apply_branch_status_result(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::azure_devops::{WorkItem, WorkItemState, WorkItemType};
+    use crate::azure_devops::{WorkItemState, WorkItemType};
     use crate::git::{
         BranchScope, FixtureGitRepo, GitRepo, WorktreeCleanliness, WorktreeIdentity, WorktreeInfo,
         WorktreeState, WorktreeSubmodules,
@@ -321,6 +327,31 @@ mod tests {
             .expect("status message should be set");
         assert!(status.is_error);
         assert!(status.text.contains("origin/feature/1"));
+    }
+
+    #[test]
+    fn test_apply_branch_status_result_preserves_error_chain() {
+        let mut app = App::new(vec![remote_branch(false)], vec![]);
+
+        let error = anyhow::anyhow!("remote ref unavailable").context("git status failed");
+        apply_branch_status_result(
+            &mut app,
+            "refs/remotes/origin/feature/1",
+            "origin/feature/1",
+            Err(error),
+        );
+
+        assert_eq!(
+            app.get_branch_status_error("refs/remotes/origin/feature/1"),
+            Some("git status failed: remote ref unavailable")
+        );
+        let status = app
+            .get_status_message()
+            .expect("status message should be set");
+        assert_eq!(
+            status.text,
+            "Could not load branch info for 'origin/feature/1': git status failed: remote ref unavailable"
+        );
     }
 
     #[test]
@@ -421,6 +452,37 @@ mod tests {
             WorkItemStatus::Loaded(work_item) => assert_eq!(work_item.title, "Loaded item"),
             _ => panic!("expected loaded work item"),
         }
+    }
+    #[test]
+    fn test_process_fetch_results_preserves_nested_async_error_text() {
+        let mut app = App::new(vec![remote_branch(false)], vec![]);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut pending_fetches = HashSet::from([42]);
+        let mut worktree_refresh_pending = false;
+        let mut worktree_refresh_requested = false;
+
+        tx.send(FetchResult::Error {
+            id: 42,
+            error: "request failed: transport failed: connection refused".to_string(),
+        })
+        .expect("send should succeed");
+
+        process_fetch_results(
+            &mut rx,
+            &mut app,
+            &mut pending_fetches,
+            &mut worktree_refresh_pending,
+            &mut worktree_refresh_requested,
+        );
+
+        match app.get_work_item_status(42) {
+            WorkItemStatus::Error(error) => assert_eq!(
+                error,
+                "request failed: transport failed: connection refused"
+            ),
+            status => panic!("expected nested work item error, got {status:?}"),
+        }
+        assert!(pending_fetches.is_empty());
     }
 
     #[test]

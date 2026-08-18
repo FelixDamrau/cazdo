@@ -5,6 +5,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use git2::{Repository, StatusOptions, SubmoduleIgnore, SubmoduleStatus, WorktreeLockStatus};
 
 use super::repo::short_sha;
+use crate::error::format_error_chain;
 
 /// Stable identity for a repository worktree.
 ///
@@ -333,14 +334,17 @@ pub(crate) fn inventory(repo: &Repository) -> Result<Vec<WorktreeInfo>> {
                     Ok(WorktreeLockStatus::Locked(reason)) => {
                         Some(reason.unwrap_or_else(|| "locked".to_string()))
                     }
-                    Err(error) => Some(format!("lock status unknown: {error}")),
+                    Err(error) => Some(format!(
+                        "lock status unknown: {}",
+                        format_error_chain(&error)
+                    )),
                 };
                 let validated = worktree.validate();
                 let prunable = worktree.is_prunable(None).unwrap_or(false);
                 let state = if !path.exists() {
                     WorktreeState::Missing
                 } else if let Err(error) = validated {
-                    WorktreeState::Invalid(error.to_string())
+                    WorktreeState::Invalid(format_error_chain(&error))
                 } else {
                     WorktreeState::Valid
                 };
@@ -364,7 +368,10 @@ pub(crate) fn inventory(repo: &Repository) -> Result<Vec<WorktreeInfo>> {
                     current_path.as_deref(),
                     branch,
                     detached_short_sha,
-                    format!("unable to open linked worktree: {error}"),
+                    format!(
+                        "unable to open linked worktree: {}",
+                        format_error_chain(&error)
+                    ),
                 ));
             }
         }
@@ -560,7 +567,7 @@ fn inspect_entry_with_state(
                 (branch, detached_short_sha, cleanliness, submodules)
             }
             Err(error) => {
-                let error = error.to_string();
+                let error = format_error_chain(&error);
                 if path.exists() && state.is_valid() {
                     state = WorktreeState::Invalid(error.clone());
                 }
@@ -597,7 +604,7 @@ pub(crate) fn submodules(repo: &Repository) -> WorktreeSubmodules {
     match repo.submodules() {
         Ok(submodules) if submodules.is_empty() => WorktreeSubmodules::None,
         Ok(_) => WorktreeSubmodules::Present,
-        Err(error) => WorktreeSubmodules::Unknown(error.to_string()),
+        Err(error) => WorktreeSubmodules::Unknown(format_error_chain(&error)),
     }
 }
 
@@ -690,7 +697,7 @@ pub(crate) fn cleanliness(repo: &Repository) -> WorktreeCleanliness {
 
     let statuses = match repo.statuses(Some(&mut options)) {
         Ok(statuses) => statuses,
-        Err(error) => return WorktreeCleanliness::Unknown(error.to_string()),
+        Err(error) => return WorktreeCleanliness::Unknown(format_error_chain(&error)),
     };
 
     let mut reasons = Vec::new();
@@ -721,7 +728,7 @@ pub(crate) fn cleanliness(repo: &Repository) -> WorktreeCleanliness {
 
     let submodules = match repo.submodules() {
         Ok(submodules) => submodules,
-        Err(error) => return WorktreeCleanliness::Unknown(error.to_string()),
+        Err(error) => return WorktreeCleanliness::Unknown(format_error_chain(&error)),
     };
     for submodule in submodules {
         let Some(name) = submodule.name() else {
@@ -732,7 +739,7 @@ pub(crate) fn cleanliness(repo: &Repository) -> WorktreeCleanliness {
                 push_reason(&mut reasons, WorktreeDirtyReason::Submodule)
             }
             Ok(_) => {}
-            Err(error) => return WorktreeCleanliness::Unknown(error.to_string()),
+            Err(error) => return WorktreeCleanliness::Unknown(format_error_chain(&error)),
         }
     }
 
@@ -816,6 +823,31 @@ mod tests {
         };
         assert_eq!(identity.name(), "feature with spaces/雪");
         assert_eq!(identity.linked_name(), Some("feature with spaces/雪"));
+    }
+    #[test]
+    fn worktree_unknown_diagnostic_preserves_error_chain() {
+        let error = anyhow::anyhow!("repository is unreadable").context("opening worktree failed");
+        let diagnostic = format!(
+            "unable to open linked worktree: {}",
+            format_error_chain(&error)
+        );
+        let entry = unknown_entry(
+            WorktreeIdentity::Linked {
+                name: "broken".to_string(),
+            },
+            PathBuf::from("/repo/broken"),
+            None,
+            None,
+            None,
+            diagnostic.clone(),
+        );
+
+        assert_eq!(entry.state, WorktreeState::Unknown(diagnostic.clone()));
+        assert_eq!(
+            entry.cleanliness,
+            WorktreeCleanliness::Unknown(diagnostic.clone())
+        );
+        assert_eq!(entry.submodules, WorktreeSubmodules::Unknown(diagnostic));
     }
     #[test]
     fn main_worktree_path_has_no_trailing_separator() {

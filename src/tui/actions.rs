@@ -2,6 +2,7 @@ use anyhow::Result;
 
 use super::app::{App, BranchInfo, BranchView, Msg, WorkItemStatus};
 use super::theme::timing;
+use crate::error::format_error_chain;
 use crate::git::{BranchScope, DeleteResult, GitRepo, WorktreeInfo, short_sha};
 
 pub(super) fn open_current_work_item(app: &mut App) {
@@ -39,7 +40,11 @@ pub(super) fn execute_delete_branch(app: &mut App, git_repo: &GitRepo, branch: &
                 git_repo.prune_remote_tracking_branch(&branch.branch_name),
             );
         }
-        Err(error) => app.set_status_message(error.to_string(), true, timing::STATUS_DURATION_SECS),
+        Err(error) => app.set_status_message(
+            format_error_chain(&error),
+            true,
+            timing::STATUS_DURATION_SECS,
+        ),
     }
 }
 
@@ -55,7 +60,11 @@ pub(super) fn execute_prune_branch(app: &mut App, git_repo: &GitRepo, branch: &B
                 timing::STATUS_DURATION_SECS,
             );
         }
-        Err(error) => app.set_status_message(error.to_string(), true, timing::STATUS_DURATION_SECS),
+        Err(error) => app.set_status_message(
+            format_error_chain(&error),
+            true,
+            timing::STATUS_DURATION_SECS,
+        ),
     }
 }
 
@@ -71,7 +80,7 @@ pub(super) fn execute_prune_worktree(app: &mut App, git_repo: &GitRepo, worktree
                 timing::STATUS_DURATION_SECS,
             );
         }
-        Err(error) => app.show_error_popup(error.to_string()),
+        Err(error) => app.show_error_popup(format_error_chain(&error)),
     }
 }
 
@@ -99,7 +108,7 @@ pub(super) fn execute_checkout_branch(app: &mut App, git_repo: &GitRepo, branch:
                 timing::STATUS_DURATION_SECS,
             );
         }
-        Err(error) => app.show_error_popup(error.to_string()),
+        Err(error) => app.show_error_popup(format_error_chain(&error)),
     }
 }
 
@@ -124,7 +133,10 @@ where
         && let Err(error) = open(url)
     {
         app.set_status_message(
-            format!("Could not open work item in browser: {}", error),
+            format!(
+                "Could not open work item in browser: {}",
+                format_error_chain(&error)
+            ),
             true,
             timing::STATUS_DURATION_SECS,
         );
@@ -156,7 +168,8 @@ fn remote_delete_status_message(display_name: &str, prune_result: Result<()>) ->
         Err(error) => (
             format!(
                 "Deleted remote branch '{}', but could not prune tracking ref: {}",
-                display_name, error
+                display_name,
+                format_error_chain(&error)
             ),
             true,
         ),
@@ -202,6 +215,17 @@ mod tests {
         assert_eq!(
             message,
             "Deleted remote branch 'origin/feature/test', but could not prune tracking ref: could not prune tracking ref"
+        );
+    }
+    #[test]
+    fn test_remote_delete_status_message_preserves_error_chain() {
+        let error = anyhow::anyhow!("tracking ref missing").context("git prune failed");
+        let (message, is_error) = remote_delete_status_message("origin/feature/test", Err(error));
+
+        assert!(is_error);
+        assert_eq!(
+            message,
+            "Deleted remote branch 'origin/feature/test', but could not prune tracking ref: git prune failed: tracking ref missing"
         );
     }
 
@@ -362,7 +386,8 @@ mod tests {
             },
         );
 
-        open_current_work_item_with(&mut app, |_| Err(anyhow::anyhow!("xdg-open missing")));
+        let error = anyhow::anyhow!("xdg-open missing").context("browser launch failed");
+        open_current_work_item_with(&mut app, |_| Err(error));
 
         let status = app
             .get_status_message()
@@ -370,7 +395,7 @@ mod tests {
         assert!(status.is_error);
         assert_eq!(
             status.text,
-            "Could not open work item in browser: xdg-open missing"
+            "Could not open work item in browser: browser launch failed: xdg-open missing"
         );
     }
 
