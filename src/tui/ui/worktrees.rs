@@ -5,11 +5,12 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::git::{WorktreeCleanliness, WorktreeInfo, WorktreeState, WorktreeSubmodules};
 use crate::tui::app::App;
 use crate::tui::theme;
+
+use super::helpers::{display_width, truncate_to_width, wrap_value};
 
 /// Render the inventory list. Selection is deliberately independent from the
 /// branch list so returning to the branch view preserves its selection.
@@ -343,66 +344,6 @@ fn wrapped_prefix_lines(
             ])
         })
         .collect()
-}
-
-fn wrap_value(value: &str, width: usize) -> Vec<String> {
-    let width = width.max(1);
-    if value.is_empty() {
-        return vec![String::new()];
-    }
-
-    let mut lines = Vec::new();
-    let mut remainder = value;
-    while !remainder.is_empty() {
-        let (line, rest) = split_at_width(remainder, width);
-        if rest.len() == remainder.len() {
-            let character = remainder.chars().next().expect("value is not empty");
-            lines.push(character.to_string());
-            remainder = &remainder[character.len_utf8()..];
-        } else {
-            lines.push(line);
-            remainder = rest;
-        }
-    }
-    lines
-}
-
-fn split_at_width(value: &str, width: usize) -> (String, &str) {
-    let mut used = 0;
-    let mut split_at = 0;
-    for (index, character) in value.char_indices() {
-        let character_width = UnicodeWidthChar::width(character).unwrap_or(0);
-        if used + character_width > width {
-            break;
-        }
-        used += character_width;
-        split_at = index + character.len_utf8();
-        if used >= width {
-            break;
-        }
-    }
-    if split_at == 0 {
-        return (String::new(), value);
-    }
-    (value[..split_at].to_string(), &value[split_at..])
-}
-
-fn truncate_to_width(value: &str, width: usize) -> String {
-    if width == 0 {
-        return String::new();
-    }
-    if display_width(value) <= width {
-        return value.to_string();
-    }
-    if width == 1 {
-        return "…".to_string();
-    }
-    let (prefix, _) = split_at_width(value, width - 1);
-    format!("{prefix}…")
-}
-
-fn display_width(value: &str) -> usize {
-    UnicodeWidthStr::width(value)
 }
 
 fn list_name_style(entry: &WorktreeInfo) -> Style {
