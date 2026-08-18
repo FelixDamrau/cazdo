@@ -26,6 +26,7 @@ use super::{
     input::{Command, handle_input, is_quit_key},
 };
 use crate::azure_devops::{AzureDevOpsClient, work_item_client};
+use crate::error::format_error_chain;
 use crate::git::GitRepo;
 
 pub async fn run_app(mut app: App, git_repo: GitRepo) -> Result<()> {
@@ -135,7 +136,7 @@ async fn run_loop(
                         Err(error) => {
                             worktree_removal_pending = true;
                             let _ = tx.send(FetchResult::WorktreeRemovalError {
-                                error: error.to_string(),
+                                error: format_error_chain(&error),
                             });
                         }
                     }

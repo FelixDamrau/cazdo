@@ -3,6 +3,7 @@ mod azure_devops;
 mod cli;
 mod commands;
 mod config;
+mod error;
 mod git;
 mod pattern;
 mod tui;
