@@ -40,11 +40,11 @@ fn render_filter_footer(frame: &mut Frame, area: Rect) {
         label_span("filter  "),
         key_span("backspace"),
         label_span(" delete  "),
-        key_span("ctrl+u"),
-        label_span(" clear  "),
         key_span("enter"),
         label_span(" apply  "),
         key_span("esc"),
+        label_span(" cancel  "),
+        key_span("ctrl+c"),
         label_span(" cancel"),
     ]);
 
@@ -92,6 +92,7 @@ fn normal_footer_spans(app: &App) -> Vec<Span<'static>> {
     push_hint(&mut spans, "o", "open");
     push_hint(&mut spans, "pg↑↓", "scroll");
     push_hint(&mut spans, "d", "delete");
+    push_hint(&mut spans, "shift+d", "delete/prune now");
     if app.current_branch_has_work_item() {
         push_hint(&mut spans, "r", "refresh");
     }
@@ -192,7 +193,7 @@ mod tests {
 
         assert_eq!(
             spans_text(&normal_footer_spans(&app)),
-            " j/k navigate  / filter  t toggle remote  w worktrees  o open  pg↑↓ scroll  d delete  r refresh  p protected  q/esc quit  "
+            " j/k navigate  / filter  t toggle remote  w worktrees  o open  pg↑↓ scroll  d delete  shift+d delete/prune now  r refresh  p protected  q/esc quit  "
         );
     }
 
