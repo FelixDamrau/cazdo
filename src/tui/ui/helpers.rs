@@ -7,6 +7,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::git::RemoteStatus;
 
@@ -51,7 +52,7 @@ pub fn append_wrapped_text(lines: &mut Vec<Line>, text: &str, max_width: usize, 
     }
 }
 
-/// Wrap text to fit within width
+/// Wrap prose to fit within width, preserving word boundaries and normalizing whitespace.
 pub fn wrap_text(s: &str, max_width: usize) -> Vec<String> {
     if max_width == 0 {
         return vec![s.to_string()];
@@ -63,7 +64,7 @@ pub fn wrap_text(s: &str, max_width: usize) -> Vec<String> {
     for word in s.split_whitespace() {
         if current.is_empty() {
             current = word.to_string();
-        } else if current.len() + 1 + word.len() <= max_width {
+        } else if display_width(&current) + 1 + display_width(word) <= max_width {
             current.push(' ');
             current.push_str(word);
         } else {
@@ -81,6 +82,70 @@ pub fn wrap_text(s: &str, max_width: usize) -> Vec<String> {
     }
 
     lines
+}
+
+/// Return the number of terminal columns occupied by `value`.
+pub(super) fn display_width(value: &str) -> usize {
+    UnicodeWidthStr::width(value)
+}
+
+/// Split `value` at the largest prefix that fits within `width` columns.
+pub(super) fn split_at_width(value: &str, width: usize) -> (String, &str) {
+    let mut used = 0;
+    let mut split_at = 0;
+    for (index, character) in value.char_indices() {
+        let character_width = UnicodeWidthChar::width(character).unwrap_or(0);
+        if used + character_width > width {
+            break;
+        }
+        used += character_width;
+        split_at = index + character.len_utf8();
+        if used >= width {
+            break;
+        }
+    }
+    if split_at == 0 {
+        return (String::new(), value);
+    }
+    (value[..split_at].to_string(), &value[split_at..])
+}
+
+/// Wrap a value at character boundaries while preserving every character.
+pub(super) fn wrap_value(value: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    if value.is_empty() {
+        return vec![String::new()];
+    }
+
+    let mut lines = Vec::new();
+    let mut remainder = value;
+    while !remainder.is_empty() {
+        let (line, rest) = split_at_width(remainder, width);
+        if rest.len() == remainder.len() {
+            let character = remainder.chars().next().expect("value is not empty");
+            lines.push(character.to_string());
+            remainder = &remainder[character.len_utf8()..];
+        } else {
+            lines.push(line);
+            remainder = rest;
+        }
+    }
+    lines
+}
+
+/// Truncate a value to `width` columns, using an ellipsis when needed.
+pub(super) fn truncate_to_width(value: &str, width: usize) -> String {
+    if width == 0 {
+        return String::new();
+    }
+    if display_width(value) <= width {
+        return value.to_string();
+    }
+    if width == 1 {
+        return "…".to_string();
+    }
+    let (prefix, _) = split_at_width(value, width - 1);
+    format!("{prefix}…")
 }
 
 /// Format relative time from Unix timestamp
@@ -113,6 +178,18 @@ pub fn format_remote_status(status: &RemoteStatus) -> (String, ratatui::style::C
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wrap_text_uses_display_width_for_unicode_words() {
+        for (text, width) in [("Prüfstand: Größe ändern", 23), ("日本語 はい", 11)] {
+            let lines = wrap_text(text, width);
+            assert!(
+                lines.iter().all(|line| display_width(line) <= width),
+                "wrapped lines exceed {width} columns: {lines:?}"
+            );
+            assert_eq!(lines, vec![text.to_string()]);
+        }
+    }
 
     #[test]
     fn centered_line_area_preserves_width_and_centers_line() {
