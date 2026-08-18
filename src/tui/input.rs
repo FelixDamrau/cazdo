@@ -63,11 +63,21 @@ fn handle_key_event(app: &mut App, key: KeyEvent) -> Option<Command> {
 }
 
 pub(super) fn is_quit_key(key: &KeyEvent) -> bool {
-    match key.code {
-        KeyCode::Char('q') | KeyCode::Esc => true,
-        KeyCode::Char('c') => key.modifiers.contains(event::KeyModifiers::CONTROL),
-        _ => false,
-    }
+    is_ctrl_c(key)
+        || (key.modifiers == event::KeyModifiers::NONE
+            && matches!(key.code, KeyCode::Char('q') | KeyCode::Esc))
+}
+
+fn is_ctrl_c(key: &KeyEvent) -> bool {
+    key.code == KeyCode::Char('c') && key.modifiers == event::KeyModifiers::CONTROL
+}
+
+fn is_plain(key: &KeyEvent) -> bool {
+    key.modifiers == event::KeyModifiers::NONE
+}
+
+fn is_shift_only(key: &KeyEvent) -> bool {
+    key.modifiers == event::KeyModifiers::SHIFT
 }
 
 fn handle_pending_worktree_removal_key(app: &mut App, key: KeyEvent) -> Option<Command> {
@@ -79,29 +89,28 @@ fn handle_pending_worktree_removal_key(app: &mut App, key: KeyEvent) -> Option<C
 
 fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Command> {
     if is_quit_key(&key) {
-        if key.code == KeyCode::Esc && app.has_active_filter() {
+        if key.code == KeyCode::Esc && is_plain(&key) && app.has_active_filter() {
             app.update(Msg::ClearFilter);
         } else {
             app.update(Msg::Quit);
         }
         return None;
     }
+    if is_shift_only(&key) {
+        if key.code != KeyCode::Char('D') {
+            return None;
+        }
+    } else if !is_plain(&key) {
+        return None;
+    }
 
     match key.code {
         KeyCode::Down | KeyCode::Char('j') => {
-            if key.modifiers.contains(event::KeyModifiers::SHIFT) {
-                app.update(Msg::ScrollDown(scroll::LINE_SCROLL_AMOUNT));
-            } else {
-                app.update(Msg::NextBranch);
-            }
+            app.update(Msg::NextBranch);
             None
         }
         KeyCode::Up | KeyCode::Char('k') => {
-            if key.modifiers.contains(event::KeyModifiers::SHIFT) {
-                app.update(Msg::ScrollUp(scroll::LINE_SCROLL_AMOUNT));
-            } else {
-                app.update(Msg::PreviousBranch);
-            }
+            app.update(Msg::PreviousBranch);
             None
         }
         KeyCode::PageDown => {
@@ -111,18 +120,6 @@ fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Command> {
             None
         }
         KeyCode::PageUp => {
-            app.update(Msg::ScrollUp(
-                app.visible_height() / scroll::PAGE_SCROLL_DIVISOR,
-            ));
-            None
-        }
-        KeyCode::Char('d') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
-            app.update(Msg::ScrollDown(
-                app.visible_height() / scroll::PAGE_SCROLL_DIVISOR,
-            ));
-            None
-        }
-        KeyCode::Char('u') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
             app.update(Msg::ScrollUp(
                 app.visible_height() / scroll::PAGE_SCROLL_DIVISOR,
             ));
@@ -170,24 +167,17 @@ fn handle_normal_mode_key(app: &mut App, key: KeyEvent) -> Option<Command> {
 }
 
 fn handle_filter_input_key(app: &mut App, key: KeyEvent) -> Option<Command> {
+    if is_ctrl_c(&key) {
+        app.update(Msg::CancelFilter);
+        return None;
+    }
     match key.code {
-        KeyCode::Enter => {
-            app.update(Msg::ApplyFilter);
-            None
-        }
-        KeyCode::Esc => {
-            app.update(Msg::CancelFilter);
-            None
-        }
-        KeyCode::Backspace => {
+        KeyCode::Enter if is_plain(&key) => app.update(Msg::ApplyFilter),
+        KeyCode::Esc if is_plain(&key) => app.update(Msg::CancelFilter),
+        KeyCode::Backspace if is_plain(&key) => {
             let mut filter_input = app.filter_input().to_string();
             filter_input.pop();
             app.update(Msg::SetFilterInput(filter_input));
-            None
-        }
-        KeyCode::Char('u') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
-            app.update(Msg::SetFilterInput(String::new()));
-            None
         }
         KeyCode::Char(c)
             if !key
@@ -197,15 +187,19 @@ fn handle_filter_input_key(app: &mut App, key: KeyEvent) -> Option<Command> {
             let mut filter_input = app.filter_input().to_string();
             filter_input.push(c);
             app.update(Msg::SetFilterInput(filter_input));
-            None
         }
-        _ => None,
+        _ => {}
     }
+    None
 }
 
 fn handle_confirm_delete_key(app: &mut App, key: KeyEvent, branch_key: &str) -> Option<Command> {
+    if is_ctrl_c(&key) {
+        app.cancel_mode();
+        return None;
+    }
     match key.code {
-        KeyCode::Char('y') | KeyCode::Enter => {
+        KeyCode::Char('y') | KeyCode::Enter if is_plain(&key) => {
             let branch = app.branch_by_key(branch_key)?.clone();
             let action = if branch.is_stale {
                 Command::Prune(branch)
@@ -215,26 +209,29 @@ fn handle_confirm_delete_key(app: &mut App, key: KeyEvent, branch_key: &str) -> 
             app.cancel_mode();
             Some(action)
         }
-        KeyCode::Char('n') | KeyCode::Esc | KeyCode::Char('q') => {
+        KeyCode::Char('n') | KeyCode::Esc | KeyCode::Char('q') if is_plain(&key) => {
             app.cancel_mode();
             None
         }
         _ => None,
     }
 }
-
 fn handle_confirm_worktree_prune_key(
     app: &mut App,
     key: KeyEvent,
     worktree: &crate::git::WorktreeInfo,
 ) -> Option<Command> {
+    if is_ctrl_c(&key) {
+        app.cancel_mode();
+        return None;
+    }
     match key.code {
-        KeyCode::Char('y') | KeyCode::Enter => {
+        KeyCode::Char('y') | KeyCode::Enter if is_plain(&key) => {
             let worktree = worktree.clone();
             app.cancel_mode();
             Some(Command::PruneWorktree(worktree))
         }
-        KeyCode::Char('n') | KeyCode::Esc | KeyCode::Char('q') => {
+        KeyCode::Char('n') | KeyCode::Esc | KeyCode::Char('q') if is_plain(&key) => {
             app.cancel_mode();
             None
         }
@@ -243,13 +240,17 @@ fn handle_confirm_worktree_prune_key(
 }
 
 fn handle_confirm_remove_worktree_key(app: &mut App, key: KeyEvent) -> Option<Command> {
+    if is_ctrl_c(&key) {
+        app.cancel_mode();
+        return None;
+    }
     match key.code {
-        KeyCode::Char('y') | KeyCode::Enter => {
+        KeyCode::Char('y') | KeyCode::Enter if is_plain(&key) => {
             let worktree = app.confirmed_remove_worktree();
             app.cancel_mode();
             worktree.map(Command::RemoveWorktree)
         }
-        KeyCode::Char('n') | KeyCode::Esc | KeyCode::Char('q') => {
+        KeyCode::Char('n') | KeyCode::Esc | KeyCode::Char('q') if is_plain(&key) => {
             app.cancel_mode();
             None
         }
@@ -258,9 +259,11 @@ fn handle_confirm_remove_worktree_key(app: &mut App, key: KeyEvent) -> Option<Co
 }
 
 fn handle_error_popup_key(app: &mut App, key: KeyEvent) {
-    match key.code {
-        KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') => app.cancel_mode(),
-        _ => {}
+    if is_ctrl_c(&key)
+        || (is_plain(&key)
+            && matches!(key.code, KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q')))
+    {
+        app.cancel_mode();
     }
 }
 
@@ -452,7 +455,10 @@ mod tests {
         let mut app = App::new(vec![remote_branch(true)], vec![]);
         app.update(Msg::ToggleView);
 
-        let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('D')));
+        let action = handle_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('D'), event::KeyModifiers::SHIFT),
+        );
 
         match action {
             Some(Command::Prune(branch)) => {

@@ -144,23 +144,34 @@ cazdo update
 
 ## Keyboard Shortcuts
 
+### Modifier dispatch
+
+| Mode                  | Plain keys              | Shift/other modifiers                                | `Ctrl+C`     |
+| --------------------- | ----------------------- | ---------------------------------------------------- | ------------ |
+| Branch                | Commands listed below   | Ignored; `Shift+D` is the immediate delete/prune key | Quit         |
+| Worktree              | Commands listed below   | Ignored                                              | Quit         |
+| Filter                | Text editing, Enter/Esc | Modified commands ignored; Shift may type text       | Cancel draft |
+| Branch confirmation   | `y`/`n`/Enter/Esc/`q`   | Ignored                                              | Cancel       |
+| Worktree confirmation | `y`/`n`/Enter/Esc/`q`   | Ignored                                              | Cancel       |
+| Error popup           | Enter/Esc/`q` dismiss   | Ignored                                              | Dismiss      |
+
 ### Branch view
 
-| Key                      | Action                                            |
-| ------------------------ | ------------------------------------------------- |
-| `j` / `k` / `Arrow keys` | Navigate branches                                 |
-| `Enter`                  | Checkout selected branch                          |
-| `o`                      | Open work item in browser                         |
-| `d`                      | Delete selected branch with confirmation          |
-| `D`                      | Delete or prune selected stale branch immediately |
-| `/`                      | Edit branch filter                                |
-| `r`                      | Refresh current work item                         |
-| `t`                      | Toggle local / remote branch view                 |
-| `p`                      | Toggle protected branches visibility              |
-| `PgUp` / `PgDn`          | Scroll work item details                          |
-| `Ctrl+u` / `Ctrl+d`      | Scroll half page (vim-style)                      |
-| `Esc`                    | Clear active filter, otherwise quit               |
-| `q`                      | Quit                                              |
+| Key                      | Action                                             |
+| ------------------------ | -------------------------------------------------- |
+| `j` / `k` / `Arrow keys` | Navigate branches                                  |
+| `Enter`                  | Checkout selected branch                           |
+| `o`                      | Open work item in browser                          |
+| `d`                      | Delete selected branch with confirmation           |
+| `Shift+D`                | Delete or prune selected branch immediately        |
+| `/`                      | Edit branch filter                                 |
+| `r`                      | Refresh current work item                          |
+| `t`                      | Toggle local / remote branch view                  |
+| `p`                      | Toggle protected branches visibility               |
+| `PgUp` / `PgDn`          | Scroll work item details                           |
+| `Esc`                    | Clear active filter, otherwise quit                |
+| `q`                      | Quit                                               |
+| `Ctrl+C`                 | Cancel filter/confirmation, dismiss error, or quit |
 
 ### Worktree view
 
@@ -173,6 +184,7 @@ Press `w` to toggle between the branch and worktree views.
 | `r`                      | Refresh worktree inventory                                               |
 | `w`                      | Return to branch view                                                    |
 | `q` / `Esc`              | Quit                                                                     |
+| `Ctrl+C`                 | Quit                                                                     |
 
 ## Protected Branches
 

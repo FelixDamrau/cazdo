@@ -1,12 +1,15 @@
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use super::{Command, is_quit_key};
+use super::Command;
 use crate::tui::app::{App, Msg};
 use crate::tui::theme::timing;
 
 pub(super) fn handle_worktree_mode_key(app: &mut App, key: KeyEvent) -> Option<Command> {
-    if is_quit_key(&key) {
+    if key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('c') {
         app.update(Msg::Quit);
+        return None;
+    }
+    if key.modifiers != KeyModifiers::NONE {
         return None;
     }
 
