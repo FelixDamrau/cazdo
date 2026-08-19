@@ -9,22 +9,12 @@ use ratatui::{
 use crate::tui::app::App;
 use crate::tui::theme;
 
-fn branch_row_style(
-    is_current: bool,
-    is_protected: bool,
-    is_stale: bool,
-    selected: bool,
-) -> Style {
-    if is_current {
-        theme::branch::CURRENT
-    } else if is_protected || is_stale {
-        if selected {
-            theme::ui::SELECTED_LABEL
-        } else {
-            theme::styles::MUTED
-        }
-    } else {
-        Style::default()
+fn branch_row_style(is_current: bool, is_protected: bool, is_stale: bool, selected: bool) -> Style {
+    match (is_current, is_protected || is_stale, selected) {
+        (true, _, _) => theme::branch::CURRENT,
+        (_, true, true) => theme::ui::SELECTED_LABEL,
+        (_, true, false) => theme::styles::MUTED,
+        _ => Style::default(),
     }
 }
 
