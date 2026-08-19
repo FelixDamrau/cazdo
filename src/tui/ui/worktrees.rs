@@ -46,7 +46,7 @@ pub fn render_worktrees(frame: &mut Frame, app: &App, area: Rect) {
 
     let list = List::new(items)
         .block(block)
-        .highlight_style(theme::ui::SELECTED_BACKGROUND.add_modifier(Modifier::BOLD))
+        .highlight_style(theme::ui::SELECTED.add_modifier(Modifier::BOLD))
         .highlight_symbol("\u{25BA} ");
     let mut state = ListState::default();
     if !app.worktrees().is_empty() {
@@ -400,9 +400,11 @@ fn submodule_style(submodules: &WorktreeSubmodules) -> Style {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::{WorktreeDirtyReason, WorktreeIdentity, WorktreeState};
+    use crate::git::{
+        WorktreeCleanliness, WorktreeDirtyReason, WorktreeIdentity, WorktreeState,
+    };
     use crate::tui::app::Msg;
-    use ratatui::{Terminal, backend::TestBackend};
+    use ratatui::{Terminal, backend::TestBackend, style::Color};
 
     fn rendered_text(app: &App) -> String {
         let mut terminal = Terminal::new(TestBackend::new(100, 30)).expect("terminal");
@@ -419,6 +421,7 @@ mod tests {
             .map(|cell| cell.symbol())
             .collect()
     }
+
     fn diagnostic_value_style(lines: &[Line<'_>], label: &str) -> Style {
         lines
             .iter()
@@ -437,6 +440,38 @@ mod tests {
 
         assert!(text.contains("Loading worktree inventory…"));
         assert!(!text.contains("No worktree inventory loaded"));
+    }
+
+    #[test]
+    fn selected_worktree_labels_contrast_with_highlight() {
+        let mut app = App::new(vec![], vec![]);
+        app.update(Msg::SetWorktrees(vec![WorktreeInfo {
+            identity: WorktreeIdentity::Main,
+            path: "/repo".into(),
+            branch: Some("main".to_string()),
+            detached_short_sha: None,
+            is_main: true,
+            is_current: true,
+            cleanliness: WorktreeCleanliness::Clean,
+            lock_reason: None,
+            state: WorktreeState::Valid,
+            prunable: false,
+            submodules: WorktreeSubmodules::None,
+        }]));
+        app.update(Msg::ToggleWorktreeView);
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).expect("terminal");
+        terminal
+            .draw(|frame| render_worktrees(frame, &app, frame.area()))
+            .expect("draw");
+
+        let cells = terminal.backend().buffer().content();
+        let head_row = &cells[2 * 100..3 * 100];
+        let head_label = head_row
+            .iter()
+            .find(|cell| cell.symbol() == "H")
+            .expect("selected row should render HEAD");
+        assert_eq!(head_label.fg, Color::White);
     }
 
     #[test]
