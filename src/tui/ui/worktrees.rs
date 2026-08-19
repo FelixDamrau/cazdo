@@ -37,21 +37,21 @@ pub fn render_worktrees(frame: &mut Frame, app: &App, area: Rect) {
 
     // Reserve both borders and the selected-row highlight symbol.
     let content_width = area.width.saturating_sub(4) as usize;
+    let selected_index = app.worktree_selected_index();
     let items: Vec<ListItem> = app
         .worktrees()
         .iter()
-        .map(|entry| worktree_list_item(entry, content_width))
+        .enumerate()
+        .map(|(index, entry)| worktree_list_item(entry, content_width, index == selected_index))
         .collect();
     let item_heights: Vec<usize> = items.iter().map(ListItem::height).collect();
 
     let list = List::new(items)
         .block(block)
-        .highlight_style(theme::ui::SELECTED.add_modifier(Modifier::BOLD))
+        .highlight_style(theme::ui::SELECTED_BACKGROUND.add_modifier(Modifier::BOLD))
         .highlight_symbol("\u{25BA} ");
     let mut state = ListState::default();
-    if !app.worktrees().is_empty() {
-        state.select(Some(app.worktree_selected_index()));
-    }
+    state.select(Some(selected_index));
     frame.render_stateful_widget(list, area, &mut state);
 
     // Scrollbar counts lines, ListState::offset() counts items — convert.
@@ -61,11 +61,16 @@ pub fn render_worktrees(frame: &mut Frame, app: &App, area: Rect) {
     super::helpers::render_scrollbar(frame, inner_area, total_lines, line_offset);
 }
 
-fn worktree_list_item(entry: &WorktreeInfo, width: usize) -> ListItem<'static> {
-    ListItem::new(worktree_list_lines(entry, width))
+fn worktree_list_item(entry: &WorktreeInfo, width: usize, selected: bool) -> ListItem<'static> {
+    ListItem::new(worktree_list_lines(entry, width, selected))
 }
 
-fn worktree_list_lines(entry: &WorktreeInfo, width: usize) -> Vec<Line<'static>> {
+fn worktree_list_lines(entry: &WorktreeInfo, width: usize, selected: bool) -> Vec<Line<'static>> {
+    let label_style = if selected {
+        theme::ui::SELECTED_LABEL
+    } else {
+        theme::styles::MUTED
+    };
     let (marker, marker_style) = if entry.is_current {
         ("* ", theme::branch::CURRENT)
     } else if entry.is_main {
@@ -83,18 +88,21 @@ fn worktree_list_lines(entry: &WorktreeInfo, width: usize) -> Vec<Line<'static>>
     lines.push(bounded_field_line(
         "HEAD",
         entry.ref_display(),
+        label_style,
         theme::styles::TEXT,
         width,
     ));
     lines.push(bounded_field_line(
         "Path",
         entry.path.to_string_lossy(),
+        label_style,
         theme::styles::TEXT,
         width,
     ));
     lines.push(bounded_field_line(
         "Status",
         list_status(entry),
+        label_style,
         status_style(entry),
         width,
     ));
@@ -102,6 +110,7 @@ fn worktree_list_lines(entry: &WorktreeInfo, width: usize) -> Vec<Line<'static>>
         lines.push(bounded_field_line(
             "Lock",
             reason.clone(),
+            label_style,
             theme::styles::WARNING,
             width,
         ));
@@ -110,6 +119,7 @@ fn worktree_list_lines(entry: &WorktreeInfo, width: usize) -> Vec<Line<'static>>
         lines.push(bounded_field_line(
             "Prunable",
             "yes",
+            label_style,
             theme::styles::WARNING,
             width,
         ));
@@ -271,13 +281,14 @@ fn submodule_detail(submodules: &WorktreeSubmodules) -> String {
 fn bounded_field_line(
     label: &str,
     value: impl Into<String>,
+    label_style: Style,
     value_style: Style,
     width: usize,
 ) -> Line<'static> {
     bounded_prefix_line(
         &format!("  {label}: "),
         value,
-        theme::styles::MUTED,
+        label_style,
         value_style,
         width,
     )
@@ -400,11 +411,14 @@ fn submodule_style(submodules: &WorktreeSubmodules) -> Style {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::{
-        WorktreeCleanliness, WorktreeDirtyReason, WorktreeIdentity, WorktreeState,
-    };
+    use crate::git::{WorktreeCleanliness, WorktreeDirtyReason, WorktreeIdentity, WorktreeState};
     use crate::tui::app::Msg;
-    use ratatui::{Terminal, backend::TestBackend, style::Color};
+    use ratatui::{
+        Terminal,
+        backend::TestBackend,
+        buffer::{Buffer, Cell},
+        style::Color,
+    };
 
     fn rendered_text(app: &App) -> String {
         let mut terminal = Terminal::new(TestBackend::new(100, 30)).expect("terminal");
@@ -422,13 +436,35 @@ mod tests {
             .collect()
     }
 
-    fn diagnostic_value_style(lines: &[Line<'_>], label: &str) -> Style {
+    fn field_span_style(lines: &[Line<'_>], label: &str, span: usize) -> Style {
         lines
             .iter()
             .find(|line| line.to_string().starts_with(&format!("  {label}: ")))
-            .expect("diagnostic field should exist")
-            .spans[1]
+            .unwrap_or_else(|| panic!("field {label} should exist"))
+            .spans[span]
             .style
+    }
+
+    fn field_label_style(lines: &[Line<'_>], label: &str) -> Style {
+        field_span_style(lines, label, 0)
+    }
+
+    fn field_value_style(lines: &[Line<'_>], label: &str) -> Style {
+        field_span_style(lines, label, 1)
+    }
+
+    /// The cell where `needle` starts, searching the rendered buffer row by row.
+    fn cell_at<'a>(buffer: &'a Buffer, needle: &str) -> &'a Cell {
+        let width = buffer.area.width as usize;
+        for cells in buffer.content().chunks(width) {
+            let symbols: Vec<&str> = cells.iter().map(|cell| cell.symbol()).collect();
+            if let Some(column) =
+                (0..symbols.len()).find(|start| symbols[*start..].concat().starts_with(needle))
+            {
+                return &cells[column];
+            }
+        }
+        panic!("{needle:?} was not rendered");
     }
 
     #[test]
@@ -443,7 +479,49 @@ mod tests {
     }
 
     #[test]
-    fn selected_worktree_labels_contrast_with_highlight() {
+    fn selected_row_lightens_labels_and_keeps_semantic_colors() {
+        let entry = WorktreeInfo {
+            identity: WorktreeIdentity::Linked {
+                name: "locked-tree".to_string(),
+            },
+            path: "/tmp/locked-tree".into(),
+            branch: Some("feature/locked".to_string()),
+            detached_short_sha: None,
+            is_main: false,
+            is_current: false,
+            cleanliness: WorktreeCleanliness::Clean,
+            lock_reason: Some("in use".to_string()),
+            state: WorktreeState::Valid,
+            prunable: true,
+            submodules: WorktreeSubmodules::None,
+        };
+
+        let selected = worktree_list_lines(&entry, 80, true);
+        assert_eq!(
+            field_label_style(&selected, "HEAD"),
+            theme::ui::SELECTED_LABEL
+        );
+        assert_eq!(field_value_style(&selected, "HEAD"), theme::styles::TEXT);
+        assert_eq!(
+            field_value_style(&selected, "Status"),
+            theme::styles::WARNING
+        );
+        assert_eq!(field_value_style(&selected, "Lock"), theme::styles::WARNING);
+        assert_eq!(
+            field_value_style(&selected, "Prunable"),
+            theme::styles::WARNING
+        );
+
+        let unselected = worktree_list_lines(&entry, 80, false);
+        assert_eq!(field_label_style(&unselected, "HEAD"), theme::styles::MUTED);
+        assert_eq!(
+            field_value_style(&unselected, "Status"),
+            theme::styles::WARNING
+        );
+    }
+
+    #[test]
+    fn selection_highlight_keeps_row_foregrounds() {
         let mut app = App::new(vec![], vec![]);
         app.update(Msg::SetWorktrees(vec![WorktreeInfo {
             identity: WorktreeIdentity::Main,
@@ -460,18 +538,23 @@ mod tests {
         }]));
         app.update(Msg::ToggleWorktreeView);
 
-        let mut terminal = Terminal::new(TestBackend::new(100, 30)).expect("terminal");
+        let mut terminal = Terminal::new(TestBackend::new(60, 10)).expect("terminal");
         terminal
             .draw(|frame| render_worktrees(frame, &app, frame.area()))
             .expect("draw");
+        let buffer = terminal.backend().buffer().clone();
 
-        let cells = terminal.backend().buffer().content();
-        let head_row = &cells[2 * 100..3 * 100];
-        let head_label = head_row
-            .iter()
-            .find(|cell| cell.symbol() == "H")
-            .expect("selected row should render HEAD");
-        assert_eq!(head_label.fg, Color::White);
+        let label = cell_at(&buffer, "HEAD:");
+        assert_eq!(label.bg, Color::DarkGray);
+        assert_eq!(label.fg, Color::Gray);
+
+        let status = cell_at(&buffer, "valid / clean");
+        assert_eq!(status.bg, Color::DarkGray);
+        assert_eq!(status.fg, Color::Green);
+
+        let current_marker = cell_at(&buffer, "* main");
+        assert_eq!(current_marker.bg, Color::DarkGray);
+        assert_eq!(current_marker.fg, Color::Green);
     }
 
     #[test]
@@ -506,26 +589,17 @@ mod tests {
 
         let entry = app.selected_worktree().expect("selected worktree");
         let lines = worktree_diagnostic_lines(entry, 80);
+        assert_eq!(field_value_style(&lines, "Current"), theme::branch::CURRENT);
+        assert_eq!(field_value_style(&lines, "State"), theme::styles::SUCCESS);
         assert_eq!(
-            diagnostic_value_style(&lines, "Current"),
-            theme::branch::CURRENT
-        );
-        assert_eq!(
-            diagnostic_value_style(&lines, "State"),
-            theme::styles::SUCCESS
-        );
-        assert_eq!(
-            diagnostic_value_style(&lines, "Cleanliness"),
+            field_value_style(&lines, "Cleanliness"),
             theme::styles::WARNING
         );
         assert!(text.contains("Worktree Details"));
         assert!(!text.contains("Work Item Details"));
+        assert_eq!(field_value_style(&lines, "Lock"), theme::styles::WARNING);
         assert_eq!(
-            diagnostic_value_style(&lines, "Lock"),
-            theme::styles::WARNING
-        );
-        assert_eq!(
-            diagnostic_value_style(&lines, "Submodules"),
+            field_value_style(&lines, "Submodules"),
             theme::styles::WARNING
         );
     }
@@ -738,7 +812,7 @@ mod tests {
         };
         let width = 32;
 
-        for line in worktree_list_lines(&entry, width)
+        for line in worktree_list_lines(&entry, width, false)
             .into_iter()
             .chain(worktree_diagnostic_lines(&entry, width))
         {
