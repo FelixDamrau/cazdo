@@ -20,7 +20,11 @@ pub mod ui {
     pub const TITLE: Style = Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD);
     pub const TITLE_ERROR: Style = Style::new().fg(Color::Red).add_modifier(Modifier::BOLD);
     pub const SELECTED: Style = Style::new().fg(Color::White).bg(Color::DarkGray);
+    /// Highlight rows whose spans carry their own semantic colors: no foreground,
+    /// so `set_style` cannot overwrite them.
     pub const SELECTED_BACKGROUND: Style = Style::new().bg(Color::DarkGray);
+    /// Muted labels disappear on the selected background, so lighten them there.
+    pub const SELECTED_LABEL: Style = Style::new().fg(Color::Gray);
 }
 
 pub mod branch {
