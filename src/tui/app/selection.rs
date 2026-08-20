@@ -205,6 +205,9 @@ fn resolve_selection(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tui::app::testing::{branch, create_test_branches};
+
+    // --- OnMiss policy -------------------------------------------------------
 
     #[test]
     fn resolves_to_the_targets_position_when_visible() {
@@ -236,6 +239,166 @@ mod tests {
         assert_eq!(resolve_selection(None, &keys, 5, OnMiss::Clamp), 0);
     }
 
+    // --- visible_branches ----------------------------------------------------
+
+    #[test]
+    fn test_visible_branches_filters_protected_in_active_view() {
+        let branches = create_test_branches();
+        let mut app = App::new(branches, vec![]);
+
+        assert_eq!(app.visible_count(), 2);
+
+        app.branches[0].is_current = false;
+        assert_eq!(app.visible_count(), 1);
+
+        app.toggle_show_protected();
+        assert_eq!(app.visible_count(), 2);
+    }
+
+    #[test]
+    fn test_visible_branches_hides_protected_remotes_by_default() {
+        let branches = vec![
+            branch(
+                "refs/remotes/origin/main",
+                "origin/main",
+                "main",
+                BranchScope::Remote,
+                false,
+                true,
+                None,
+            ),
+            branch(
+                "refs/remotes/origin/feature/1",
+                "origin/feature/1",
+                "feature/1",
+                BranchScope::Remote,
+                false,
+                false,
+                Some(1),
+            ),
+        ];
+        let mut app = App::new(branches, vec![]);
+        app.active_view = BranchView::Remote;
+
+        // protected remote is hidden by default since it's not current
+        assert_eq!(app.visible_count(), 1);
+
+        app.toggle_show_protected();
+        assert_eq!(app.visible_count(), 2);
+    }
+
+    #[test]
+    fn test_has_hidden_branches_in_active_view_tracks_filtered_protected_branches() {
+        let branches = vec![branch(
+            "refs/remotes/origin/main",
+            "origin/main",
+            "main",
+            BranchScope::Remote,
+            false,
+            true,
+            None,
+        )];
+        let mut app = App::new(branches, vec![]);
+        app.active_view = BranchView::Remote;
+
+        assert!(app.has_hidden_branches_in_active_view());
+
+        app.toggle_show_protected();
+        assert!(!app.has_hidden_branches_in_active_view());
+    }
+
+    // --- navigation ----------------------------------------------------------
+
+    #[test]
+    fn test_navigation_movement() {
+        let branches = create_test_branches();
+        let mut app = App::new(branches, vec![]);
+
+        app.next();
+        assert_eq!(app.selected_index(), 1);
+
+        app.previous();
+        assert_eq!(app.selected_index(), 0);
+    }
+
+    #[test]
+    fn test_navigation_wraps() {
+        let branches = create_test_branches();
+        let mut app = App::new(branches, vec!["main".to_string(), "master".to_string()]);
+
+        assert_eq!(app.selected_index(), 0);
+
+        app.previous();
+        assert_eq!(app.selected_index(), 1);
+
+        app.next();
+        assert_eq!(app.selected_index(), 0);
+    }
+
+    #[test]
+    fn test_toggle_view_keeps_separate_selection() {
+        let branches = vec![
+            branch(
+                "refs/heads/main",
+                "main",
+                "main",
+                BranchScope::Local,
+                false,
+                true,
+                None,
+            ),
+            branch(
+                "refs/heads/feature/1",
+                "feature/1",
+                "feature/1",
+                BranchScope::Local,
+                true,
+                false,
+                Some(1),
+            ),
+            branch(
+                "refs/heads/feature/4",
+                "feature/4",
+                "feature/4",
+                BranchScope::Local,
+                false,
+                false,
+                Some(4),
+            ),
+            branch(
+                "refs/remotes/origin/feature/2",
+                "origin/feature/2",
+                "feature/2",
+                BranchScope::Remote,
+                false,
+                false,
+                Some(2),
+            ),
+            branch(
+                "refs/remotes/origin/feature/3",
+                "origin/feature/3",
+                "feature/3",
+                BranchScope::Remote,
+                false,
+                false,
+                Some(3),
+            ),
+        ];
+        let mut app = App::new(branches, vec![]);
+
+        app.local_selected_index = 1;
+        app.toggle_view();
+        assert_eq!(app.active_view, BranchView::Remote);
+        assert_eq!(app.selected_index(), 0);
+
+        app.next();
+        assert_eq!(app.selected_index(), 1);
+
+        app.toggle_view();
+        assert_eq!(app.active_view, BranchView::Local);
+        assert_eq!(app.selected_index(), 1);
+    }
+
     #[test]
     fn selected_branch_remains_available_in_worktree_view() {
         let branch = BranchInfo {
@@ -257,6 +420,84 @@ mod tests {
         assert_eq!(
             app.selected_branch().map(|branch| branch.key.as_str()),
             Some("refs/heads/feature/117")
+        );
+    }
+
+    // --- selection after removal ---------------------------------------------
+
+    #[test]
+    fn test_remove_branch_clamps_to_visible_count() {
+        let branches = vec![
+            branch(
+                "refs/heads/main",
+                "main",
+                "main",
+                BranchScope::Local,
+                false,
+                true,
+                None,
+            ),
+            branch(
+                "refs/heads/feature/1",
+                "feature/1",
+                "feature/1",
+                BranchScope::Local,
+                true,
+                false,
+                Some(1),
+            ),
+            branch(
+                "refs/heads/feature/2",
+                "feature/2",
+                "feature/2",
+                BranchScope::Local,
+                false,
+                false,
+                Some(2),
+            ),
+        ];
+        let mut app = App::new(branches, vec![]);
+
+        app.local_selected_index = 1;
+        app.remove_branch("refs/heads/feature/2");
+
+        assert_eq!(app.visible_count(), 1);
+        assert_eq!(app.selected_index(), 0);
+    }
+
+    #[test]
+    fn test_remove_branch_keeps_selection_on_previous_visible_branch() {
+        let mut app = App::new(
+            vec![
+                branch(
+                    "refs/heads/feature/1",
+                    "feature/1",
+                    "feature/1",
+                    BranchScope::Local,
+                    false,
+                    false,
+                    None,
+                ),
+                branch(
+                    "refs/heads/feature/2",
+                    "feature/2",
+                    "feature/2",
+                    BranchScope::Local,
+                    false,
+                    false,
+                    None,
+                ),
+            ],
+            vec![],
+        );
+        app.set_selected_index_for_test(1);
+
+        app.remove_branch("refs/heads/feature/2");
+
+        assert_eq!(app.selected_index(), 0);
+        assert_eq!(
+            app.selected_branch().expect("remaining branch").branch_name,
+            "feature/1"
         );
     }
 }
