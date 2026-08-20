@@ -9,6 +9,15 @@ use ratatui::{
 use crate::tui::app::App;
 use crate::tui::theme;
 
+fn branch_row_style(is_current: bool, is_protected: bool, is_stale: bool, selected: bool) -> Style {
+    match (is_current, is_protected || is_stale, selected) {
+        (true, _, _) => theme::branch::CURRENT,
+        (_, true, true) => theme::ui::SELECTED_LABEL,
+        (_, true, false) => theme::styles::MUTED,
+        _ => Style::default(),
+    }
+}
+
 /// Render the branch list panel
 pub fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
     let visible = app.visible_branches();
@@ -59,9 +68,12 @@ pub fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
+    let selected_index = app.selected_index();
     let items: Vec<ListItem> = visible
         .iter()
-        .map(|branch| {
+        .enumerate()
+        .map(|(index, branch)| {
+            let selected = index == selected_index;
             let prefix = if branch.is_current { "* " } else { "  " };
 
             // Show lock for protected branches (when visible)
@@ -78,13 +90,12 @@ pub fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
 
             let stale_indicator = if branch.is_stale { " ⚠" } else { "" };
 
-            let style = if branch.is_current {
-                theme::branch::CURRENT
-            } else if branch.is_protected || branch.is_stale {
-                theme::styles::MUTED
-            } else {
-                Style::default()
-            };
+            let style = branch_row_style(
+                branch.is_current,
+                branch.is_protected,
+                branch.is_stale,
+                selected,
+            );
 
             ListItem::new(format!(
                 "{}{}{}{}{}",
@@ -101,7 +112,7 @@ pub fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
                 .border_style(theme::ui::BORDER)
                 .title(Line::from(vec![Span::styled(title, theme::ui::TITLE)])),
         )
-        .highlight_style(theme::ui::SELECTED.add_modifier(Modifier::BOLD))
+        .highlight_style(theme::ui::SELECTED_BACKGROUND.add_modifier(Modifier::BOLD))
         .highlight_symbol("\u{25BA} ");
 
     let mut state = ListState::default();
@@ -111,5 +122,61 @@ pub fn render_branches(frame: &mut Frame, app: &App, area: Rect) {
 
     // Render scrollbar inside the borders to match details view
     let inner_area = Block::default().borders(Borders::ALL).inner(area);
+
     super::helpers::render_scrollbar(frame, inner_area, visible.len(), state.offset());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selected_current_branch_keeps_current_style() {
+        assert_eq!(
+            branch_row_style(true, false, false, true),
+            theme::branch::CURRENT
+        );
+    }
+
+    #[test]
+    fn selected_protected_and_stale_branches_use_readable_style() {
+        assert_eq!(
+            branch_row_style(false, true, false, true),
+            theme::ui::SELECTED_LABEL
+        );
+        assert_eq!(
+            branch_row_style(false, false, true, true),
+            theme::ui::SELECTED_LABEL
+        );
+    }
+
+    #[test]
+    fn unselected_protected_and_stale_branches_remain_muted() {
+        assert_eq!(
+            branch_row_style(false, true, false, false),
+            theme::styles::MUTED
+        );
+        assert_eq!(
+            branch_row_style(false, false, true, false),
+            theme::styles::MUTED
+        );
+    }
+
+    #[test]
+    fn selected_current_branch_preserves_foreground_in_rendered_list() {
+        let list = List::new(vec![ListItem::new("* main").style(theme::branch::CURRENT)])
+            .highlight_style(theme::ui::SELECTED_BACKGROUND.add_modifier(Modifier::BOLD))
+            .highlight_symbol("\u{25BA} ");
+        let mut state = ListState::default();
+        state.select(Some(0));
+        let area = Rect::new(0, 0, 20, 1);
+        let mut buffer = ratatui::buffer::Buffer::empty(area);
+
+        ratatui::widgets::StatefulWidget::render(list, area, &mut buffer, &mut state);
+
+        assert_eq!(
+            buffer.cell((2, 0)).expect("current branch cell").fg,
+            ratatui::style::Color::Green
+        );
+    }
 }
