@@ -161,4 +161,22 @@ mod tests {
             theme::styles::MUTED
         );
     }
+
+    #[test]
+    fn selected_current_branch_preserves_foreground_in_rendered_list() {
+        let list = List::new(vec![ListItem::new("* main").style(theme::branch::CURRENT)])
+            .highlight_style(theme::ui::SELECTED_BACKGROUND.add_modifier(Modifier::BOLD))
+            .highlight_symbol("\u{25BA} ");
+        let mut state = ListState::default();
+        state.select(Some(0));
+        let area = Rect::new(0, 0, 20, 1);
+        let mut buffer = ratatui::buffer::Buffer::empty(area);
+
+        ratatui::widgets::StatefulWidget::render(list, area, &mut buffer, &mut state);
+
+        assert_eq!(
+            buffer.cell((2, 0)).expect("current branch cell").fg,
+            ratatui::style::Color::Green
+        );
+    }
 }
