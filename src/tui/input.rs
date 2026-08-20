@@ -281,29 +281,105 @@ fn handle_mouse_event(app: &mut App, mouse_event: MouseEvent) {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
     use super::*;
     use crate::git::{
         BranchScope, WorktreeCleanliness, WorktreeDirtyReason, WorktreeIdentity, WorktreeInfo,
         WorktreeState, WorktreeSubmodules,
     };
     use crate::tui::app::{App, BranchInfo, BranchView};
+    use std::collections::HashSet;
+
+    // --- fixtures ------------------------------------------------------------
+
+    fn remote_branch(is_stale: bool) -> BranchInfo {
+        BranchInfo {
+            key: "refs/remotes/origin/feature/1".to_string(),
+            display_name: "origin/feature/1".to_string(),
+            branch_name: "feature/1".to_string(),
+            remote_name: Some("origin".to_string()),
+            scope: BranchScope::Remote,
+            work_item_id: None,
+            is_current: false,
+            is_protected: false,
+            is_stale,
+        }
+    }
+
+    fn worktree(identity: WorktreeIdentity, is_current: bool) -> WorktreeInfo {
+        let is_main = identity.is_main();
+        WorktreeInfo {
+            identity,
+            path: "/tmp/fixture".into(),
+            branch: Some("main".to_string()),
+            detached_short_sha: None,
+            is_main,
+            is_current,
+            cleanliness: WorktreeCleanliness::Clean,
+            lock_reason: None,
+            state: WorktreeState::Valid,
+            prunable: false,
+            submodules: WorktreeSubmodules::None,
+        }
+    }
+
+    // --- quit keys -----------------------------------------------------------
 
     #[test]
-    fn test_confirm_delete_derives_prune_from_current_branch_state() {
+    fn test_escape_clears_active_filter_before_quit() {
         let mut app = App::new(vec![remote_branch(false)], vec![]);
-        app.update(Msg::ToggleView);
-        app.enter_confirm_mode();
-        app.set_remote_freshness(HashSet::new());
+        app.apply_branch_filter("feature".to_string());
 
-        let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Enter));
+        let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Esc));
+
+        assert!(action.is_none());
+        assert!(app.branch_filter().is_empty());
+        assert!(!app.should_quit());
+    }
+
+    // --- normal mode ---------------------------------------------------------
+
+    #[test]
+    fn test_delete_shortcut_sets_status_when_branch_cannot_be_deleted() {
+        let mut app = App::new(
+            vec![BranchInfo {
+                key: "refs/heads/main".to_string(),
+                display_name: "main".to_string(),
+                branch_name: "main".to_string(),
+                remote_name: None,
+                scope: BranchScope::Local,
+                work_item_id: None,
+                is_current: true,
+                is_protected: true,
+                is_stale: false,
+            }],
+            vec![],
+        );
+
+        let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('d')));
+
+        assert!(action.is_none());
+        let status = app
+            .get_status_message()
+            .expect("delete failure should set a status");
+        assert!(status.is_error);
+        assert_eq!(status.text, "Cannot delete the current branch");
+    }
+
+    #[test]
+    fn test_immediate_delete_shortcut_prunes_stale_branch() {
+        let mut app = App::new(vec![remote_branch(true)], vec![]);
+        app.update(Msg::ToggleView);
+
+        let action = handle_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('D'), event::KeyModifiers::SHIFT),
+        );
 
         match action {
             Some(Command::Prune(branch)) => {
                 assert_eq!(branch.key, "refs/remotes/origin/feature/1")
             }
-            _ => panic!("expected prune action after branch became stale"),
+            _ => panic!("expected stale branch to trigger prune action"),
         }
     }
 
@@ -318,6 +394,8 @@ mod tests {
         assert!(app.is_editing_filter());
         assert_eq!(app.filter_input(), "feature old");
     }
+
+    // --- filter input --------------------------------------------------------
 
     #[test]
     fn test_filter_input_enter_applies_filter() {
@@ -399,18 +477,6 @@ mod tests {
     }
 
     #[test]
-    fn test_escape_clears_active_filter_before_quit() {
-        let mut app = App::new(vec![remote_branch(false)], vec![]);
-        app.apply_branch_filter("feature".to_string());
-
-        let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Esc));
-
-        assert!(action.is_none());
-        assert!(app.branch_filter().is_empty());
-        assert!(!app.should_quit());
-    }
-
-    #[test]
     fn test_filter_input_ignores_normal_shortcuts() {
         let mut app = App::new(vec![remote_branch(false)], vec![]);
         app.enter_filter_input();
@@ -423,50 +489,27 @@ mod tests {
         assert_eq!(app.filter_input(), "t");
     }
 
-    #[test]
-    fn test_delete_shortcut_sets_status_when_branch_cannot_be_deleted() {
-        let mut app = App::new(
-            vec![BranchInfo {
-                key: "refs/heads/main".to_string(),
-                display_name: "main".to_string(),
-                branch_name: "main".to_string(),
-                remote_name: None,
-                scope: BranchScope::Local,
-                work_item_id: None,
-                is_current: true,
-                is_protected: true,
-                is_stale: false,
-            }],
-            vec![],
-        );
-
-        let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('d')));
-
-        assert!(action.is_none());
-        let status = app
-            .get_status_message()
-            .expect("delete failure should set a status");
-        assert!(status.is_error);
-        assert_eq!(status.text, "Cannot delete the current branch");
-    }
+    // --- confirm delete ------------------------------------------------------
 
     #[test]
-    fn test_immediate_delete_shortcut_prunes_stale_branch() {
-        let mut app = App::new(vec![remote_branch(true)], vec![]);
+    fn test_confirm_delete_derives_prune_from_current_branch_state() {
+        let mut app = App::new(vec![remote_branch(false)], vec![]);
         app.update(Msg::ToggleView);
+        app.enter_confirm_mode();
+        app.set_remote_freshness(HashSet::new());
 
-        let action = handle_key_event(
-            &mut app,
-            KeyEvent::new(KeyCode::Char('D'), event::KeyModifiers::SHIFT),
-        );
+        let action = handle_key_event(&mut app, KeyEvent::from(KeyCode::Enter));
 
         match action {
             Some(Command::Prune(branch)) => {
                 assert_eq!(branch.key, "refs/remotes/origin/feature/1")
             }
-            _ => panic!("expected stale branch to trigger prune action"),
+            _ => panic!("expected prune action after branch became stale"),
         }
     }
+
+    // --- worktree view -------------------------------------------------------
+
     #[test]
     fn test_worktree_shortcuts_toggle_navigate_and_refresh() {
         let mut app = App::new(vec![remote_branch(false)], vec![]);
@@ -727,36 +770,5 @@ mod tests {
         assert!(handle_key_event(&mut app, KeyEvent::from(KeyCode::Char('q'))).is_none());
         assert!(app.should_quit());
         assert!(matches!(app.mode(), AppMode::RemovingWorktree { .. }));
-    }
-
-    fn worktree(identity: WorktreeIdentity, is_current: bool) -> WorktreeInfo {
-        let is_main = identity.is_main();
-        WorktreeInfo {
-            identity,
-            path: "/tmp/fixture".into(),
-            branch: Some("main".to_string()),
-            detached_short_sha: None,
-            is_main,
-            is_current,
-            cleanliness: WorktreeCleanliness::Clean,
-            lock_reason: None,
-            state: WorktreeState::Valid,
-            prunable: false,
-            submodules: WorktreeSubmodules::None,
-        }
-    }
-
-    fn remote_branch(is_stale: bool) -> BranchInfo {
-        BranchInfo {
-            key: "refs/remotes/origin/feature/1".to_string(),
-            display_name: "origin/feature/1".to_string(),
-            branch_name: "feature/1".to_string(),
-            remote_name: Some("origin".to_string()),
-            scope: BranchScope::Remote,
-            work_item_id: None,
-            is_current: false,
-            is_protected: false,
-            is_stale,
-        }
     }
 }
