@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 
-use crate::azure_devops::FieldFormat;
+use crate::azure_devops::{FieldFormat, RichTextField, WorkItem};
 use crate::tui::app::{App, DetailsMetrics, WorkItemStatus};
 use crate::tui::html_render::render_html;
 use crate::tui::markdown_render::render_markdown;
@@ -82,121 +82,36 @@ pub fn render_details(frame: &mut Frame, app: &App, area: Rect) -> DetailsMetric
 
 /// Render the work item details content
 fn render_work_item_details(frame: &mut Frame, app: &App, area: Rect, wi_id: u32) -> u16 {
-    let status = app.get_work_item_status(wi_id);
     let max_width = area.width.saturating_sub(4) as usize;
 
-    let content: Vec<Line> = match status {
-        WorkItemStatus::NotFetched | WorkItemStatus::Loading => {
-            vec![
-                Line::from(""),
-                Line::from(Span::styled(
-                    "  Loading work item...",
-                    theme::styles::WARNING,
-                )),
-            ]
-        }
+    let content: Vec<Line> = match app.get_work_item_status(wi_id) {
+        WorkItemStatus::NotFetched | WorkItemStatus::Loading => vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Loading work item...",
+                theme::styles::WARNING,
+            )),
+        ],
         WorkItemStatus::Error(err) => {
             let mut lines = vec![Line::from("")];
             append_wrapped_text(
                 &mut lines,
-                &format!("Error: {}", err),
+                &format!("Error: {err}"),
                 max_width,
                 Style::default().fg(Color::Red),
             );
             lines
         }
-        WorkItemStatus::Loaded(wi) => {
-            let type_icon = wi.work_item_type.icon();
-            let type_name = wi.work_item_type.display_name();
-            let state_icon = wi.state.icon();
-            let state_name = wi.state.display_name();
-            let state_color = wi.state.color();
-
-            // ID and Type
-            let mut lines = vec![
-                Line::from(""),
-                Line::from(vec![
-                    Span::styled("  ", Style::default()),
-                    Span::styled(
-                        format!("#{} ", wi.id),
-                        theme::styles::ACCENT.add_modifier(Modifier::BOLD),
-                    ),
-                    Span::raw(format!("{} {}", type_icon, type_name)),
-                ]),
-            ];
-
-            // Metadata line: State • Assigned To • Tags (directly under ID/Type)
-            let mut meta_spans = vec![
-                Span::styled("  ", Style::default()),
-                Span::styled(
-                    format!("{} {}", state_icon, state_name),
-                    Style::default().fg(state_color),
-                ),
-            ];
-
-            // Add assigned to if present
-            if let Some(ref assigned) = wi.assigned_to {
-                meta_spans.push(Span::styled("  •  ", theme::styles::MUTED));
-                meta_spans.push(Span::styled(assigned.clone(), theme::styles::TEXT));
-            }
-
-            // Add tags if present
-            if !wi.tags.is_empty() {
-                meta_spans.push(Span::styled("  •  ", theme::styles::MUTED));
-                meta_spans.push(Span::styled(
-                    wi.tags.join(", "),
-                    Style::default().fg(Color::Magenta),
-                ));
-            }
-
-            lines.push(Line::from(meta_spans));
-
-            // Blank line before title
-            lines.push(Line::from(""));
-
-            append_wrapped_text(
-                &mut lines,
-                &wi.title,
-                max_width,
-                theme::styles::TEXT
-                    .add_modifier(Modifier::BOLD)
-                    .add_modifier(Modifier::UNDERLINED),
-            );
-
-            // All rich text fields (Description, Acceptance Criteria, etc.)
-            for field in &wi.rich_text_fields {
-                lines.push(Line::from(""));
-                lines.push(Line::from(vec![Span::styled(
-                    format!("  {}:", field.name),
-                    theme::styles::MUTED,
-                )]));
-
-                let field_width = max_width.saturating_sub(4);
-                let rendered = match field.format {
-                    FieldFormat::Html => render_html(&field.value, field_width),
-                    FieldFormat::Markdown => render_markdown(&field.value, field_width),
-                };
-                for rendered_line in rendered {
-                    // Add indent to each line
-                    let mut indented_spans = vec![Span::raw("    ")];
-                    indented_spans.extend(rendered_line.spans);
-                    lines.push(Line::from(indented_spans));
-                }
-            }
-
-            lines
-        }
+        WorkItemStatus::Loaded(wi) => work_item_lines(wi, max_width),
     };
 
-    // Content height for scroll bounds (returned to the update loop).
+    // Returned to the update loop, which owns scroll bounds.
     let content_height = content.len() as u16;
 
-    // Apply scroll offset
-    let paragraph = Paragraph::new(content).scroll((app.scroll_offset(), 0));
-
-    frame.render_widget(paragraph, area);
-
-    // Render scrollbar
+    frame.render_widget(
+        Paragraph::new(content).scroll((app.scroll_offset(), 0)),
+        area,
+    );
     super::helpers::render_scrollbar(
         frame,
         area,
@@ -205,6 +120,98 @@ fn render_work_item_details(frame: &mut Frame, app: &App, area: Rect, wi_id: u32
     );
 
     content_height
+}
+
+/// The full body of a loaded work item: identity, metadata, title, then each
+/// rich text field in the order Azure DevOps returned it.
+fn work_item_lines(wi: &WorkItem, max_width: usize) -> Vec<Line<'static>> {
+    let mut lines = vec![
+        Line::from(""),
+        identity_line(wi),
+        metadata_line(wi),
+        Line::from(""),
+    ];
+
+    append_wrapped_text(
+        &mut lines,
+        &wi.title,
+        max_width,
+        theme::styles::TEXT
+            .add_modifier(Modifier::BOLD)
+            .add_modifier(Modifier::UNDERLINED),
+    );
+
+    for field in &wi.rich_text_fields {
+        lines.extend(rich_text_field_lines(field, max_width));
+    }
+
+    lines
+}
+
+/// `#1234 <icon> Bug`
+fn identity_line(wi: &WorkItem) -> Line<'static> {
+    Line::from(vec![
+        Span::raw("  "),
+        Span::styled(
+            format!("#{} ", wi.id),
+            theme::styles::ACCENT.add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(format!(
+            "{} {}",
+            wi.work_item_type.icon(),
+            wi.work_item_type.display_name()
+        )),
+    ])
+}
+
+/// `<icon> Active  •  Alice  •  tag-a, tag-b`, skipping the parts that are absent.
+fn metadata_line(wi: &WorkItem) -> Line<'static> {
+    let mut spans = vec![
+        Span::raw("  "),
+        Span::styled(
+            format!("{} {}", wi.state.icon(), wi.state.display_name()),
+            Style::default().fg(wi.state.color()),
+        ),
+    ];
+
+    if let Some(assigned) = &wi.assigned_to {
+        spans.push(Span::styled("  •  ", theme::styles::MUTED));
+        spans.push(Span::styled(assigned.clone(), theme::styles::TEXT));
+    }
+
+    if !wi.tags.is_empty() {
+        spans.push(Span::styled("  •  ", theme::styles::MUTED));
+        spans.push(Span::styled(
+            wi.tags.join(", "),
+            Style::default().fg(Color::Magenta),
+        ));
+    }
+
+    Line::from(spans)
+}
+
+/// A named field, blank-line separated and indented one level under its name.
+fn rich_text_field_lines(field: &RichTextField, max_width: usize) -> Vec<Line<'static>> {
+    let mut lines = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            format!("  {}:", field.name),
+            theme::styles::MUTED,
+        )),
+    ];
+
+    let field_width = max_width.saturating_sub(4);
+    let rendered = match field.format {
+        FieldFormat::Html => render_html(&field.value, field_width),
+        FieldFormat::Markdown => render_markdown(&field.value, field_width),
+    };
+    for rendered_line in rendered {
+        let mut spans = vec![Span::raw("    ")];
+        spans.extend(rendered_line.spans);
+        lines.push(Line::from(spans));
+    }
+
+    lines
 }
 
 #[cfg(test)]

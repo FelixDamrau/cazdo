@@ -181,37 +181,18 @@ impl HtmlParser {
             }
             "h1" | "h2" | "h3" => {
                 self.flush_line();
-                // Add blank line before header if we have content
+                // Separate a header from preceding content with a blank line.
                 if !self.lines.is_empty() && !self.last_was_blank {
                     self.lines.push(Line::from(vec![]));
                 }
-                self.flush_text();
-                self.current_style = self.compute_style();
-                self.style_stack.push(TextStyle::Bold);
-                self.current_style = self.compute_style();
+                self.push_style(TextStyle::Bold);
             }
 
             // Inline formatting
-            "b" | "strong" => {
-                self.flush_text();
-                self.style_stack.push(TextStyle::Bold);
-                self.current_style = self.compute_style();
-            }
-            "i" | "em" => {
-                self.flush_text();
-                self.style_stack.push(TextStyle::Italic);
-                self.current_style = self.compute_style();
-            }
-            "u" => {
-                self.flush_text();
-                self.style_stack.push(TextStyle::Underlined);
-                self.current_style = self.compute_style();
-            }
-            "s" | "strike" | "del" => {
-                self.flush_text();
-                self.style_stack.push(TextStyle::CrossedOut);
-                self.current_style = self.compute_style();
-            }
+            "b" | "strong" => self.push_style(TextStyle::Bold),
+            "i" | "em" => self.push_style(TextStyle::Italic),
+            "u" => self.push_style(TextStyle::Underlined),
+            "s" | "strike" | "del" => self.push_style(TextStyle::CrossedOut),
 
             // Links
             "a" => {
@@ -233,23 +214,9 @@ impl HtmlParser {
             }
             "li" => {
                 self.flush_line();
-
-                // Get list prefix
-                let prefix = if let Some(list_type) = self.list_stack.last_mut() {
-                    match list_type {
-                        ListType::Unordered => "• ".to_string(),
-                        ListType::Ordered(n) => {
-                            *n += 1;
-                            format!("{}. ", n)
-                        }
-                    }
-                } else {
-                    "• ".to_string()
-                };
-
-                // Add prefix with indent
+                let prefix = self.next_list_prefix();
                 self.current_spans.push(Span::raw(prefix));
-                self.current_line_width = 2; // Account for prefix width
+                self.current_line_width = 2; // width of the prefix
             }
 
             // Images
@@ -262,10 +229,7 @@ impl HtmlParser {
             }
 
             // Table handling (basic)
-            "table" | "tbody" => {
-                self.flush_line();
-            }
-            "tr" => {
+            "table" | "tbody" | "tr" => {
                 self.flush_line();
             }
             "td" | "th" if !self.current_text.is_empty() || !self.current_spans.is_empty() => {
@@ -295,33 +259,15 @@ impl HtmlParser {
                 self.flush_line();
             }
             "h1" | "h2" | "h3" => {
-                self.flush_text();
                 self.pop_style(TextStyle::Bold);
-                self.current_style = self.compute_style();
                 self.flush_line();
             }
 
             // Inline formatting
-            "b" | "strong" => {
-                self.flush_text();
-                self.pop_style(TextStyle::Bold);
-                self.current_style = self.compute_style();
-            }
-            "i" | "em" => {
-                self.flush_text();
-                self.pop_style(TextStyle::Italic);
-                self.current_style = self.compute_style();
-            }
-            "u" => {
-                self.flush_text();
-                self.pop_style(TextStyle::Underlined);
-                self.current_style = self.compute_style();
-            }
-            "s" | "strike" | "del" => {
-                self.flush_text();
-                self.pop_style(TextStyle::CrossedOut);
-                self.current_style = self.compute_style();
-            }
+            "b" | "strong" => self.pop_style(TextStyle::Bold),
+            "i" | "em" => self.pop_style(TextStyle::Italic),
+            "u" => self.pop_style(TextStyle::Underlined),
+            "s" | "strike" | "del" => self.pop_style(TextStyle::CrossedOut),
 
             // Links
             "a" => {
@@ -338,10 +284,7 @@ impl HtmlParser {
             }
 
             // Table
-            "tr" => {
-                self.flush_line();
-            }
-            "table" => {
+            "table" | "tr" => {
                 self.flush_line();
             }
 
@@ -438,13 +381,38 @@ impl HtmlParser {
         }
     }
 
-    fn pop_style(&mut self, text_style: TextStyle) {
+    /// Enter `style`. Text buffered so far is flushed first so it keeps the
+    /// style it was written under.
+    fn push_style(&mut self, style: TextStyle) {
+        self.flush_text();
+        self.style_stack.push(style);
+        self.current_style = self.compute_style();
+    }
+
+    /// Leave the innermost `style`. Removing by value rather than popping is
+    /// what makes mismatched markup (`<b><i></b></i>`) close the tag the author
+    /// named instead of whichever happened to be on top.
+    fn pop_style(&mut self, style: TextStyle) {
+        self.flush_text();
         if let Some(index) = self
             .style_stack
             .iter()
-            .rposition(|style| std::mem::discriminant(style) == std::mem::discriminant(&text_style))
+            .rposition(|active| std::mem::discriminant(active) == std::mem::discriminant(&style))
         {
             self.style_stack.remove(index);
+        }
+        self.current_style = self.compute_style();
+    }
+
+    /// The bullet or number introducing the next `<li>`, advancing the counter
+    /// of the innermost ordered list. A stray `<li>` gets a bullet.
+    fn next_list_prefix(&mut self) -> String {
+        match self.list_stack.last_mut() {
+            Some(ListType::Ordered(n)) => {
+                *n += 1;
+                format!("{n}. ")
+            }
+            Some(ListType::Unordered) | None => "• ".to_string(),
         }
     }
 }
