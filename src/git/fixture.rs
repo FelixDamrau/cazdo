@@ -2,7 +2,8 @@ use std::path::PathBuf;
 
 use anyhow::{Result, anyhow, bail};
 
-use super::repo::{BranchScope, BranchStatus, DeleteResult, GitBackend, RepoBranch};
+use super::branch::{BranchScope, BranchStatus, DeleteResult, RepoBranch};
+use super::repo::GitBackend;
 
 /// In-memory `GitRepo` backend for tests: returns preset checkout/delete/prune
 /// outcomes. Ops it isn't configured for (branch listing, status, freshness) are
