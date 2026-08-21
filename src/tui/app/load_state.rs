@@ -112,3 +112,147 @@ impl App {
         !matches!(self.branch_statuses.get(key), Some(Ok(_)))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::git::RemoteStatus;
+    use crate::tui::app::testing::{branch, create_test_branches};
+
+    // --- remote freshness ----------------------------------------------------
+
+    #[test]
+    fn test_remote_freshness_is_checking() {
+        let mut app = App::new(vec![], vec![]);
+
+        assert!(!app.remote_freshness_is_checking());
+
+        app.set_remote_freshness_checking();
+        assert!(app.remote_freshness_is_checking());
+
+        app.set_remote_freshness_error("timeout".to_string());
+        assert!(!app.remote_freshness_is_checking());
+    }
+
+    #[test]
+    fn test_remote_freshness_error() {
+        let mut app = App::new(vec![], vec![]);
+
+        assert_eq!(app.remote_freshness_error(), None);
+
+        app.set_remote_freshness_error("Network timeout".to_string());
+        assert_eq!(app.remote_freshness_error(), Some("Network timeout"));
+
+        app.set_remote_freshness(HashSet::new());
+        assert_eq!(app.remote_freshness_error(), None);
+    }
+
+    #[test]
+    fn test_set_remote_freshness_marks_missing_remote_branches_stale() {
+        let mut app = App::new(create_test_branches(), vec![]);
+        let live = HashSet::from(["feature/other".to_string()]);
+
+        app.set_remote_freshness(live);
+
+        let remote_branch = app
+            .branches
+            .iter()
+            .find(|branch| branch.scope == BranchScope::Remote)
+            .expect("remote branch exists");
+        assert!(remote_branch.is_stale);
+    }
+
+    #[test]
+    fn test_set_remote_freshness_keeps_live_branches_fresh() {
+        let mut app = App::new(create_test_branches(), vec![]);
+        // The remote branch in create_test_branches is feature/456
+        let live = HashSet::from(["feature/456".to_string()]);
+
+        app.set_remote_freshness(live);
+
+        let remote_branch = app
+            .branches
+            .iter()
+            .find(|branch| branch.scope == BranchScope::Remote)
+            .expect("remote branch exists");
+        assert!(!remote_branch.is_stale);
+    }
+
+    #[test]
+    fn test_remote_freshness_retries_after_reentering_remote_view() {
+        let branches = vec![branch(
+            "refs/remotes/origin/feature/1",
+            "origin/feature/1",
+            "feature/1",
+            BranchScope::Remote,
+            false,
+            false,
+            Some(1),
+        )];
+        let mut app = App::new(branches, vec![]);
+
+        app.toggle_view();
+        assert!(app.should_check_remote_freshness());
+
+        app.set_remote_freshness_error("timeout".to_string());
+        assert!(!app.should_check_remote_freshness());
+
+        app.toggle_view();
+        app.toggle_view();
+
+        assert!(app.should_check_remote_freshness());
+    }
+
+    #[test]
+    fn test_remote_freshness_does_not_reset_after_successful_reentry() {
+        let branches = vec![branch(
+            "refs/remotes/origin/feature/1",
+            "origin/feature/1",
+            "feature/1",
+            BranchScope::Remote,
+            false,
+            false,
+            Some(1),
+        )];
+        let mut app = App::new(branches, vec![]);
+
+        app.toggle_view();
+        app.set_remote_freshness(HashSet::from(["feature/1".to_string()]));
+
+        app.toggle_view();
+        app.toggle_view();
+
+        assert!(!app.should_check_remote_freshness());
+    }
+
+    // --- branch status retries -----------------------------------------------
+
+    #[test]
+    fn test_needs_branch_status_retries_after_cached_error() {
+        let mut app = App::new(vec![], vec![]);
+
+        assert!(app.needs_branch_status("refs/heads/feature/1"));
+
+        app.set_branch_status_error(
+            "refs/heads/feature/1".to_string(),
+            "temporary failure".to_string(),
+        );
+
+        assert!(app.needs_branch_status("refs/heads/feature/1"));
+    }
+
+    #[test]
+    fn test_needs_branch_status_stops_retrying_after_success() {
+        let mut app = App::new(vec![], vec![]);
+        app.set_branch_status(
+            "refs/heads/feature/1".to_string(),
+            BranchStatus {
+                remote_status: RemoteStatus::UpToDate,
+                last_commit_author: None,
+                last_commit_time: None,
+            },
+        );
+
+        assert!(!app.needs_branch_status("refs/heads/feature/1"));
+    }
+}

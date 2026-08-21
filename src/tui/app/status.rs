@@ -76,3 +76,47 @@ impl App {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tui::app::testing::branch;
+
+    // --- enter_confirm_mode --------------------------------------------------
+
+    #[test]
+    fn test_enter_confirm_mode_delete() {
+        let branches = vec![branch(
+            "refs/heads/feature/1",
+            "feature/1",
+            "feature/1",
+            BranchScope::Local,
+            false,
+            false,
+            None,
+        )];
+        let mut app = App::new(branches, vec![]);
+        app.enter_confirm_mode();
+        assert!(matches!(app.mode, AppMode::ConfirmDelete { .. }));
+        assert!(!app.confirm_delete_is_prune());
+    }
+
+    #[test]
+    fn test_enter_confirm_mode_prune() {
+        let mut stale = branch(
+            "refs/remotes/origin/gone",
+            "origin/gone",
+            "gone",
+            BranchScope::Remote,
+            false,
+            false,
+            None,
+        );
+        stale.is_stale = true;
+        let mut app = App::new(vec![stale], vec![]);
+        app.active_view = BranchView::Remote;
+        app.enter_confirm_mode();
+        assert!(matches!(app.mode, AppMode::ConfirmDelete { .. }));
+        assert!(app.confirm_delete_is_prune());
+    }
+}

@@ -8,6 +8,8 @@ mod filtering;
 mod load_state;
 mod selection;
 mod status;
+#[cfg(test)]
+mod testing;
 mod worktrees;
 
 use branch_filter::BranchFilter;
@@ -452,61 +454,9 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::RemoteStatus;
+    use testing::{branch, create_test_branches};
 
-    fn branch(
-        key: &str,
-        display_name: &str,
-        branch_name: &str,
-        scope: BranchScope,
-        is_current: bool,
-        is_protected: bool,
-        work_item_id: Option<u32>,
-    ) -> BranchInfo {
-        BranchInfo {
-            key: key.to_string(),
-            display_name: display_name.to_string(),
-            branch_name: branch_name.to_string(),
-            remote_name: (scope == BranchScope::Remote).then(|| "origin".to_string()),
-            scope,
-            work_item_id,
-            is_current,
-            is_protected,
-            is_stale: false,
-        }
-    }
-
-    fn create_test_branches() -> Vec<BranchInfo> {
-        vec![
-            branch(
-                "refs/heads/main",
-                "main",
-                "main",
-                BranchScope::Local,
-                true,
-                true,
-                None,
-            ),
-            branch(
-                "refs/heads/feature/123",
-                "feature/123",
-                "feature/123",
-                BranchScope::Local,
-                false,
-                false,
-                Some(123),
-            ),
-            branch(
-                "refs/remotes/origin/feature/456",
-                "origin/feature/456",
-                "feature/456",
-                BranchScope::Remote,
-                false,
-                false,
-                Some(456),
-            ),
-        ]
-    }
+    // --- update dispatch -----------------------------------------------------
 
     #[test]
     fn test_update_handles_quit_action() {
@@ -593,30 +543,22 @@ mod tests {
     }
 
     #[test]
-    fn test_navigation_wraps() {
-        let branches = create_test_branches();
-        let mut app = App::new(branches, vec!["main".to_string(), "master".to_string()]);
+    fn test_update_sets_details_metrics() {
+        let mut app = App::new(create_test_branches(), vec![]);
 
-        assert_eq!(app.selected_index(), 0);
+        app.update(Msg::SetDetailsMetrics(DetailsMetrics {
+            content_height: 50,
+            visible_height: 20,
+        }));
+        assert_eq!(app.content_height, 50);
+        assert_eq!(app.visible_height, 20);
 
-        app.previous();
-        assert_eq!(app.selected_index(), 1);
-
-        app.next();
-        assert_eq!(app.selected_index(), 0);
+        // Heights set through the update loop drive scroll clamping.
+        app.update(Msg::ScrollDown(100));
+        assert_eq!(app.scroll_offset, 30);
     }
 
-    #[test]
-    fn test_navigation_movement() {
-        let branches = create_test_branches();
-        let mut app = App::new(branches, vec![]);
-
-        app.next();
-        assert_eq!(app.selected_index(), 1);
-
-        app.previous();
-        assert_eq!(app.selected_index(), 0);
-    }
+    // --- scroll bounds -------------------------------------------------------
 
     #[test]
     fn test_scroll_bounds() {
@@ -651,636 +593,7 @@ mod tests {
         assert_eq!(app.scroll_offset, 0);
     }
 
-    #[test]
-    fn test_update_sets_details_metrics() {
-        let mut app = App::new(create_test_branches(), vec![]);
-
-        app.update(Msg::SetDetailsMetrics(DetailsMetrics {
-            content_height: 50,
-            visible_height: 20,
-        }));
-        assert_eq!(app.content_height, 50);
-        assert_eq!(app.visible_height, 20);
-
-        // Heights set through the update loop drive scroll clamping.
-        app.update(Msg::ScrollDown(100));
-        assert_eq!(app.scroll_offset, 30);
-    }
-
-    #[test]
-    fn test_visible_branches_filters_protected_in_active_view() {
-        let branches = create_test_branches();
-        let mut app = App::new(branches, vec![]);
-
-        assert_eq!(app.visible_count(), 2);
-
-        app.branches[0].is_current = false;
-        assert_eq!(app.visible_count(), 1);
-
-        app.toggle_show_protected();
-        assert_eq!(app.visible_count(), 2);
-    }
-
-    #[test]
-    fn test_toggle_view_keeps_separate_selection() {
-        let branches = vec![
-            branch(
-                "refs/heads/main",
-                "main",
-                "main",
-                BranchScope::Local,
-                false,
-                true,
-                None,
-            ),
-            branch(
-                "refs/heads/feature/1",
-                "feature/1",
-                "feature/1",
-                BranchScope::Local,
-                true,
-                false,
-                Some(1),
-            ),
-            branch(
-                "refs/heads/feature/4",
-                "feature/4",
-                "feature/4",
-                BranchScope::Local,
-                false,
-                false,
-                Some(4),
-            ),
-            branch(
-                "refs/remotes/origin/feature/2",
-                "origin/feature/2",
-                "feature/2",
-                BranchScope::Remote,
-                false,
-                false,
-                Some(2),
-            ),
-            branch(
-                "refs/remotes/origin/feature/3",
-                "origin/feature/3",
-                "feature/3",
-                BranchScope::Remote,
-                false,
-                false,
-                Some(3),
-            ),
-        ];
-        let mut app = App::new(branches, vec![]);
-
-        app.local_selected_index = 1;
-        app.toggle_view();
-        assert_eq!(app.active_view, BranchView::Remote);
-        assert_eq!(app.selected_index(), 0);
-
-        app.next();
-        assert_eq!(app.selected_index(), 1);
-
-        app.toggle_view();
-        assert_eq!(app.active_view, BranchView::Local);
-        assert_eq!(app.selected_index(), 1);
-    }
-
-    #[test]
-    fn test_visible_branches_applies_case_insensitive_token_filter() {
-        let branches = vec![
-            branch(
-                "refs/heads/feature/123-login",
-                "feature/123-login",
-                "feature/123-login",
-                BranchScope::Local,
-                false,
-                false,
-                Some(123),
-            ),
-            branch(
-                "refs/heads/bugfix/login",
-                "bugfix/login",
-                "bugfix/login",
-                BranchScope::Local,
-                false,
-                false,
-                None,
-            ),
-            branch(
-                "refs/heads/feature/reports",
-                "feature/reports",
-                "feature/reports",
-                BranchScope::Local,
-                false,
-                false,
-                None,
-            ),
-        ];
-        let mut app = App::new(branches, vec![]);
-
-        app.apply_branch_filter("FEATURE login".to_string());
-
-        let visible = app.visible_branches();
-        assert_eq!(visible.len(), 1);
-        assert_eq!(visible[0].branch_name, "feature/123-login");
-    }
-
-    #[test]
-    fn test_branch_filter_ignores_extra_whitespace() {
-        let branches = vec![
-            branch(
-                "refs/heads/feature/123-login",
-                "feature/123-login",
-                "feature/123-login",
-                BranchScope::Local,
-                false,
-                false,
-                Some(123),
-            ),
-            branch(
-                "refs/heads/feature/reports",
-                "feature/reports",
-                "feature/reports",
-                BranchScope::Local,
-                false,
-                false,
-                None,
-            ),
-        ];
-        let mut app = App::new(branches, vec![]);
-
-        app.apply_branch_filter("  feature   login  ".to_string());
-
-        let visible = app.visible_branches();
-        assert_eq!(visible.len(), 1);
-        assert_eq!(visible[0].branch_name, "feature/123-login");
-    }
-
-    #[test]
-    fn test_apply_branch_filter_preserves_selected_branch_when_still_visible() {
-        let branches = vec![
-            branch(
-                "refs/heads/feature/alpha-login",
-                "feature/alpha-login",
-                "feature/alpha-login",
-                BranchScope::Local,
-                false,
-                false,
-                None,
-            ),
-            branch(
-                "refs/heads/feature/beta-login",
-                "feature/beta-login",
-                "feature/beta-login",
-                BranchScope::Local,
-                false,
-                false,
-                None,
-            ),
-            branch(
-                "refs/heads/chore/docs",
-                "chore/docs",
-                "chore/docs",
-                BranchScope::Local,
-                false,
-                false,
-                None,
-            ),
-        ];
-        let mut app = App::new(branches, vec![]);
-        app.local_selected_index = 1;
-
-        app.apply_branch_filter("login".to_string());
-
-        assert_eq!(app.selected_index(), 1);
-        assert_eq!(
-            app.selected_branch().unwrap().branch_name,
-            "feature/beta-login"
-        );
-    }
-
-    #[test]
-    fn test_update_start_filter_enters_filter_input_with_active_filter() {
-        let mut app = App::new(
-            vec![branch(
-                "refs/heads/feature/login",
-                "feature/login",
-                "feature/login",
-                BranchScope::Local,
-                false,
-                false,
-                None,
-            )],
-            vec![],
-        );
-        app.apply_branch_filter("feature".to_string());
-
-        app.update(Msg::StartFilter);
-
-        assert!(app.is_editing_filter());
-        assert_eq!(app.filter_input(), "feature");
-    }
-
-    #[test]
-    fn test_update_set_filter_input_keeps_applied_filter_separate() {
-        let mut app = App::new(
-            vec![
-                branch(
-                    "refs/heads/feature/login",
-                    "feature/login",
-                    "feature/login",
-                    BranchScope::Local,
-                    false,
-                    false,
-                    None,
-                ),
-                branch(
-                    "refs/heads/chore/docs",
-                    "chore/docs",
-                    "chore/docs",
-                    BranchScope::Local,
-                    false,
-                    false,
-                    None,
-                ),
-            ],
-            vec![],
-        );
-        app.apply_branch_filter("feature".to_string());
-        app.update(Msg::StartFilter);
-
-        app.update(Msg::SetFilterInput("docs".to_string()));
-
-        assert_eq!(app.branch_filter(), "feature");
-        assert_eq!(app.filter_input(), "docs");
-        assert_eq!(app.visible_branches()[0].branch_name, "chore/docs");
-    }
-
-    #[test]
-    fn test_update_apply_filter_applies_draft_and_exits_filter_input() {
-        let mut app = App::new(vec![create_test_branches()[1].clone()], vec![]);
-        app.update(Msg::StartFilter);
-        app.update(Msg::SetFilterInput("feature login".to_string()));
-
-        app.update(Msg::ApplyFilter);
-
-        assert!(!app.is_editing_filter());
-        assert_eq!(app.branch_filter(), "feature login");
-        assert_eq!(app.effective_branch_filter(), "feature login");
-    }
-
-    #[test]
-    fn test_update_clear_filter_clears_applied_filter_and_resets_scroll() {
-        let mut app = App::new(vec![create_test_branches()[1].clone()], vec![]);
-        app.apply_branch_filter("feature".to_string());
-        app.scroll_offset = 3;
-
-        app.update(Msg::ClearFilter);
-
-        assert!(app.branch_filter().is_empty());
-        assert_eq!(app.scroll_offset, 0);
-    }
-
-    #[test]
-    fn test_update_cancel_filter_discards_draft_without_changing_applied_filter() {
-        let mut app = App::new(vec![create_test_branches()[1].clone()], vec![]);
-        app.apply_branch_filter("feature".to_string());
-        app.update(Msg::StartFilter);
-        app.update(Msg::SetFilterInput("docs".to_string()));
-
-        app.update(Msg::CancelFilter);
-
-        assert!(!app.is_editing_filter());
-        assert_eq!(app.branch_filter(), "feature");
-        assert_eq!(app.effective_branch_filter(), "feature");
-    }
-
-    #[test]
-    fn test_apply_branch_filter_clamps_selection_when_selected_branch_hidden() {
-        let branches = vec![
-            branch(
-                "refs/heads/feature/alpha-login",
-                "feature/alpha-login",
-                "feature/alpha-login",
-                BranchScope::Local,
-                false,
-                false,
-                None,
-            ),
-            branch(
-                "refs/heads/chore/docs",
-                "chore/docs",
-                "chore/docs",
-                BranchScope::Local,
-                false,
-                false,
-                None,
-            ),
-            branch(
-                "refs/heads/feature/beta-login",
-                "feature/beta-login",
-                "feature/beta-login",
-                BranchScope::Local,
-                false,
-                false,
-                None,
-            ),
-        ];
-        let mut app = App::new(branches, vec![]);
-        app.local_selected_index = 1;
-
-        app.apply_branch_filter("login".to_string());
-
-        assert_eq!(app.selected_index(), 0);
-        assert_eq!(
-            app.selected_branch().unwrap().branch_name,
-            "feature/alpha-login"
-        );
-    }
-
-    #[test]
-    fn test_apply_filter_input_preserves_selected_branch_from_filtered_preview() {
-        let branches = vec![
-            branch(
-                "refs/heads/a",
-                "a",
-                "a",
-                BranchScope::Local,
-                false,
-                false,
-                None,
-            ),
-            branch(
-                "refs/heads/feature/1",
-                "feature/1",
-                "feature/1",
-                BranchScope::Local,
-                false,
-                false,
-                None,
-            ),
-            branch(
-                "refs/heads/feature/2",
-                "feature/2",
-                "feature/2",
-                BranchScope::Local,
-                false,
-                false,
-                None,
-            ),
-        ];
-        let mut app = App::new(branches, vec![]);
-        app.local_selected_index = 2;
-
-        app.enter_filter_input();
-        app.update_filter_input("feature".to_string());
-        app.apply_filter_input();
-
-        assert_eq!(app.selected_index(), 1);
-        assert_eq!(app.selected_branch().unwrap().branch_name, "feature/2");
-    }
-
-    #[test]
-    fn test_toggle_view_keeps_shared_branch_filter() {
-        let branches = vec![
-            branch(
-                "refs/heads/feature/login",
-                "feature/login",
-                "feature/login",
-                BranchScope::Local,
-                false,
-                false,
-                None,
-            ),
-            branch(
-                "refs/heads/feature/reports",
-                "feature/reports",
-                "feature/reports",
-                BranchScope::Local,
-                false,
-                false,
-                None,
-            ),
-            branch(
-                "refs/remotes/origin/feature/login",
-                "origin/feature/login",
-                "feature/login",
-                BranchScope::Remote,
-                false,
-                false,
-                None,
-            ),
-            branch(
-                "refs/remotes/origin/feature/reports",
-                "origin/feature/reports",
-                "feature/reports",
-                BranchScope::Remote,
-                false,
-                false,
-                None,
-            ),
-        ];
-        let mut app = App::new(branches, vec![]);
-
-        app.apply_branch_filter("login".to_string());
-        assert_eq!(app.visible_count(), 1);
-
-        app.toggle_view();
-
-        let visible = app.visible_branches();
-        assert_eq!(visible.len(), 1);
-        assert_eq!(visible[0].branch_name, "feature/login");
-        assert_eq!(app.branch_filter(), "login");
-    }
-
-    #[test]
-    fn test_remove_branch_clamps_to_visible_count() {
-        let branches = vec![
-            branch(
-                "refs/heads/main",
-                "main",
-                "main",
-                BranchScope::Local,
-                false,
-                true,
-                None,
-            ),
-            branch(
-                "refs/heads/feature/1",
-                "feature/1",
-                "feature/1",
-                BranchScope::Local,
-                true,
-                false,
-                Some(1),
-            ),
-            branch(
-                "refs/heads/feature/2",
-                "feature/2",
-                "feature/2",
-                BranchScope::Local,
-                false,
-                false,
-                Some(2),
-            ),
-        ];
-        let mut app = App::new(branches, vec![]);
-
-        app.local_selected_index = 1;
-        app.remove_branch("refs/heads/feature/2");
-
-        assert_eq!(app.visible_count(), 1);
-        assert_eq!(app.selected_index(), 0);
-    }
-
-    #[test]
-    fn test_set_remote_freshness_marks_missing_remote_branches_stale() {
-        let mut app = App::new(create_test_branches(), vec![]);
-        let live = HashSet::from(["feature/other".to_string()]);
-
-        app.set_remote_freshness(live);
-
-        let remote_branch = app
-            .branches
-            .iter()
-            .find(|branch| branch.scope == BranchScope::Remote)
-            .expect("remote branch exists");
-        assert!(remote_branch.is_stale);
-    }
-
-    #[test]
-    fn test_visible_branches_hides_protected_remotes_by_default() {
-        let branches = vec![
-            branch(
-                "refs/remotes/origin/main",
-                "origin/main",
-                "main",
-                BranchScope::Remote,
-                false,
-                true,
-                None,
-            ),
-            branch(
-                "refs/remotes/origin/feature/1",
-                "origin/feature/1",
-                "feature/1",
-                BranchScope::Remote,
-                false,
-                false,
-                Some(1),
-            ),
-        ];
-        let mut app = App::new(branches, vec![]);
-        app.active_view = BranchView::Remote;
-
-        // protected remote is hidden by default since it's not current
-        assert_eq!(app.visible_count(), 1);
-
-        app.toggle_show_protected();
-        assert_eq!(app.visible_count(), 2);
-    }
-
-    #[test]
-    fn test_has_hidden_branches_in_active_view_tracks_filtered_protected_branches() {
-        let branches = vec![branch(
-            "refs/remotes/origin/main",
-            "origin/main",
-            "main",
-            BranchScope::Remote,
-            false,
-            true,
-            None,
-        )];
-        let mut app = App::new(branches, vec![]);
-        app.active_view = BranchView::Remote;
-
-        assert!(app.has_hidden_branches_in_active_view());
-
-        app.toggle_show_protected();
-        assert!(!app.has_hidden_branches_in_active_view());
-    }
-
-    #[test]
-    fn test_update_current_branch_ignores_remotes() {
-        let branches = vec![
-            branch(
-                "refs/heads/feature/1",
-                "feature/1",
-                "feature/1",
-                BranchScope::Local,
-                false,
-                false,
-                Some(1),
-            ),
-            branch(
-                "refs/remotes/origin/feature/1",
-                "origin/feature/1",
-                "feature/1",
-                BranchScope::Remote,
-                false,
-                false,
-                Some(1),
-            ),
-        ];
-        let mut app = App::new(branches, vec![]);
-        app.update(Msg::SetCurrentBranch("feature/1".to_string()));
-
-        let local = app
-            .branches
-            .iter()
-            .find(|b| b.scope == BranchScope::Local)
-            .unwrap();
-        let remote = app
-            .branches
-            .iter()
-            .find(|b| b.scope == BranchScope::Remote)
-            .unwrap();
-
-        assert!(local.is_current);
-        assert!(!remote.is_current);
-    }
-
-    #[test]
-    fn test_set_remote_freshness_keeps_live_branches_fresh() {
-        let mut app = App::new(create_test_branches(), vec![]);
-        // The remote branch in create_test_branches is feature/456
-        let live = HashSet::from(["feature/456".to_string()]);
-
-        app.set_remote_freshness(live);
-
-        let remote_branch = app
-            .branches
-            .iter()
-            .find(|branch| branch.scope == BranchScope::Remote)
-            .expect("remote branch exists");
-        assert!(!remote_branch.is_stale);
-    }
-
-    #[test]
-    fn test_remote_freshness_is_checking() {
-        let mut app = App::new(vec![], vec![]);
-
-        assert!(!app.remote_freshness_is_checking());
-
-        app.set_remote_freshness_checking();
-        assert!(app.remote_freshness_is_checking());
-
-        app.set_remote_freshness_error("timeout".to_string());
-        assert!(!app.remote_freshness_is_checking());
-    }
-
-    #[test]
-    fn test_remote_freshness_error() {
-        let mut app = App::new(vec![], vec![]);
-
-        assert_eq!(app.remote_freshness_error(), None);
-
-        app.set_remote_freshness_error("Network timeout".to_string());
-        assert_eq!(app.remote_freshness_error(), Some("Network timeout"));
-
-        app.set_remote_freshness(HashSet::new());
-        assert_eq!(app.remote_freshness_error(), None);
-    }
+    // --- ensure_local_branch_exists ------------------------------------------
 
     #[test]
     fn test_ensure_local_branch_exists() {
@@ -1372,6 +685,48 @@ mod tests {
         assert_eq!(local_names, vec!["feature/1", "feature/3", "feature/4"]);
     }
 
+    // --- update_current_branch -----------------------------------------------
+
+    #[test]
+    fn test_update_current_branch_ignores_remotes() {
+        let branches = vec![
+            branch(
+                "refs/heads/feature/1",
+                "feature/1",
+                "feature/1",
+                BranchScope::Local,
+                false,
+                false,
+                Some(1),
+            ),
+            branch(
+                "refs/remotes/origin/feature/1",
+                "origin/feature/1",
+                "feature/1",
+                BranchScope::Remote,
+                false,
+                false,
+                Some(1),
+            ),
+        ];
+        let mut app = App::new(branches, vec![]);
+        app.update(Msg::SetCurrentBranch("feature/1".to_string()));
+
+        let local = app
+            .branches
+            .iter()
+            .find(|b| b.scope == BranchScope::Local)
+            .unwrap();
+        let remote = app
+            .branches
+            .iter()
+            .find(|b| b.scope == BranchScope::Remote)
+            .unwrap();
+
+        assert!(local.is_current);
+        assert!(!remote.is_current);
+    }
+
     #[test]
     fn test_update_current_branch_resorts_local_branches_with_current_first() {
         let branches = vec![
@@ -1419,117 +774,7 @@ mod tests {
         assert_eq!(local_names, vec!["feature/3", "feature/1", "feature/4"]);
     }
 
-    #[test]
-    fn test_enter_confirm_mode_delete() {
-        let branches = vec![branch(
-            "refs/heads/feature/1",
-            "feature/1",
-            "feature/1",
-            BranchScope::Local,
-            false,
-            false,
-            None,
-        )];
-        let mut app = App::new(branches, vec![]);
-        app.enter_confirm_mode();
-        assert!(matches!(app.mode, AppMode::ConfirmDelete { .. }));
-        assert!(!app.confirm_delete_is_prune());
-    }
-
-    #[test]
-    fn test_enter_confirm_mode_prune() {
-        let mut stale = branch(
-            "refs/remotes/origin/gone",
-            "origin/gone",
-            "gone",
-            BranchScope::Remote,
-            false,
-            false,
-            None,
-        );
-        stale.is_stale = true;
-        let mut app = App::new(vec![stale], vec![]);
-        app.active_view = BranchView::Remote;
-        app.enter_confirm_mode();
-        assert!(matches!(app.mode, AppMode::ConfirmDelete { .. }));
-        assert!(app.confirm_delete_is_prune());
-    }
-
-    #[test]
-    fn test_remote_freshness_retries_after_reentering_remote_view() {
-        let branches = vec![branch(
-            "refs/remotes/origin/feature/1",
-            "origin/feature/1",
-            "feature/1",
-            BranchScope::Remote,
-            false,
-            false,
-            Some(1),
-        )];
-        let mut app = App::new(branches, vec![]);
-
-        app.toggle_view();
-        assert!(app.should_check_remote_freshness());
-
-        app.set_remote_freshness_error("timeout".to_string());
-        assert!(!app.should_check_remote_freshness());
-
-        app.toggle_view();
-        app.toggle_view();
-
-        assert!(app.should_check_remote_freshness());
-    }
-
-    #[test]
-    fn test_remote_freshness_does_not_reset_after_successful_reentry() {
-        let branches = vec![branch(
-            "refs/remotes/origin/feature/1",
-            "origin/feature/1",
-            "feature/1",
-            BranchScope::Remote,
-            false,
-            false,
-            Some(1),
-        )];
-        let mut app = App::new(branches, vec![]);
-
-        app.toggle_view();
-        app.set_remote_freshness(HashSet::from(["feature/1".to_string()]));
-
-        app.toggle_view();
-        app.toggle_view();
-
-        assert!(!app.should_check_remote_freshness());
-    }
-
-    #[test]
-    fn test_needs_branch_status_retries_after_cached_error() {
-        let mut app = App::new(vec![], vec![]);
-
-        assert!(app.needs_branch_status("refs/heads/feature/1"));
-
-        app.set_branch_status_error(
-            "refs/heads/feature/1".to_string(),
-            "temporary failure".to_string(),
-        );
-
-        assert!(app.needs_branch_status("refs/heads/feature/1"));
-    }
-
-    #[test]
-    fn test_needs_branch_status_stops_retrying_after_success() {
-        let mut app = App::new(vec![], vec![]);
-        app.set_branch_status(
-            "refs/heads/feature/1".to_string(),
-            BranchStatus {
-                remote_status: RemoteStatus::UpToDate,
-                last_commit_author: None,
-                last_commit_time: None,
-            },
-        );
-
-        assert!(!app.needs_branch_status("refs/heads/feature/1"));
-    }
+    // --- branch-list mutations -----------------------------------------------
 
     #[test]
     fn test_branch_deleted_msg_removes_branch_and_records_history() {
@@ -1611,41 +856,5 @@ mod tests {
 
         assert!(app.branch_by_key("refs/remotes/origin/feature/1").is_none());
         assert!(app.deleted_branches.is_empty());
-    }
-
-    #[test]
-    fn test_remove_branch_keeps_selection_on_previous_visible_branch() {
-        let mut app = App::new(
-            vec![
-                branch(
-                    "refs/heads/feature/1",
-                    "feature/1",
-                    "feature/1",
-                    BranchScope::Local,
-                    false,
-                    false,
-                    None,
-                ),
-                branch(
-                    "refs/heads/feature/2",
-                    "feature/2",
-                    "feature/2",
-                    BranchScope::Local,
-                    false,
-                    false,
-                    None,
-                ),
-            ],
-            vec![],
-        );
-        app.set_selected_index_for_test(1);
-
-        app.remove_branch("refs/heads/feature/2");
-
-        assert_eq!(app.selected_index(), 0);
-        assert_eq!(
-            app.selected_branch().expect("remaining branch").branch_name,
-            "feature/1"
-        );
     }
 }
