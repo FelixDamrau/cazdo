@@ -420,6 +420,8 @@ mod tests {
         style::Color,
     };
 
+    // --- harness -------------------------------------------------------------
+
     fn rendered_text(app: &App) -> String {
         let mut terminal = Terminal::new(TestBackend::new(100, 30)).expect("terminal");
         terminal
@@ -434,6 +436,20 @@ mod tests {
             .iter()
             .map(|cell| cell.symbol())
             .collect()
+    }
+
+    /// The cell where `needle` starts, searching the rendered buffer row by row.
+    fn cell_at<'a>(buffer: &'a Buffer, needle: &str) -> &'a Cell {
+        let width = buffer.area.width as usize;
+        for cells in buffer.content().chunks(width) {
+            let symbols: Vec<&str> = cells.iter().map(|cell| cell.symbol()).collect();
+            if let Some(column) =
+                (0..symbols.len()).find(|start| symbols[*start..].concat().starts_with(needle))
+            {
+                return &cells[column];
+            }
+        }
+        panic!("{needle:?} was not rendered");
     }
 
     fn field_span_style(lines: &[Line<'_>], label: &str, span: usize) -> Style {
@@ -453,19 +469,7 @@ mod tests {
         field_span_style(lines, label, 1)
     }
 
-    /// The cell where `needle` starts, searching the rendered buffer row by row.
-    fn cell_at<'a>(buffer: &'a Buffer, needle: &str) -> &'a Cell {
-        let width = buffer.area.width as usize;
-        for cells in buffer.content().chunks(width) {
-            let symbols: Vec<&str> = cells.iter().map(|cell| cell.symbol()).collect();
-            if let Some(column) =
-                (0..symbols.len()).find(|start| symbols[*start..].concat().starts_with(needle))
-            {
-                return &cells[column];
-            }
-        }
-        panic!("{needle:?} was not rendered");
-    }
+    // --- render_worktrees ----------------------------------------------------
 
     #[test]
     fn renders_loading_state_for_empty_inventory() {
@@ -476,6 +480,165 @@ mod tests {
 
         assert!(text.contains("Loading worktree inventory…"));
         assert!(!text.contains("No worktree inventory loaded"));
+    }
+
+    #[test]
+    fn inventory_rows_show_markers_path_head_and_status() {
+        let mut app = App::new(vec![], vec![]);
+        app.update(Msg::SetWorktrees(vec![
+            WorktreeInfo {
+                identity: WorktreeIdentity::Main,
+                path: "/repo".into(),
+                branch: Some("main".to_string()),
+                detached_short_sha: None,
+                is_main: true,
+                is_current: true,
+                cleanliness: WorktreeCleanliness::Clean,
+                lock_reason: None,
+                state: WorktreeState::Valid,
+                prunable: false,
+                submodules: WorktreeSubmodules::None,
+            },
+            WorktreeInfo {
+                identity: WorktreeIdentity::Linked {
+                    name: "missing-tree".to_string(),
+                },
+                path: "/tmp/missing tree/雪".into(),
+                branch: None,
+                detached_short_sha: Some("1234567".to_string()),
+                is_main: false,
+                is_current: false,
+                cleanliness: WorktreeCleanliness::Unknown("path missing".to_string()),
+                lock_reason: Some("owned by editor".to_string()),
+                state: WorktreeState::Missing,
+                prunable: true,
+                submodules: WorktreeSubmodules::Unknown("path missing".to_string()),
+            },
+        ]));
+        let mut terminal = Terminal::new(TestBackend::new(80, 14)).expect("terminal");
+
+        terminal
+            .draw(|frame| render_worktrees(frame, &app, frame.area()))
+            .expect("draw");
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+
+        assert!(text.contains("* main"));
+        assert!(text.contains("HEAD: main"));
+        assert!(text.contains("Path: /repo"));
+        assert!(text.contains("missing-tree"));
+        assert!(text.contains("HEAD: detached 1234567"));
+        assert!(text.contains("Path: /tmp/missing tree/雪"));
+        assert!(text.contains("Lock: owned by editor"));
+        assert!(text.contains("Prunable: yes"));
+        assert!(text.contains("Status: valid / clean"));
+        assert!(text.contains("Status: missing / unknown"));
+    }
+
+    #[test]
+    fn inventory_rows_show_compact_status_labels_and_colors() {
+        let entry = WorktreeInfo {
+            identity: WorktreeIdentity::Linked {
+                name: "a-very-long-worktree-name-that-would-hide-state".to_string(),
+            },
+            path: "/tmp/a-very-long-worktree-name-that-would-hide-state".into(),
+            branch: Some("feature/long".to_string()),
+            detached_short_sha: None,
+            is_main: false,
+            is_current: false,
+            cleanliness: WorktreeCleanliness::Clean,
+            lock_reason: None,
+            state: WorktreeState::Unknown("metadata unavailable".to_string()),
+            prunable: false,
+            submodules: WorktreeSubmodules::None,
+        };
+
+        assert_eq!(list_name_style(&entry), theme::styles::ERROR);
+
+        let mut app = App::new(vec![], vec![]);
+        app.update(Msg::SetWorktrees(vec![entry]));
+        let mut terminal = Terminal::new(TestBackend::new(42, 6)).expect("terminal");
+        terminal
+            .draw(|frame| render_worktrees(frame, &app, frame.area()))
+            .expect("draw");
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+
+        assert!(text.contains("a-very-long-worktree-name"));
+        assert!(text.contains("Status: unknown / clean"));
+
+        let path_row = terminal
+            .backend()
+            .buffer()
+            .content()
+            .chunks(42)
+            .nth(3)
+            .expect("path row");
+        let path_content: String = path_row[1..41].iter().map(|cell| cell.symbol()).collect();
+        assert!(
+            path_content.trim_end().ends_with('…'),
+            "path row should retain its truncation marker: {path_content:?}"
+        );
+    }
+
+    #[test]
+    fn multi_line_inventory_items_show_scrollbar() {
+        let mut app = App::new(vec![], vec![]);
+        app.update(Msg::SetWorktrees(vec![
+            WorktreeInfo {
+                identity: WorktreeIdentity::Main,
+                path: "/repo".into(),
+                branch: Some("main".to_string()),
+                detached_short_sha: None,
+                is_main: true,
+                is_current: true,
+                cleanliness: WorktreeCleanliness::Clean,
+                lock_reason: None,
+                state: WorktreeState::Valid,
+                prunable: false,
+                submodules: WorktreeSubmodules::None,
+            },
+            WorktreeInfo {
+                identity: WorktreeIdentity::Linked {
+                    name: "feature".to_string(),
+                },
+                path: "/repo-feature".into(),
+                branch: Some("feature".to_string()),
+                detached_short_sha: None,
+                is_main: false,
+                is_current: false,
+                cleanliness: WorktreeCleanliness::Clean,
+                lock_reason: None,
+                state: WorktreeState::Valid,
+                prunable: false,
+                submodules: WorktreeSubmodules::None,
+            },
+        ]));
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 8)).expect("terminal");
+        terminal
+            .draw(|frame| render_worktrees(frame, &app, frame.area()))
+            .expect("draw");
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+
+        assert!(text.contains('↑'));
+        assert!(text.contains('↓'));
     }
 
     #[test]
@@ -557,6 +720,8 @@ mod tests {
         assert_eq!(current_marker.fg, Color::Green);
     }
 
+    // --- render_worktree_details ---------------------------------------------
+
     #[test]
     fn renders_identity_path_and_diagnostics_fields() {
         let mut app = App::new(vec![], vec![]);
@@ -605,189 +770,6 @@ mod tests {
     }
 
     #[test]
-    fn diagnostics_preserve_unknown_submodule_reason() {
-        let entry = WorktreeInfo {
-            identity: WorktreeIdentity::Linked {
-                name: "missing".to_string(),
-            },
-            path: "/tmp/missing".into(),
-            branch: Some("feature/missing".to_string()),
-            detached_short_sha: None,
-            is_main: false,
-            is_current: false,
-            cleanliness: WorktreeCleanliness::Unknown("path missing".to_string()),
-            lock_reason: None,
-            state: WorktreeState::Missing,
-            prunable: true,
-            submodules: WorktreeSubmodules::Unknown("repository unavailable".to_string()),
-        };
-        let text = worktree_diagnostic_lines(&entry, 80)
-            .iter()
-            .map(Line::to_string)
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        assert!(text.contains("Submodules: unknown: repository unavailable"));
-    }
-
-    #[test]
-    fn inventory_rows_show_markers_path_head_and_status() {
-        let mut app = App::new(vec![], vec![]);
-        app.update(Msg::SetWorktrees(vec![
-            WorktreeInfo {
-                identity: WorktreeIdentity::Main,
-                path: "/repo".into(),
-                branch: Some("main".to_string()),
-                detached_short_sha: None,
-                is_main: true,
-                is_current: true,
-                cleanliness: WorktreeCleanliness::Clean,
-                lock_reason: None,
-                state: WorktreeState::Valid,
-                prunable: false,
-                submodules: WorktreeSubmodules::None,
-            },
-            WorktreeInfo {
-                identity: WorktreeIdentity::Linked {
-                    name: "missing-tree".to_string(),
-                },
-                path: "/tmp/missing tree/雪".into(),
-                branch: None,
-                detached_short_sha: Some("1234567".to_string()),
-                is_main: false,
-                is_current: false,
-                cleanliness: WorktreeCleanliness::Unknown("path missing".to_string()),
-                lock_reason: Some("owned by editor".to_string()),
-                state: WorktreeState::Missing,
-                prunable: true,
-                submodules: WorktreeSubmodules::Unknown("path missing".to_string()),
-            },
-        ]));
-        let mut terminal = Terminal::new(TestBackend::new(80, 14)).expect("terminal");
-
-        terminal
-            .draw(|frame| render_worktrees(frame, &app, frame.area()))
-            .expect("draw");
-        let text: String = terminal
-            .backend()
-            .buffer()
-            .content()
-            .iter()
-            .map(|cell| cell.symbol())
-            .collect();
-
-        assert!(text.contains("* main"));
-        assert!(text.contains("HEAD: main"));
-        assert!(text.contains("Path: /repo"));
-        assert!(text.contains("missing-tree"));
-        assert!(text.contains("HEAD: detached 1234567"));
-        assert!(text.contains("Path: /tmp/missing tree/雪"));
-        assert!(text.contains("Lock: owned by editor"));
-        assert!(text.contains("Prunable: yes"));
-        assert!(text.contains("Status: valid / clean"));
-        assert!(text.contains("Status: missing / unknown"));
-    }
-    #[test]
-    fn multi_line_inventory_items_show_scrollbar() {
-        let mut app = App::new(vec![], vec![]);
-        app.update(Msg::SetWorktrees(vec![
-            WorktreeInfo {
-                identity: WorktreeIdentity::Main,
-                path: "/repo".into(),
-                branch: Some("main".to_string()),
-                detached_short_sha: None,
-                is_main: true,
-                is_current: true,
-                cleanliness: WorktreeCleanliness::Clean,
-                lock_reason: None,
-                state: WorktreeState::Valid,
-                prunable: false,
-                submodules: WorktreeSubmodules::None,
-            },
-            WorktreeInfo {
-                identity: WorktreeIdentity::Linked {
-                    name: "feature".to_string(),
-                },
-                path: "/repo-feature".into(),
-                branch: Some("feature".to_string()),
-                detached_short_sha: None,
-                is_main: false,
-                is_current: false,
-                cleanliness: WorktreeCleanliness::Clean,
-                lock_reason: None,
-                state: WorktreeState::Valid,
-                prunable: false,
-                submodules: WorktreeSubmodules::None,
-            },
-        ]));
-
-        let mut terminal = Terminal::new(TestBackend::new(80, 8)).expect("terminal");
-        terminal
-            .draw(|frame| render_worktrees(frame, &app, frame.area()))
-            .expect("draw");
-        let text: String = terminal
-            .backend()
-            .buffer()
-            .content()
-            .iter()
-            .map(|cell| cell.symbol())
-            .collect();
-
-        assert!(text.contains('↑'));
-        assert!(text.contains('↓'));
-    }
-    #[test]
-    fn inventory_rows_show_compact_status_labels_and_colors() {
-        let entry = WorktreeInfo {
-            identity: WorktreeIdentity::Linked {
-                name: "a-very-long-worktree-name-that-would-hide-state".to_string(),
-            },
-            path: "/tmp/a-very-long-worktree-name-that-would-hide-state".into(),
-            branch: Some("feature/long".to_string()),
-            detached_short_sha: None,
-            is_main: false,
-            is_current: false,
-            cleanliness: WorktreeCleanliness::Clean,
-            lock_reason: None,
-            state: WorktreeState::Unknown("metadata unavailable".to_string()),
-            prunable: false,
-            submodules: WorktreeSubmodules::None,
-        };
-
-        assert_eq!(list_name_style(&entry), theme::styles::ERROR);
-
-        let mut app = App::new(vec![], vec![]);
-        app.update(Msg::SetWorktrees(vec![entry]));
-        let mut terminal = Terminal::new(TestBackend::new(42, 6)).expect("terminal");
-        terminal
-            .draw(|frame| render_worktrees(frame, &app, frame.area()))
-            .expect("draw");
-        let text: String = terminal
-            .backend()
-            .buffer()
-            .content()
-            .iter()
-            .map(|cell| cell.symbol())
-            .collect();
-
-        assert!(text.contains("a-very-long-worktree-name"));
-        assert!(text.contains("Status: unknown / clean"));
-
-        let path_row = terminal
-            .backend()
-            .buffer()
-            .content()
-            .chunks(42)
-            .nth(3)
-            .expect("path row");
-        let path_content: String = path_row[1..41].iter().map(|cell| cell.symbol()).collect();
-        assert!(
-            path_content.trim_end().ends_with('…'),
-            "path row should retain its truncation marker: {path_content:?}"
-        );
-    }
-
-    #[test]
     fn worktree_lines_fit_narrow_panels() {
         let entry = WorktreeInfo {
             identity: WorktreeIdentity::Linked {
@@ -823,6 +805,36 @@ mod tests {
             );
         }
     }
+
+    // --- worktree_diagnostic_lines -------------------------------------------
+
+    #[test]
+    fn diagnostics_preserve_unknown_submodule_reason() {
+        let entry = WorktreeInfo {
+            identity: WorktreeIdentity::Linked {
+                name: "missing".to_string(),
+            },
+            path: "/tmp/missing".into(),
+            branch: Some("feature/missing".to_string()),
+            detached_short_sha: None,
+            is_main: false,
+            is_current: false,
+            cleanliness: WorktreeCleanliness::Unknown("path missing".to_string()),
+            lock_reason: None,
+            state: WorktreeState::Missing,
+            prunable: true,
+            submodules: WorktreeSubmodules::Unknown("repository unavailable".to_string()),
+        };
+        let text = worktree_diagnostic_lines(&entry, 80)
+            .iter()
+            .map(Line::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(text.contains("Submodules: unknown: repository unavailable"));
+    }
+
+    // --- field wrapping ------------------------------------------------------
 
     #[test]
     fn wrapped_lines_fit_narrow_and_wide_values() {

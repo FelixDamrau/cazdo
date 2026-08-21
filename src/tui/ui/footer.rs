@@ -136,9 +136,36 @@ fn render_footer_line(frame: &mut Frame, area: Rect, line: Line<'static>, style:
 #[cfg(test)]
 mod tests {
     use super::*;
-
     use crate::git::BranchScope;
     use crate::tui::app::{BranchInfo, Msg};
+
+    // --- harness -------------------------------------------------------------
+
+    fn test_app(work_item_id: Option<u32>) -> App {
+        App::new(
+            vec![BranchInfo {
+                key: "refs/heads/feature/1".to_string(),
+                display_name: "feature/1".to_string(),
+                branch_name: "feature/1".to_string(),
+                remote_name: None,
+                scope: BranchScope::Local,
+                work_item_id,
+                is_current: false,
+                is_protected: false,
+                is_stale: false,
+            }],
+            vec![],
+        )
+    }
+
+    fn spans_text(spans: &[Span<'static>]) -> String {
+        spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>()
+    }
+
+    // --- footer_variant ------------------------------------------------------
 
     #[test]
     fn test_footer_variant_prioritizes_filter_input_over_status() {
@@ -160,18 +187,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_normal_footer_tail_with_active_filter() {
-        assert_eq!(
-            spans_text(&normal_footer_tail(true)),
-            "esc clear filter  q quit  "
-        );
-    }
-
-    #[test]
-    fn test_normal_footer_tail_without_active_filter() {
-        assert_eq!(spans_text(&normal_footer_tail(false)), "q/esc quit  ");
-    }
+    // --- render_normal_footer ------------------------------------------------
 
     #[test]
     fn test_normal_footer_omits_refresh_when_unavailable() {
@@ -197,27 +213,18 @@ mod tests {
         );
     }
 
-    fn spans_text(spans: &[Span<'static>]) -> String {
-        spans
-            .iter()
-            .map(|span| span.content.as_ref())
-            .collect::<String>()
+    // --- normal_footer_tail --------------------------------------------------
+
+    #[test]
+    fn test_normal_footer_tail_with_active_filter() {
+        assert_eq!(
+            spans_text(&normal_footer_tail(true)),
+            "esc clear filter  q quit  "
+        );
     }
 
-    fn test_app(work_item_id: Option<u32>) -> App {
-        App::new(
-            vec![BranchInfo {
-                key: "refs/heads/feature/1".to_string(),
-                display_name: "feature/1".to_string(),
-                branch_name: "feature/1".to_string(),
-                remote_name: None,
-                scope: BranchScope::Local,
-                work_item_id,
-                is_current: false,
-                is_protected: false,
-                is_stale: false,
-            }],
-            vec![],
-        )
+    #[test]
+    fn test_normal_footer_tail_without_active_filter() {
+        assert_eq!(spans_text(&normal_footer_tail(false)), "q/esc quit  ");
     }
 }

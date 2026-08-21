@@ -306,115 +306,41 @@ mod tests {
     };
     use crate::tui::app::BranchInfo;
 
-    #[test]
-    fn test_apply_branch_status_result_caches_error_and_sets_status_message() {
-        let mut app = App::new(vec![remote_branch(false)], vec![]);
+    // --- fixtures ------------------------------------------------------------
 
-        apply_branch_status_result(
-            &mut app,
-            "refs/remotes/origin/feature/1",
-            "origin/feature/1",
-            Err(anyhow::anyhow!("git lookup failed")),
-        );
-
-        assert_eq!(
-            app.get_branch_status_error("refs/remotes/origin/feature/1"),
-            Some("git lookup failed")
-        );
-
-        let status = app
-            .get_status_message()
-            .expect("status message should be set");
-        assert!(status.is_error);
-        assert!(status.text.contains("origin/feature/1"));
+    fn remote_branch(is_stale: bool) -> BranchInfo {
+        BranchInfo {
+            key: "refs/remotes/origin/feature/1".to_string(),
+            display_name: "origin/feature/1".to_string(),
+            branch_name: "feature/1".to_string(),
+            remote_name: Some("origin".to_string()),
+            scope: BranchScope::Remote,
+            work_item_id: None,
+            is_current: false,
+            is_protected: false,
+            is_stale,
+        }
     }
 
-    #[test]
-    fn test_apply_branch_status_result_preserves_error_chain() {
-        let mut app = App::new(vec![remote_branch(false)], vec![]);
-
-        let error = anyhow::anyhow!("remote ref unavailable").context("git status failed");
-        apply_branch_status_result(
-            &mut app,
-            "refs/remotes/origin/feature/1",
-            "origin/feature/1",
-            Err(error),
-        );
-
-        assert_eq!(
-            app.get_branch_status_error("refs/remotes/origin/feature/1"),
-            Some("git status failed: remote ref unavailable")
-        );
-        let status = app
-            .get_status_message()
-            .expect("status message should be set");
-        assert_eq!(
-            status.text,
-            "Could not load branch info for 'origin/feature/1': git status failed: remote ref unavailable"
-        );
+    fn removal_target() -> WorktreeInfo {
+        WorktreeInfo {
+            identity: WorktreeIdentity::Linked {
+                name: "feature/test".to_string(),
+            },
+            path: "/repo/feature-test".into(),
+            branch: Some("feature/test".to_string()),
+            detached_short_sha: None,
+            is_main: false,
+            is_current: false,
+            cleanliness: WorktreeCleanliness::Clean,
+            lock_reason: None,
+            state: WorktreeState::Valid,
+            prunable: false,
+            submodules: WorktreeSubmodules::None,
+        }
     }
 
-    #[test]
-    fn test_apply_branch_status_result_does_not_overwrite_status_for_same_error() {
-        let mut app = App::new(vec![remote_branch(false)], vec![]);
-
-        apply_branch_status_result(
-            &mut app,
-            "refs/remotes/origin/feature/1",
-            "origin/feature/1",
-            Err(anyhow::anyhow!("git lookup failed")),
-        );
-
-        app.set_status_message(
-            "Deleted branch".to_string(),
-            false,
-            timing::STATUS_DURATION_SECS,
-        );
-
-        apply_branch_status_result(
-            &mut app,
-            "refs/remotes/origin/feature/1",
-            "origin/feature/1",
-            Err(anyhow::anyhow!("git lookup failed")),
-        );
-
-        let status = app
-            .get_status_message()
-            .expect("status message should be preserved");
-        assert!(!status.is_error);
-        assert_eq!(status.text, "Deleted branch");
-    }
-
-    #[test]
-    fn test_apply_branch_status_result_updates_status_when_error_changes() {
-        let mut app = App::new(vec![remote_branch(false)], vec![]);
-
-        apply_branch_status_result(
-            &mut app,
-            "refs/remotes/origin/feature/1",
-            "origin/feature/1",
-            Err(anyhow::anyhow!("git lookup failed")),
-        );
-
-        app.set_status_message(
-            "Deleted branch".to_string(),
-            false,
-            timing::STATUS_DURATION_SECS,
-        );
-
-        apply_branch_status_result(
-            &mut app,
-            "refs/remotes/origin/feature/1",
-            "origin/feature/1",
-            Err(anyhow::anyhow!("repo locked")),
-        );
-
-        let status = app
-            .get_status_message()
-            .expect("updated error message should be visible");
-        assert!(status.is_error);
-        assert!(status.text.contains("repo locked"));
-    }
+    // --- process_fetch_results -----------------------------------------------
 
     #[test]
     fn test_process_fetch_results_loads_work_item_and_clears_pending_fetch() {
@@ -453,6 +379,7 @@ mod tests {
             _ => panic!("expected loaded work item"),
         }
     }
+
     #[test]
     fn test_process_fetch_results_preserves_nested_async_error_text() {
         let mut app = App::new(vec![remote_branch(false)], vec![]);
@@ -658,23 +585,7 @@ mod tests {
         }
     }
 
-    fn removal_target() -> WorktreeInfo {
-        WorktreeInfo {
-            identity: WorktreeIdentity::Linked {
-                name: "feature/test".to_string(),
-            },
-            path: "/repo/feature-test".into(),
-            branch: Some("feature/test".to_string()),
-            detached_short_sha: None,
-            is_main: false,
-            is_current: false,
-            cleanliness: WorktreeCleanliness::Clean,
-            lock_reason: None,
-            state: WorktreeState::Valid,
-            prunable: false,
-            submodules: WorktreeSubmodules::None,
-        }
-    }
+    // --- trigger_worktree_refresh --------------------------------------------
 
     #[test]
     fn test_refresh_request_is_retained_while_inventory_is_pending() {
@@ -694,6 +605,21 @@ mod tests {
         assert!(worktree_refresh_requested);
         assert!(rx.try_recv().is_err());
     }
+
+    // --- trigger_worktree_removal --------------------------------------------
+
+    #[test]
+    fn test_removal_trigger_rejects_concurrent_operation() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut removal_pending = true;
+
+        trigger_worktree_removal("/repo".into(), removal_target(), &tx, &mut removal_pending);
+
+        assert!(removal_pending);
+        assert!(rx.try_recv().is_err());
+    }
+
+    // --- fetch scheduling ----------------------------------------------------
 
     #[test]
     fn test_background_branch_and_work_item_fetches_skip_worktree_view() {
@@ -738,28 +664,115 @@ mod tests {
         assert!(app.get_status_message().is_none());
     }
 
+    // --- apply_branch_status_result ------------------------------------------
+
     #[test]
-    fn test_removal_trigger_rejects_concurrent_operation() {
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut removal_pending = true;
+    fn test_apply_branch_status_result_caches_error_and_sets_status_message() {
+        let mut app = App::new(vec![remote_branch(false)], vec![]);
 
-        trigger_worktree_removal("/repo".into(), removal_target(), &tx, &mut removal_pending);
+        apply_branch_status_result(
+            &mut app,
+            "refs/remotes/origin/feature/1",
+            "origin/feature/1",
+            Err(anyhow::anyhow!("git lookup failed")),
+        );
 
-        assert!(removal_pending);
-        assert!(rx.try_recv().is_err());
+        assert_eq!(
+            app.get_branch_status_error("refs/remotes/origin/feature/1"),
+            Some("git lookup failed")
+        );
+
+        let status = app
+            .get_status_message()
+            .expect("status message should be set");
+        assert!(status.is_error);
+        assert!(status.text.contains("origin/feature/1"));
     }
 
-    fn remote_branch(is_stale: bool) -> BranchInfo {
-        BranchInfo {
-            key: "refs/remotes/origin/feature/1".to_string(),
-            display_name: "origin/feature/1".to_string(),
-            branch_name: "feature/1".to_string(),
-            remote_name: Some("origin".to_string()),
-            scope: BranchScope::Remote,
-            work_item_id: None,
-            is_current: false,
-            is_protected: false,
-            is_stale,
-        }
+    #[test]
+    fn test_apply_branch_status_result_preserves_error_chain() {
+        let mut app = App::new(vec![remote_branch(false)], vec![]);
+
+        let error = anyhow::anyhow!("remote ref unavailable").context("git status failed");
+        apply_branch_status_result(
+            &mut app,
+            "refs/remotes/origin/feature/1",
+            "origin/feature/1",
+            Err(error),
+        );
+
+        assert_eq!(
+            app.get_branch_status_error("refs/remotes/origin/feature/1"),
+            Some("git status failed: remote ref unavailable")
+        );
+        let status = app
+            .get_status_message()
+            .expect("status message should be set");
+        assert_eq!(
+            status.text,
+            "Could not load branch info for 'origin/feature/1': git status failed: remote ref unavailable"
+        );
+    }
+
+    #[test]
+    fn test_apply_branch_status_result_does_not_overwrite_status_for_same_error() {
+        let mut app = App::new(vec![remote_branch(false)], vec![]);
+
+        apply_branch_status_result(
+            &mut app,
+            "refs/remotes/origin/feature/1",
+            "origin/feature/1",
+            Err(anyhow::anyhow!("git lookup failed")),
+        );
+
+        app.set_status_message(
+            "Deleted branch".to_string(),
+            false,
+            timing::STATUS_DURATION_SECS,
+        );
+
+        apply_branch_status_result(
+            &mut app,
+            "refs/remotes/origin/feature/1",
+            "origin/feature/1",
+            Err(anyhow::anyhow!("git lookup failed")),
+        );
+
+        let status = app
+            .get_status_message()
+            .expect("status message should be preserved");
+        assert!(!status.is_error);
+        assert_eq!(status.text, "Deleted branch");
+    }
+
+    #[test]
+    fn test_apply_branch_status_result_updates_status_when_error_changes() {
+        let mut app = App::new(vec![remote_branch(false)], vec![]);
+
+        apply_branch_status_result(
+            &mut app,
+            "refs/remotes/origin/feature/1",
+            "origin/feature/1",
+            Err(anyhow::anyhow!("git lookup failed")),
+        );
+
+        app.set_status_message(
+            "Deleted branch".to_string(),
+            false,
+            timing::STATUS_DURATION_SECS,
+        );
+
+        apply_branch_status_result(
+            &mut app,
+            "refs/remotes/origin/feature/1",
+            "origin/feature/1",
+            Err(anyhow::anyhow!("repo locked")),
+        );
+
+        let status = app
+            .get_status_message()
+            .expect("updated error message should be visible");
+        assert!(status.is_error);
+        assert!(status.text.contains("repo locked"));
     }
 }

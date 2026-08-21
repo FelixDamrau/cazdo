@@ -204,157 +204,55 @@ mod tests {
     };
     use crate::tui::app::{AppMode, Msg};
 
-    #[test]
-    fn test_remote_delete_status_message_reports_prune_failure() {
-        let (message, is_error) = remote_delete_status_message(
-            "origin/feature/test",
-            Err(anyhow::anyhow!("could not prune tracking ref")),
-        );
+    // --- fixtures ------------------------------------------------------------
 
-        assert!(is_error);
-        assert_eq!(
-            message,
-            "Deleted remote branch 'origin/feature/test', but could not prune tracking ref: could not prune tracking ref"
-        );
-    }
-    #[test]
-    fn test_remote_delete_status_message_preserves_error_chain() {
-        let error = anyhow::anyhow!("tracking ref missing").context("git prune failed");
-        let (message, is_error) = remote_delete_status_message("origin/feature/test", Err(error));
-
-        assert!(is_error);
-        assert_eq!(
-            message,
-            "Deleted remote branch 'origin/feature/test', but could not prune tracking ref: git prune failed: tracking ref missing"
-        );
-    }
-
-    #[test]
-    fn test_remote_delete_status_message_reports_success() {
-        let (message, is_error) = remote_delete_status_message("origin/feature/test", Ok(()));
-
-        assert!(!is_error);
-        assert_eq!(message, "Deleted remote branch 'origin/feature/test'");
-    }
-
-    #[test]
-    fn test_remote_delete_with_prune_failure_keeps_branch_visible_and_marks_stale() {
-        let branch = remote_branch(false);
-        let mut app = App::new(vec![branch.clone()], vec![]);
-        app.update(Msg::ToggleView);
-
-        apply_remote_delete_result(
-            &mut app,
-            &branch,
-            Err(anyhow::anyhow!("could not prune tracking ref")),
-        );
-
-        let branch = app
-            .branch_by_key("refs/remotes/origin/feature/1")
-            .expect("branch should remain visible");
-        assert!(branch.is_stale);
-
-        let status = app
-            .get_status_message()
-            .expect("status message should be set");
-        assert!(status.is_error);
-        assert!(status.text.contains("could not prune tracking ref"));
-    }
-
-    #[test]
-    fn test_remote_delete_with_prune_failure_still_records_deleted_branch_summary() {
-        let branch = remote_branch(false);
-        let mut app = App::new(vec![branch.clone()], vec![]);
-        app.update(Msg::ToggleView);
-
-        apply_remote_delete_result(
-            &mut app,
-            &branch,
-            Err(anyhow::anyhow!("could not prune tracking ref")),
-        );
-
-        assert_eq!(app.deleted_branches().len(), 1);
-        assert_eq!(app.deleted_branches()[0].name, "origin/feature/1");
-        assert_eq!(app.deleted_branches()[0].restore_hint, None);
-    }
-
-    #[test]
-    fn test_focus_local_branch_after_checkout_clamps_when_branch_not_visible() {
-        let remote_branch = remote_branch(false);
-        let mut app = App::new(vec![], vec![]);
-        app.set_selected_index_for_test(4);
-        app.update(Msg::ToggleView);
-
-        app.focus_local_branch(&remote_branch.branch_name);
-
-        assert_eq!(app.active_view(), BranchView::Local);
-        assert_eq!(app.scroll_offset(), 0);
-        assert_eq!(app.selected_index(), 0);
-    }
-
-    #[test]
-    fn test_focus_local_branch_after_checkout_selects_matching_local_branch() {
-        let remote_branch = remote_branch(false);
-        let local_branch = BranchInfo {
-            key: "refs/heads/feature/1".to_string(),
-            display_name: "feature/1".to_string(),
-            branch_name: "feature/1".to_string(),
+    fn local_branch(name: &str) -> BranchInfo {
+        BranchInfo {
+            key: format!("refs/heads/{name}"),
+            display_name: name.to_string(),
+            branch_name: name.to_string(),
             remote_name: None,
             scope: BranchScope::Local,
             work_item_id: None,
-            is_current: true,
+            is_current: false,
             is_protected: false,
             is_stale: false,
-        };
-        let mut app = App::new(vec![local_branch], vec![]);
-        app.update(Msg::ToggleView);
-
-        app.focus_local_branch(&remote_branch.branch_name);
-
-        assert_eq!(app.active_view(), BranchView::Local);
-        assert_eq!(app.selected_index(), 0);
+        }
     }
 
-    #[test]
-    fn test_focus_local_branch_after_checkout_refocuses_sorted_current_branch() {
-        let mut app = App::new(
-            vec![
-                BranchInfo {
-                    key: "refs/heads/feature/1".to_string(),
-                    display_name: "feature/1".to_string(),
-                    branch_name: "feature/1".to_string(),
-                    remote_name: None,
-                    scope: BranchScope::Local,
-                    work_item_id: None,
-                    is_current: true,
-                    is_protected: false,
-                    is_stale: false,
-                },
-                BranchInfo {
-                    key: "refs/heads/feature/4".to_string(),
-                    display_name: "feature/4".to_string(),
-                    branch_name: "feature/4".to_string(),
-                    remote_name: None,
-                    scope: BranchScope::Local,
-                    work_item_id: None,
-                    is_current: false,
-                    is_protected: false,
-                    is_stale: false,
-                },
-            ],
-            vec![],
-        );
-        app.set_selected_index_for_test(1);
-
-        app.update(Msg::SetCurrentBranch("feature/4".to_string()));
-        app.update(Msg::SortBranches);
-        app.focus_local_branch("feature/4");
-
-        assert_eq!(app.active_view(), BranchView::Local);
-        assert_eq!(app.scroll_offset(), 0);
-        assert_eq!(app.selected_index(), 0);
-        assert_eq!(app.visible_branches()[0].branch_name, "feature/4");
+    fn remote_branch(is_stale: bool) -> BranchInfo {
+        BranchInfo {
+            key: "refs/remotes/origin/feature/1".to_string(),
+            display_name: "origin/feature/1".to_string(),
+            branch_name: "feature/1".to_string(),
+            remote_name: Some("origin".to_string()),
+            scope: BranchScope::Remote,
+            work_item_id: None,
+            is_current: false,
+            is_protected: false,
+            is_stale,
+        }
     }
+
+    fn missing_worktree() -> WorktreeInfo {
+        WorktreeInfo {
+            identity: WorktreeIdentity::Linked {
+                name: "linked missing".to_string(),
+            },
+            path: "/tmp/missing path".into(),
+            branch: Some("feature/preserved".to_string()),
+            detached_short_sha: None,
+            is_main: false,
+            is_current: false,
+            cleanliness: WorktreeCleanliness::Unknown("missing".to_string()),
+            lock_reason: None,
+            state: WorktreeState::Missing,
+            prunable: true,
+            submodules: WorktreeSubmodules::Unknown("missing".to_string()),
+        }
+    }
+
+    // --- open_current_work_item ----------------------------------------------
 
     #[test]
     fn test_open_current_work_item_reports_browser_open_error() {
@@ -399,33 +297,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_stale_remote_checkout_error_message_reports_prune_hint() {
-        let branch = remote_branch(true);
-
-        let message = stale_remote_checkout_error_message(&branch).expect("stale remote message");
-
-        assert_eq!(
-            message,
-            "'origin/feature/1' is stale (no longer on origin). Prune it first with 'd'."
-        );
-    }
-
-    #[test]
-    fn test_ensure_local_branch_exists_creates_checkout_target_branch() {
-        let remote_branch = remote_branch(false);
-        let mut app = App::new(vec![remote_branch.clone()], vec![]);
-
-        app.ensure_local_branch_exists(&remote_branch);
-
-        let local_branch = app
-            .branch_by_key("refs/heads/feature/1")
-            .expect("local branch should be created");
-        assert_eq!(local_branch.scope, BranchScope::Local);
-        assert_eq!(local_branch.display_name, "feature/1");
-        assert_eq!(local_branch.remote_name, None);
-        assert!(!local_branch.is_stale);
-    }
+    // --- execute_delete_branch -----------------------------------------------
 
     #[test]
     fn test_execute_delete_branch_local_records_deletion_via_fixture() {
@@ -507,6 +379,65 @@ mod tests {
     }
 
     #[test]
+    fn test_remote_delete_with_prune_failure_keeps_branch_visible_and_marks_stale() {
+        let branch = remote_branch(false);
+        let mut app = App::new(vec![branch.clone()], vec![]);
+        app.update(Msg::ToggleView);
+
+        apply_remote_delete_result(
+            &mut app,
+            &branch,
+            Err(anyhow::anyhow!("could not prune tracking ref")),
+        );
+
+        let branch = app
+            .branch_by_key("refs/remotes/origin/feature/1")
+            .expect("branch should remain visible");
+        assert!(branch.is_stale);
+
+        let status = app
+            .get_status_message()
+            .expect("status message should be set");
+        assert!(status.is_error);
+        assert!(status.text.contains("could not prune tracking ref"));
+    }
+
+    #[test]
+    fn test_remote_delete_with_prune_failure_still_records_deleted_branch_summary() {
+        let branch = remote_branch(false);
+        let mut app = App::new(vec![branch.clone()], vec![]);
+        app.update(Msg::ToggleView);
+
+        apply_remote_delete_result(
+            &mut app,
+            &branch,
+            Err(anyhow::anyhow!("could not prune tracking ref")),
+        );
+
+        assert_eq!(app.deleted_branches().len(), 1);
+        assert_eq!(app.deleted_branches()[0].name, "origin/feature/1");
+        assert_eq!(app.deleted_branches()[0].restore_hint, None);
+    }
+
+    // --- execute_prune_branch ------------------------------------------------
+
+    #[test]
+    fn test_execute_prune_branch_via_fixture() {
+        let branch = remote_branch(true);
+        let mut app = App::new(vec![branch.clone()], vec![]);
+        let git_repo = GitRepo::fixture(FixtureGitRepo::new().with_prune_result(Ok(())));
+
+        execute_prune_branch(&mut app, &git_repo, &branch);
+
+        assert!(app.branch_by_key("refs/remotes/origin/feature/1").is_none());
+        let status = app.get_status_message().expect("status message");
+        assert!(!status.is_error);
+        assert_eq!(status.text, "Pruned stale tracking ref 'origin/feature/1'");
+    }
+
+    // --- execute_prune_worktree ----------------------------------------------
+
+    #[test]
     fn test_execute_prune_worktree_reports_success_without_branch_or_path_mutation() {
         let entry = missing_worktree();
         let mut app = App::new(vec![], vec![]);
@@ -536,36 +467,7 @@ mod tests {
         ));
     }
 
-    fn missing_worktree() -> WorktreeInfo {
-        WorktreeInfo {
-            identity: WorktreeIdentity::Linked {
-                name: "linked missing".to_string(),
-            },
-            path: "/tmp/missing path".into(),
-            branch: Some("feature/preserved".to_string()),
-            detached_short_sha: None,
-            is_main: false,
-            is_current: false,
-            cleanliness: WorktreeCleanliness::Unknown("missing".to_string()),
-            lock_reason: None,
-            state: WorktreeState::Missing,
-            prunable: true,
-            submodules: WorktreeSubmodules::Unknown("missing".to_string()),
-        }
-    }
-    #[test]
-    fn test_execute_prune_branch_via_fixture() {
-        let branch = remote_branch(true);
-        let mut app = App::new(vec![branch.clone()], vec![]);
-        let git_repo = GitRepo::fixture(FixtureGitRepo::new().with_prune_result(Ok(())));
-
-        execute_prune_branch(&mut app, &git_repo, &branch);
-
-        assert!(app.branch_by_key("refs/remotes/origin/feature/1").is_none());
-        let status = app.get_status_message().expect("status message");
-        assert!(!status.is_error);
-        assert_eq!(status.text, "Pruned stale tracking ref 'origin/feature/1'");
-    }
+    // --- execute_checkout_branch ---------------------------------------------
 
     #[test]
     fn test_execute_checkout_branch_success_via_fixture() {
@@ -601,31 +503,147 @@ mod tests {
         ));
     }
 
-    fn local_branch(name: &str) -> BranchInfo {
-        BranchInfo {
-            key: format!("refs/heads/{name}"),
-            display_name: name.to_string(),
-            branch_name: name.to_string(),
+    #[test]
+    fn test_ensure_local_branch_exists_creates_checkout_target_branch() {
+        let remote_branch = remote_branch(false);
+        let mut app = App::new(vec![remote_branch.clone()], vec![]);
+
+        app.ensure_local_branch_exists(&remote_branch);
+
+        let local_branch = app
+            .branch_by_key("refs/heads/feature/1")
+            .expect("local branch should be created");
+        assert_eq!(local_branch.scope, BranchScope::Local);
+        assert_eq!(local_branch.display_name, "feature/1");
+        assert_eq!(local_branch.remote_name, None);
+        assert!(!local_branch.is_stale);
+    }
+
+    #[test]
+    fn test_focus_local_branch_after_checkout_selects_matching_local_branch() {
+        let remote_branch = remote_branch(false);
+        let local_branch = BranchInfo {
+            key: "refs/heads/feature/1".to_string(),
+            display_name: "feature/1".to_string(),
+            branch_name: "feature/1".to_string(),
             remote_name: None,
             scope: BranchScope::Local,
             work_item_id: None,
-            is_current: false,
+            is_current: true,
             is_protected: false,
             is_stale: false,
-        }
+        };
+        let mut app = App::new(vec![local_branch], vec![]);
+        app.update(Msg::ToggleView);
+
+        app.focus_local_branch(&remote_branch.branch_name);
+
+        assert_eq!(app.active_view(), BranchView::Local);
+        assert_eq!(app.selected_index(), 0);
     }
 
-    fn remote_branch(is_stale: bool) -> BranchInfo {
-        BranchInfo {
-            key: "refs/remotes/origin/feature/1".to_string(),
-            display_name: "origin/feature/1".to_string(),
-            branch_name: "feature/1".to_string(),
-            remote_name: Some("origin".to_string()),
-            scope: BranchScope::Remote,
-            work_item_id: None,
-            is_current: false,
-            is_protected: false,
-            is_stale,
-        }
+    #[test]
+    fn test_focus_local_branch_after_checkout_clamps_when_branch_not_visible() {
+        let remote_branch = remote_branch(false);
+        let mut app = App::new(vec![], vec![]);
+        app.set_selected_index_for_test(4);
+        app.update(Msg::ToggleView);
+
+        app.focus_local_branch(&remote_branch.branch_name);
+
+        assert_eq!(app.active_view(), BranchView::Local);
+        assert_eq!(app.scroll_offset(), 0);
+        assert_eq!(app.selected_index(), 0);
+    }
+
+    #[test]
+    fn test_focus_local_branch_after_checkout_refocuses_sorted_current_branch() {
+        let mut app = App::new(
+            vec![
+                BranchInfo {
+                    key: "refs/heads/feature/1".to_string(),
+                    display_name: "feature/1".to_string(),
+                    branch_name: "feature/1".to_string(),
+                    remote_name: None,
+                    scope: BranchScope::Local,
+                    work_item_id: None,
+                    is_current: true,
+                    is_protected: false,
+                    is_stale: false,
+                },
+                BranchInfo {
+                    key: "refs/heads/feature/4".to_string(),
+                    display_name: "feature/4".to_string(),
+                    branch_name: "feature/4".to_string(),
+                    remote_name: None,
+                    scope: BranchScope::Local,
+                    work_item_id: None,
+                    is_current: false,
+                    is_protected: false,
+                    is_stale: false,
+                },
+            ],
+            vec![],
+        );
+        app.set_selected_index_for_test(1);
+
+        app.update(Msg::SetCurrentBranch("feature/4".to_string()));
+        app.update(Msg::SortBranches);
+        app.focus_local_branch("feature/4");
+
+        assert_eq!(app.active_view(), BranchView::Local);
+        assert_eq!(app.scroll_offset(), 0);
+        assert_eq!(app.selected_index(), 0);
+        assert_eq!(app.visible_branches()[0].branch_name, "feature/4");
+    }
+
+    // --- stale_remote_checkout_error_message ---------------------------------
+
+    #[test]
+    fn test_stale_remote_checkout_error_message_reports_prune_hint() {
+        let branch = remote_branch(true);
+
+        let message = stale_remote_checkout_error_message(&branch).expect("stale remote message");
+
+        assert_eq!(
+            message,
+            "'origin/feature/1' is stale (no longer on origin). Prune it first with 'd'."
+        );
+    }
+
+    // --- remote_delete_status_message ----------------------------------------
+
+    #[test]
+    fn test_remote_delete_status_message_reports_success() {
+        let (message, is_error) = remote_delete_status_message("origin/feature/test", Ok(()));
+
+        assert!(!is_error);
+        assert_eq!(message, "Deleted remote branch 'origin/feature/test'");
+    }
+
+    #[test]
+    fn test_remote_delete_status_message_reports_prune_failure() {
+        let (message, is_error) = remote_delete_status_message(
+            "origin/feature/test",
+            Err(anyhow::anyhow!("could not prune tracking ref")),
+        );
+
+        assert!(is_error);
+        assert_eq!(
+            message,
+            "Deleted remote branch 'origin/feature/test', but could not prune tracking ref: could not prune tracking ref"
+        );
+    }
+
+    #[test]
+    fn test_remote_delete_status_message_preserves_error_chain() {
+        let error = anyhow::anyhow!("tracking ref missing").context("git prune failed");
+        let (message, is_error) = remote_delete_status_message("origin/feature/test", Err(error));
+
+        assert!(is_error);
+        assert_eq!(
+            message,
+            "Deleted remote branch 'origin/feature/test', but could not prune tracking ref: git prune failed: tracking ref missing"
+        );
     }
 }
