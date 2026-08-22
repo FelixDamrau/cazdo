@@ -67,7 +67,7 @@ This file documents the project's notable changes.
 
 - **tui:** Make remaining App fields private (#79)
 
-- **tui:** Make TUI mutation helpers update-only. (#80.)
+- **tui:** Make TUI mutation helpers update-only. (#80)
 
 ## v0.2.0 - 2026-05-07
 
