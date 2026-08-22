@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to this project are documented in this file.
+This file documents the project's notable changes.
 ## v0.3.0 - 2026-07-22
 
 **Migrating from `cazdo-update`:** Run the standalone `cazdo-update` once to install v0.3.0, then use `cazdo update` for future updates. The built-in command removes the obsolete standalone updater when possible.
@@ -11,7 +11,7 @@ All notable changes to this project are documented in this file.
 
 - **cli:** Replace cazdo-update with built-in update command (#103)
 
-### Bug Fixes
+### Bug fixes
 
 - **tui:** Keep selected protected/stale branch rows readable (#99)
 
@@ -45,7 +45,7 @@ All notable changes to this project are documented in this file.
 
 - **wi:** Add --json output for full Azure DevOps work item payload (#58)
 
-### Bug Fixes
+### Bug fixes
 
 - **azure-devops:** Add timeout to live HTTP client (#81)
 
@@ -67,11 +67,11 @@ All notable changes to this project are documented in this file.
 
 - **tui:** Make remaining App fields private (#79)
 
-- **tui:** Make TUI mutation helpers update-only. (#80)
+- **tui:** Make TUI mutation helpers update-only. (#80.)
 
 ## v0.2.0 - 2026-05-07
 
-### Bug Fixes
+### Bug fixes
 
 - Harden redaction and TUI error feedback (#50)
 
@@ -93,7 +93,7 @@ All notable changes to this project are documented in this file.
 
 - **tui:** Add interactive branch filtering to the branch list (#45)
 
-### Bug Fixes
+### Bug fixes
 
 - **git:** Separate local branch identity from detached HEAD handling (#47)
 
@@ -115,7 +115,7 @@ All notable changes to this project are documented in this file.
 - **tui:** Add origin remote branch view (#34)
 - **cli:** Extend wi preview and add --long flag (#37)
 
-### Bug Fixes
+### Bug fixes
 
 - **config:** Redact PAT display and harden unix config permissions (#33)
 
@@ -123,7 +123,7 @@ All notable changes to this project are documented in this file.
 
 - **github-actions:** Commit Cargo.lock and enforce locked builds (#32)
 
-## Historical Releases
+## Historical releases
 
 The release history from `v0.1.0` through `v0.1.15` predates changelog generation with conventional commits and `git-cliff`.
 

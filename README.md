@@ -6,9 +6,9 @@
 
 _Cats Do Console Azure DevOps._
 
-`cazdo` is a TUI for Azure DevOps that bridges the gap between your git workflow and issue tracking.
+`cazdo` is a TUI for Azure DevOps that connects your git workflow to issue tracking.
 
-It scans your local branches and `origin` remote branches, extracts work item IDs from their names (e.g., `feature/123-login`), and fetches the corresponding details from Azure DevOps. This allows you to view acceptance criteria, descriptions, and status directly alongside your code, with Markdown and HTML fields rendered as formatted text.
+It scans local branches and `origin` remote branches, finds work item IDs in their names, such as `feature/123-login`, and fetches the matching Azure DevOps details. You can then read acceptance criteria, descriptions, and status beside your code. Markdown and HTML fields appear as formatted text.
 
 ![cazdo TUI example](docs/images/cazdo-open-nav-still.png)
 
@@ -28,21 +28,21 @@ irm https://github.com/FelixDamrau/cazdo/releases/latest/download/cazdo-installe
 
 ## Updating
 
-If you installed cazdo with the shell or PowerShell installer, update to the latest version with:
+If you installed cazdo with the shell or PowerShell installer, run this command to get the latest version:
 
 ```bash
 cazdo update
 ```
 
-Package-manager installations must be updated through their package manager.
+Update package-manager installations through the package manager you used.
 
 ### Migrating from `cazdo-update`
 
-If your current installation still provides `cazdo-update`, run it once to install a release that includes `cazdo update`. Then run `cazdo update`; it will remove the obsolete standalone updater from the same installation directory. If automatic cleanup cannot remove it, delete `cazdo-update` (`cazdo-update.exe` on Windows) from the directory containing `cazdo`.
+If your installation still includes `cazdo-update`, run it once to install a release with `cazdo update`. Then run `cazdo update`. It removes the old standalone updater from the same installation directory. If cleanup fails, delete `cazdo-update` (`cazdo-update.exe` on Windows) from the directory containing `cazdo`.
 
 ## Configuration
 
-### Config File
+### Config file
 
 | Platform | Path                                              |
 | -------- | ------------------------------------------------- |
@@ -64,17 +64,18 @@ protected = ["main", "master", "releases/*"]
 
 Run `cazdo config init` to create a default config file.
 
-### Personal Access Token
+### Personal access token
 
-You can set your Azure DevOps PAT in two ways (checked in order):
+You can set your Azure DevOps PAT in either of these places. `cazdo` checks them in this order:
 
-1. **Environment Variable** (Recommended for CI/CD or temporary overrides):
+1. **Environment variable** (recommended for CI/CD or temporary overrides):
 
    ```bash
    export CAZDO_PAT="your-pat-token"
    ```
 
-2. **Config File** (Recommended for daily use):
+2. **Config file** (recommended for daily use):
+
    Add it to `config.toml`:
    ```toml
    [azure_devops]
@@ -87,7 +88,7 @@ The PAT needs **Work Items (Read)** scope.
 
 ### 1. Setup
 
-First, ensure you have configured your Azure DevOps organization URL and PAT (see [Configuration](#configuration)).
+Before starting, configure your Azure DevOps organization URL and PAT. See [Configuration](#configuration).
 
 ### 2. Start the TUI
 
@@ -99,22 +100,22 @@ cazdo
 
 ### 3. Navigate
 
-The interface starts with your local branches and can toggle to `origin` remote branches. `cazdo` attempts to match each branch to an Azure DevOps work item based on numbers in the branch name.
+The interface opens with your local branches. Press `t` to switch to `origin` remote branches. `cazdo` matches each branch to an Azure DevOps work item using the numbers in the branch name.
 
 ![cazdo TUI open + navigation demo](docs/images/cazdo-open-nav.gif)
 
-- **Left Panel**: List of branches.
+- **Left panel.** List of branches.
   - Branches with found work items show the work item type and ID.
   - The current branch is highlighted.
   - Press `t` to toggle between local and remote (`origin`) branches.
   - Press `/` to edit a shared branch filter. The filter matches all whitespace-separated terms against branch text.
   - Press `Enter` to apply the edited filter, `/` again to refine it, and `Esc` to clear an active filter.
   - In remote view, branches marked with `⚠` no longer exist on `origin`; the cached remote-tracking ref is stale until you prune it yourself.
-- **Right Panel**: Details of the selected work item.
+- **Right panel.** Details of the selected work item.
 
-Use the **Keyboard Shortcuts** below to navigate and interact.
+See the keyboard shortcut tables below to navigate and interact.
 
-### CLI Commands
+### CLI commands
 
 ```bash
 # Initialize config with defaults
@@ -142,7 +143,7 @@ cazdo wi 120 --json
 cazdo update
 ```
 
-## Keyboard Shortcuts
+## Keyboard shortcuts
 
 ### Modifier dispatch
 
@@ -175,7 +176,7 @@ cazdo update
 
 ### Worktree view
 
-Press `w` to toggle between the branch and worktree views.
+Press `w` to switch between the branch and worktree views.
 
 | Key                      | Action                                                                   |
 | ------------------------ | ------------------------------------------------------------------------ |
@@ -186,9 +187,9 @@ Press `w` to toggle between the branch and worktree views.
 | `q` / `Esc`              | Quit                                                                     |
 | `Ctrl+C`                 | Quit                                                                     |
 
-## Protected Branches
+## Protected branches
 
-Branches matching protected patterns are hidden by default and cannot be deleted. The default patterns are `main` and `master`. The same protection also applies to `origin/main`, `origin/master`, and other matching remote branches.
+Branches matching protected patterns are hidden by default and cannot be deleted. The default patterns are `main` and `master`. The same rule applies to `origin/main`, `origin/master`, and other matching remote branches.
 
 Configure custom patterns in `config.toml`:
 
@@ -197,9 +198,9 @@ Configure custom patterns in `config.toml`:
 protected = ["main", "master", "releases/*"]
 ```
 
-Patterns support `*` wildcards (e.g., `releases/*` matches `releases/v1.0`).
+Patterns support `*` wildcards (for example, `releases/*` matches `releases/v1.0`).
 
-Press `p` in the TUI to toggle visibility of protected branches.
+Press `p` in the TUI to show or hide protected branches.
 
 ## Development
 
@@ -209,11 +210,11 @@ Install [`just`](https://just.systems/) to use the development recipes:
 cargo install just
 ```
 
-Run `just` to list the available recipes and their requirements. Before pushing, run `just ci`; it composes the same formatting, lint, build, and test recipes invoked by CI.
+Run `just` to list the available recipes and their requirements. Before pushing, run `just ci`. It runs the same formatting, lint, build, and test recipes as CI.
 
-## Branch Naming
+## Branch naming
 
-cazdo extracts the **first sequence of digits** found in the branch name to use as the Work Item ID.
+cazdo uses the **first sequence of digits** in the branch name as the Work Item ID.
 
 | Branch Name             | Detected WI |
 | ----------------------- | ----------- |
