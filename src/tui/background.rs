@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -12,148 +12,177 @@ use crate::git::{GitRepo, WorktreeInfo, list_origin_remote_heads_in_dir};
 
 const REMOTE_FRESHNESS_TIMEOUT: Duration = Duration::from_secs(10);
 
-pub(super) enum FetchResult {
-    Success { id: u32, work_item: WorkItem },
-    Error { id: u32, error: String },
-    RemoteFreshnessSuccess { live_branches: HashSet<String> },
-    RemoteFreshnessError { error: String },
-    WorktreeInventorySuccess { worktrees: Vec<WorktreeInfo> },
-    WorktreeInventoryError { error: String },
+enum FetchResult {
+    WorkItem {
+        id: u32,
+        request: u64,
+        result: Result<WorkItem, String>,
+    },
+    RemoteFreshness(Result<HashSet<String>, String>),
+    Worktrees(Result<Vec<WorktreeInfo>, String>),
 }
 
-pub(super) fn process_fetch_results(
-    rx: &mut mpsc::UnboundedReceiver<FetchResult>,
-    app: &mut App,
-    pending_fetches: &mut HashSet<u32>,
-    worktree_refresh_pending: &mut bool,
-) {
-    while let Ok(result) = rx.try_recv() {
-        match result {
-            FetchResult::Success { id, work_item } => {
-                app.set_work_item_loaded(id, work_item);
-                pending_fetches.remove(&id);
-            }
-            FetchResult::Error { id, error } => {
-                app.set_work_item_error(id, error);
-                pending_fetches.remove(&id);
-            }
-            FetchResult::RemoteFreshnessSuccess { live_branches } => {
-                app.set_remote_freshness(live_branches);
-            }
-            FetchResult::RemoteFreshnessError { error } => {
-                app.set_remote_freshness_error(error);
-                app.update(Msg::SetBackgroundError(
-                    "Could not verify origin branches".to_string(),
-                ));
-            }
-            FetchResult::WorktreeInventorySuccess { worktrees } => {
-                *worktree_refresh_pending = false;
-                app.update(Msg::SetWorktrees(worktrees));
-            }
-            FetchResult::WorktreeInventoryError { error } => {
-                *worktree_refresh_pending = false;
-                app.update(Msg::SetWorktreeError(error));
-            }
-        }
-    }
+enum WorktreeRefresh {
+    Idle,
+    Running,
+    RunAgain,
 }
 
-pub(super) fn trigger_remote_freshness_check(
-    app: &mut App,
-    git_repo: &GitRepo,
-    tx: &mpsc::UnboundedSender<FetchResult>,
-) {
-    if !app.should_check_remote_freshness() {
-        return;
-    }
-
-    app.set_remote_freshness_checking();
-    let tx = tx.clone();
-
-    let repo_dir = match git_repo.repo_dir() {
-        Ok(repo_dir) => repo_dir,
-        Err(error) => {
-            app.set_remote_freshness_error(error.to_string());
-            return;
-        }
-    };
-
-    tokio::spawn(async move {
-        let _ = tx.send(fetch_remote_freshness(repo_dir).await);
-    });
+/// Owns background requests through completion. Callers request refreshes and
+/// poll once per event-loop turn; channel and retry ordering stay here.
+pub(super) struct BackgroundLoads {
+    client: AzureDevOpsClient,
+    repo_dir: Result<PathBuf, String>,
+    tx: mpsc::UnboundedSender<FetchResult>,
+    rx: mpsc::UnboundedReceiver<FetchResult>,
+    pending_work_items: HashMap<u32, u64>,
+    next_request: u64,
+    worktree_refresh: WorktreeRefresh,
 }
 
-pub(super) fn trigger_worktree_refresh(
-    git_repo: &GitRepo,
-    tx: &mpsc::UnboundedSender<FetchResult>,
-    worktree_refresh_pending: &mut bool,
-    worktree_refresh_requested: &mut bool,
-) {
-    if *worktree_refresh_pending {
-        *worktree_refresh_requested = true;
-        return;
+impl BackgroundLoads {
+    pub(super) fn new(client: AzureDevOpsClient, repo_dir: Result<PathBuf>) -> Self {
+        let (tx, rx) = mpsc::unbounded_channel();
+        Self {
+            client,
+            repo_dir: repo_dir.map_err(|error| error.to_string()),
+            tx,
+            rx,
+            pending_work_items: HashMap::new(),
+            next_request: 0,
+            worktree_refresh: WorktreeRefresh::Idle,
+        }
     }
 
-    *worktree_refresh_requested = false;
-
-    let repo_dir = match git_repo.repo_dir() {
-        Ok(repo_dir) => repo_dir,
-        Err(error) => {
-            let _ = tx.send(FetchResult::WorktreeInventoryError {
-                error: error.to_string(),
-            });
-            return;
+    /// Apply completions before deciding which selected data still needs loading.
+    pub(super) fn poll(&mut self, app: &mut App) {
+        let mut refresh_again = false;
+        while let Ok(result) = self.rx.try_recv() {
+            match result {
+                FetchResult::WorkItem {
+                    id,
+                    request,
+                    result,
+                } => {
+                    // A refresh supersedes even a result already queued for delivery.
+                    if self.pending_work_items.get(&id) != Some(&request) {
+                        continue;
+                    }
+                    self.pending_work_items.remove(&id);
+                    match result {
+                        Ok(work_item) => app.set_work_item_loaded(id, work_item),
+                        Err(error) => app.set_work_item_error(id, error),
+                    }
+                }
+                FetchResult::RemoteFreshness(result) => match result {
+                    Ok(live_branches) => app.set_remote_freshness(live_branches),
+                    Err(error) => {
+                        app.set_remote_freshness_error(error);
+                        app.update(Msg::SetBackgroundError(
+                            "Could not verify origin branches".to_string(),
+                        ));
+                    }
+                },
+                FetchResult::Worktrees(result) => {
+                    refresh_again = matches!(self.worktree_refresh, WorktreeRefresh::RunAgain);
+                    self.worktree_refresh = WorktreeRefresh::Idle;
+                    app.update(match result {
+                        Ok(worktrees) => Msg::SetWorktrees(worktrees),
+                        Err(error) => Msg::SetWorktreeError(error),
+                    });
+                }
+            }
         }
-    };
 
-    *worktree_refresh_pending = true;
-    let tx = tx.clone();
+        // Start the coalesced request after draining, including synchronous errors.
+        if refresh_again {
+            self.refresh_worktrees();
+        }
+        if let Some(id) = app.selected_work_item_id()
+            && matches!(app.get_work_item_status(id), WorkItemStatus::NotFetched)
+            && !self.pending_work_items.contains_key(&id)
+        {
+            self.start_work_item(app, id);
+        }
+        self.check_remote_freshness(app);
+    }
 
-    tokio::spawn(async move {
-        let result =
-            tokio::task::spawn_blocking(move || GitRepo::list_worktrees_at(&repo_dir)).await;
-        let result = match result {
-            Ok(Ok(worktrees)) => FetchResult::WorktreeInventorySuccess { worktrees },
-            Ok(Err(error)) => FetchResult::WorktreeInventoryError {
-                error: error.to_string(),
-            },
-            Err(error) => FetchResult::WorktreeInventoryError {
-                error: format!("Worktree inventory task failed: {error}"),
-            },
+    /// Invalidate any older fetch and reload when this work item is selected.
+    pub(super) fn refresh_work_item(&mut self, app: &mut App, id: u32) {
+        self.pending_work_items.remove(&id);
+        app.reset_work_item(id);
+    }
+
+    /// Requests during an inventory coalesce into one subsequent inventory.
+    pub(super) fn refresh_worktrees(&mut self) {
+        match self.worktree_refresh {
+            WorktreeRefresh::Running | WorktreeRefresh::RunAgain => {
+                self.worktree_refresh = WorktreeRefresh::RunAgain;
+                return;
+            }
+            WorktreeRefresh::Idle => self.worktree_refresh = WorktreeRefresh::Running,
+        }
+
+        let repo_dir = match &self.repo_dir {
+            Ok(repo_dir) => repo_dir.clone(),
+            Err(error) => {
+                let _ = self.tx.send(FetchResult::Worktrees(Err(error.clone())));
+                return;
+            }
         };
-        let _ = tx.send(result);
-    });
-}
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let result =
+                tokio::task::spawn_blocking(move || GitRepo::list_worktrees_at(&repo_dir)).await;
+            let result = match result {
+                Ok(result) => result.map_err(|error| error.to_string()),
+                Err(error) => Err(format!("Worktree inventory task failed: {error}")),
+            };
+            let _ = tx.send(FetchResult::Worktrees(result));
+        });
+    }
 
-pub(super) fn trigger_work_item_fetch(
-    app: &mut App,
-    client: &AzureDevOpsClient,
-    tx: &mpsc::UnboundedSender<FetchResult>,
-    pending_fetches: &mut HashSet<u32>,
-) {
-    if let Some(wi_id) = app.selected_work_item_id() {
-        let status = app.get_work_item_status(wi_id);
-        if matches!(status, WorkItemStatus::NotFetched) && !pending_fetches.contains(&wi_id) {
-            app.set_work_item_loading(wi_id);
-            pending_fetches.insert(wi_id);
+    fn start_work_item(&mut self, app: &mut App, id: u32) {
+        let request = self.next_request;
+        self.next_request += 1;
+        self.pending_work_items.insert(id, request);
+        app.set_work_item_loading(id);
 
-            let client = client.clone();
-            let tx = tx.clone();
-
-            tokio::spawn(async move {
-                let result = match client.get_work_item(wi_id).await {
-                    Ok(work_item) => FetchResult::Success {
-                        id: wi_id,
-                        work_item,
-                    },
-                    Err(error) => FetchResult::Error {
-                        id: wi_id,
-                        error: error.to_string(),
-                    },
-                };
-                let _ = tx.send(result);
+        let client = self.client.clone();
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let result = client
+                .get_work_item(id)
+                .await
+                .map_err(|error| error.to_string());
+            let _ = tx.send(FetchResult::WorkItem {
+                id,
+                request,
+                result,
             });
+        });
+    }
+
+    fn check_remote_freshness(&self, app: &mut App) {
+        if !app.should_check_remote_freshness() {
+            return;
         }
+
+        let repo_dir = match &self.repo_dir {
+            Ok(repo_dir) => repo_dir.clone(),
+            Err(error) => {
+                app.set_remote_freshness_error(error.clone());
+                return;
+            }
+        };
+        app.set_remote_freshness_checking();
+        let tx = self.tx.clone();
+
+        tokio::spawn(async move {
+            let _ = tx.send(FetchResult::RemoteFreshness(
+                fetch_remote_freshness(repo_dir).await,
+            ));
+        });
     }
 }
 
@@ -173,33 +202,24 @@ pub(super) fn fetch_branch_status_if_needed(app: &mut App, git_repo: &GitRepo) {
     }
 }
 
-async fn fetch_remote_freshness(repo_dir: PathBuf) -> FetchResult {
+async fn fetch_remote_freshness(repo_dir: PathBuf) -> Result<HashSet<String>, String> {
     let task = tokio::task::spawn_blocking(move || list_origin_remote_heads_in_dir(&repo_dir));
 
     let join_result = match tokio::time::timeout(REMOTE_FRESHNESS_TIMEOUT, task).await {
         Ok(join_result) => join_result,
         Err(_) => {
-            return FetchResult::RemoteFreshnessError {
-                error: "Network timeout checking origin branches".to_string(),
-            };
+            return Err("Network timeout checking origin branches".to_string());
         }
     };
 
     let branch_result = match join_result {
         Ok(branch_result) => branch_result,
         Err(_) => {
-            return FetchResult::RemoteFreshnessError {
-                error: "Task panicked while checking origin branches".to_string(),
-            };
+            return Err("Task panicked while checking origin branches".to_string());
         }
     };
 
-    match branch_result {
-        Ok(live_branches) => FetchResult::RemoteFreshnessSuccess { live_branches },
-        Err(error) => FetchResult::RemoteFreshnessError {
-            error: error.to_string(),
-        },
-    }
+    branch_result.map_err(|error| error.to_string())
 }
 
 fn apply_branch_status_result(
@@ -231,258 +251,4 @@ fn apply_branch_status_result(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::azure_devops::{WorkItem, WorkItemState, WorkItemType};
-    use crate::git::{
-        BranchScope, FixtureGitRepo, GitRepo, WorktreeCleanliness, WorktreeIdentity, WorktreeInfo,
-        WorktreeState, WorktreeSubmodules,
-    };
-    use crate::tui::app::BranchInfo;
-
-    #[test]
-    fn test_apply_branch_status_result_caches_error_and_sets_status_message() {
-        let mut app = App::new(vec![remote_branch(false)], vec![]);
-
-        apply_branch_status_result(
-            &mut app,
-            "refs/remotes/origin/feature/1",
-            "origin/feature/1",
-            Err(anyhow::anyhow!("git lookup failed")),
-        );
-
-        assert_eq!(
-            app.get_branch_status_error("refs/remotes/origin/feature/1"),
-            Some("git lookup failed")
-        );
-
-        let status = app
-            .get_status_message()
-            .expect("status message should be set");
-        assert!(status.is_error);
-        assert!(status.text.contains("origin/feature/1"));
-    }
-
-    #[test]
-    fn test_apply_branch_status_result_does_not_overwrite_status_for_same_error() {
-        let mut app = App::new(vec![remote_branch(false)], vec![]);
-
-        apply_branch_status_result(
-            &mut app,
-            "refs/remotes/origin/feature/1",
-            "origin/feature/1",
-            Err(anyhow::anyhow!("git lookup failed")),
-        );
-
-        app.set_status_message(
-            "Deleted branch".to_string(),
-            false,
-            timing::STATUS_DURATION_SECS,
-        );
-
-        apply_branch_status_result(
-            &mut app,
-            "refs/remotes/origin/feature/1",
-            "origin/feature/1",
-            Err(anyhow::anyhow!("git lookup failed")),
-        );
-
-        let status = app
-            .get_status_message()
-            .expect("status message should be preserved");
-        assert!(!status.is_error);
-        assert_eq!(status.text, "Deleted branch");
-    }
-
-    #[test]
-    fn test_apply_branch_status_result_updates_status_when_error_changes() {
-        let mut app = App::new(vec![remote_branch(false)], vec![]);
-
-        apply_branch_status_result(
-            &mut app,
-            "refs/remotes/origin/feature/1",
-            "origin/feature/1",
-            Err(anyhow::anyhow!("git lookup failed")),
-        );
-
-        app.set_status_message(
-            "Deleted branch".to_string(),
-            false,
-            timing::STATUS_DURATION_SECS,
-        );
-
-        apply_branch_status_result(
-            &mut app,
-            "refs/remotes/origin/feature/1",
-            "origin/feature/1",
-            Err(anyhow::anyhow!("repo locked")),
-        );
-
-        let status = app
-            .get_status_message()
-            .expect("updated error message should be visible");
-        assert!(status.is_error);
-        assert!(status.text.contains("repo locked"));
-    }
-
-    #[test]
-    fn test_process_fetch_results_loads_work_item_and_clears_pending_fetch() {
-        let mut app = App::new(vec![remote_branch(false)], vec![]);
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut pending_fetches = HashSet::from([42]);
-        let mut worktree_refresh_pending = false;
-
-        tx.send(FetchResult::Success {
-            id: 42,
-            work_item: WorkItem {
-                id: 42,
-                title: "Loaded item".to_string(),
-                work_item_type: WorkItemType::Task,
-                state: WorkItemState::Active,
-                assigned_to: None,
-                url: None,
-                tags: vec![],
-                rich_text_fields: vec![],
-            },
-        })
-        .expect("send should succeed");
-
-        process_fetch_results(
-            &mut rx,
-            &mut app,
-            &mut pending_fetches,
-            &mut worktree_refresh_pending,
-        );
-
-        assert!(pending_fetches.is_empty());
-        match app.get_work_item_status(42) {
-            WorkItemStatus::Loaded(work_item) => assert_eq!(work_item.title, "Loaded item"),
-            _ => panic!("expected loaded work item"),
-        }
-    }
-
-    #[test]
-    fn test_process_fetch_results_sets_remote_freshness_error_and_status() {
-        let mut app = App::new(vec![remote_branch(false)], vec![]);
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut pending_fetches = HashSet::new();
-        let mut worktree_refresh_pending = false;
-
-        tx.send(FetchResult::RemoteFreshnessError {
-            error: "origin unreachable".to_string(),
-        })
-        .expect("send should succeed");
-
-        process_fetch_results(
-            &mut rx,
-            &mut app,
-            &mut pending_fetches,
-            &mut worktree_refresh_pending,
-        );
-
-        assert_eq!(app.remote_freshness_error(), Some("origin unreachable"));
-        let status = app
-            .get_status_message()
-            .expect("remote freshness error should surface in footer");
-        assert!(status.is_error);
-        assert_eq!(status.text, "Could not verify origin branches");
-    }
-
-    #[test]
-    fn test_process_fetch_results_applies_worktree_inventory_and_clears_pending() {
-        let mut app = App::new(vec![], vec![]);
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut pending_fetches = HashSet::new();
-        let mut worktree_refresh_pending = true;
-        let replacement = WorktreeInfo {
-            identity: WorktreeIdentity::Linked {
-                name: "feature/test".to_string(),
-            },
-            path: "/repo/feature-test".into(),
-            branch: Some("feature/test".to_string()),
-            detached_short_sha: None,
-            is_main: false,
-            is_current: false,
-            cleanliness: WorktreeCleanliness::Clean,
-            lock_reason: None,
-            state: WorktreeState::Valid,
-            prunable: false,
-            submodules: WorktreeSubmodules::None,
-        };
-
-        tx.send(FetchResult::WorktreeInventorySuccess {
-            worktrees: vec![replacement.clone()],
-        })
-        .expect("send should succeed");
-
-        process_fetch_results(
-            &mut rx,
-            &mut app,
-            &mut pending_fetches,
-            &mut worktree_refresh_pending,
-        );
-
-        assert!(!worktree_refresh_pending);
-        assert_eq!(app.worktrees(), &[replacement]);
-    }
-
-    #[test]
-    fn test_process_fetch_results_reports_worktree_inventory_error() {
-        let mut app = App::new(vec![], vec![]);
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut pending_fetches = HashSet::new();
-        let mut worktree_refresh_pending = true;
-
-        tx.send(FetchResult::WorktreeInventoryError {
-            error: "metadata unreadable".to_string(),
-        })
-        .expect("send should succeed");
-
-        process_fetch_results(
-            &mut rx,
-            &mut app,
-            &mut pending_fetches,
-            &mut worktree_refresh_pending,
-        );
-
-        assert!(!worktree_refresh_pending);
-        let status = app
-            .get_status_message()
-            .expect("worktree inventory error should be visible");
-        assert!(status.is_error);
-        assert_eq!(status.text, "metadata unreadable");
-    }
-
-    #[test]
-    fn test_refresh_request_is_retained_while_inventory_is_pending() {
-        let git_repo = GitRepo::fixture(FixtureGitRepo::new());
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut worktree_refresh_pending = true;
-        let mut worktree_refresh_requested = false;
-
-        trigger_worktree_refresh(
-            &git_repo,
-            &tx,
-            &mut worktree_refresh_pending,
-            &mut worktree_refresh_requested,
-        );
-
-        assert!(worktree_refresh_pending);
-        assert!(worktree_refresh_requested);
-        assert!(rx.try_recv().is_err());
-    }
-
-    fn remote_branch(is_stale: bool) -> BranchInfo {
-        BranchInfo {
-            key: "refs/remotes/origin/feature/1".to_string(),
-            display_name: "origin/feature/1".to_string(),
-            branch_name: "feature/1".to_string(),
-            remote_name: Some("origin".to_string()),
-            scope: BranchScope::Remote,
-            work_item_id: None,
-            is_current: false,
-            is_protected: false,
-            is_stale,
-        }
-    }
-}
+mod tests;
