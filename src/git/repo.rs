@@ -1,16 +1,12 @@
 use std::collections::HashSet;
-use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context, Result, bail};
-use git2::{BranchType, Repository, WorktreeLockStatus, WorktreePruneOptions};
+use git2::{BranchType, Repository};
 
 use super::worktree::{
-    WorktreeCleanliness, WorktreeIdentity, WorktreeInfo, WorktreeSubmodules, cleanliness,
-    inventory, main_worktree_path, prune_metadata, submodules, validate_worktree_prune,
-    validate_worktree_removal, worktree_paths_equal,
+    self, WorktreeIdentity, WorktreeInfo, inventory, prune_metadata, validate_worktree_prune,
 };
 use crate::pattern::is_protected;
 
@@ -395,7 +391,7 @@ impl GitBackend for LiveGitRepo {
     }
 
     fn remove_worktree(&self, worktree: &WorktreeInfo) -> Result<()> {
-        remove_linked_worktree(&self.repo, worktree)
+        worktree::remove(&self.repo, worktree)
     }
     fn repo_dir(&self) -> Result<PathBuf> {
         Ok(self.command_dir()?.to_path_buf())
@@ -750,329 +746,6 @@ impl LiveGitRepo {
 
         Ok(upstream.name().ok().flatten() == Some(remote_ref_name))
     }
-}
-
-static REMOVAL_PROBE_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-fn preflight_worktree_removal(path: &Path) -> Result<()> {
-    let metadata = fs::metadata(path).with_context(|| {
-        format!(
-            "Cannot remove worktree '{}': unable to access its directory before removal",
-            path.display()
-        )
-    })?;
-    if !metadata.is_dir() {
-        bail!(
-            "Cannot remove worktree '{}': its path is not a directory",
-            path.display()
-        );
-    }
-
-    #[cfg(windows)]
-    ensure_worktree_tree_writable(path)?;
-
-    let probe_id = REMOVAL_PROBE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let mut probe_path = None;
-    for attempt in 0..16 {
-        let candidate = path.join(format!(
-            ".cazdo-removal-probe-{}-{probe_id}-{attempt}",
-            std::process::id()
-        ));
-        match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&candidate)
-        {
-            Ok(file) => {
-                drop(file);
-                probe_path = Some(candidate);
-                break;
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => {
-                return Err(error).with_context(|| {
-                    format!(
-                        "Cannot remove worktree '{}': its directory is not writable",
-                        path.display()
-                    )
-                });
-            }
-        }
-    }
-
-    let Some(probe_path) = probe_path else {
-        bail!(
-            "Cannot remove worktree '{}': unable to create a unique writability probe",
-            path.display()
-        );
-    };
-    fs::remove_file(&probe_path).with_context(|| {
-        format!(
-            "Cannot remove worktree '{}': unable to clean up its writability probe",
-            path.display()
-        )
-    })?;
-    Ok(())
-}
-
-#[cfg(windows)]
-fn ensure_worktree_tree_writable(path: &Path) -> Result<()> {
-    let metadata = fs::symlink_metadata(path)?;
-    if metadata.permissions().readonly() {
-        bail!(
-            "Cannot remove worktree '{}': its path or contents are read-only",
-            path.display()
-        );
-    }
-    if metadata.file_type().is_dir() {
-        for entry in fs::read_dir(path)? {
-            let entry = entry?;
-            ensure_worktree_tree_writable(&entry.path())?;
-        }
-    }
-    Ok(())
-}
-
-fn worktree_metadata_missing(repo: &Repository, name: &str) -> bool {
-    if repo.find_worktree(name).is_err() {
-        return true;
-    }
-
-    let common_git_dir = if repo.is_worktree() {
-        let linked_git_dir = repo.path();
-        let Some(common) = fs::read_to_string(linked_git_dir.join("commondir")).ok() else {
-            return false;
-        };
-        let common = PathBuf::from(common.trim());
-        if common.is_absolute() {
-            common
-        } else {
-            linked_git_dir.join(common)
-        }
-    } else {
-        repo.path().to_path_buf()
-    };
-    matches!(
-        fs::metadata(common_git_dir.join("worktrees").join(name)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound
-    )
-}
-
-fn remove_linked_worktree(repo: &Repository, selected: &WorktreeInfo) -> Result<()> {
-    let name = validate_worktree_removal(selected).map_err(anyhow::Error::msg)?;
-    let worktree = find_registered_worktree(repo, selected, name)?;
-    validate_worktree_metadata(repo, &worktree)?;
-    validate_linked_worktree(&worktree, selected)?;
-
-    let actual_path = worktree.path();
-    preflight_worktree_removal(actual_path)?;
-
-    // GIT_WORKTREE_PRUNE_VALID allows pruning a still-valid worktree; this is intentional.
-    let mut options = WorktreePruneOptions::new();
-    options.valid(true).working_tree(true);
-    if let Err(error) = worktree.prune(Some(&mut options)) {
-        if worktree_metadata_missing(repo, name) {
-            anyhow::bail!(
-                "Worktree '{}' was deregistered but its directory could not be fully deleted ({}). Remove it manually.",
-                actual_path.display(),
-                error
-            );
-        }
-        return Err(error)
-            .with_context(|| format!("Failed to remove worktree '{}'", actual_path.display()));
-    }
-    Ok(())
-}
-
-fn find_registered_worktree(
-    repo: &Repository,
-    selected: &WorktreeInfo,
-    name: &str,
-) -> Result<git2::Worktree> {
-    let worktree_names = repo
-        .worktrees()
-        .context("Cannot remove worktree: failed to list linked worktrees")?;
-    if !worktree_names
-        .iter()
-        .flatten()
-        .any(|candidate| candidate == name)
-    {
-        anyhow::bail!(
-            "Cannot remove worktree '{}': linked worktree is no longer registered; refresh worktree inventory",
-            selected.path.display()
-        );
-    }
-
-    let worktree = repo.find_worktree(name).with_context(|| {
-        format!(
-            "Cannot remove worktree '{}': linked entry is unavailable",
-            name
-        )
-    })?;
-    let actual_path = worktree.path();
-    if !worktree_paths_equal(&selected.path, actual_path) {
-        anyhow::bail!(
-            "Cannot remove worktree '{}': inventory path is stale (current path is '{}'); refresh worktree inventory",
-            selected.path.display(),
-            actual_path.display()
-        );
-    }
-    Ok(worktree)
-}
-
-fn validate_worktree_metadata(repo: &Repository, worktree: &git2::Worktree) -> Result<()> {
-    let actual_path = worktree.path();
-    let main_path = main_worktree_path(repo)
-        .context("Cannot remove worktree: failed to determine the main worktree path")?;
-    if worktree_paths_equal(actual_path, &main_path) {
-        anyhow::bail!(
-            "Cannot remove worktree '{}': the main worktree is protected",
-            actual_path.display()
-        );
-    }
-
-    let current_path = repo
-        .workdir()
-        .context("Cannot remove worktree: current worktree path is unavailable")?;
-    if worktree_paths_equal(actual_path, current_path) {
-        anyhow::bail!(
-            "Cannot remove worktree '{}': the current worktree is protected",
-            actual_path.display()
-        );
-    }
-
-    worktree.validate().with_context(|| {
-        format!(
-            "Cannot remove worktree '{}': it is invalid",
-            actual_path.display()
-        )
-    })?;
-    if worktree.is_prunable(None).with_context(|| {
-        format!(
-            "Cannot remove worktree '{}': unable to determine whether it is prunable",
-            actual_path.display()
-        )
-    })? {
-        anyhow::bail!(
-            "Cannot remove worktree '{}': it is prunable or missing",
-            actual_path.display()
-        );
-    }
-
-    match worktree.is_locked().with_context(|| {
-        format!(
-            "Cannot remove worktree '{}': unable to determine lock status",
-            actual_path.display()
-        )
-    })? {
-        WorktreeLockStatus::Unlocked => {}
-        WorktreeLockStatus::Locked(reason) => {
-            anyhow::bail!(
-                "Cannot remove worktree '{}': it is locked ({})",
-                actual_path.display(),
-                reason.as_deref().unwrap_or("locked")
-            );
-        }
-    }
-
-    Ok(())
-}
-
-fn validate_linked_worktree(worktree: &git2::Worktree, selected: &WorktreeInfo) -> Result<()> {
-    let actual_path = worktree.path();
-    let linked_repo = Repository::open_from_worktree(worktree).with_context(|| {
-        format!(
-            "Cannot remove worktree '{}': unable to open its repository",
-            actual_path.display()
-        )
-    })?;
-    validate_worktree_head(&linked_repo, selected, actual_path)?;
-    validate_worktree_cleanliness(&linked_repo, actual_path)?;
-    validate_worktree_submodules(&linked_repo, actual_path)?;
-    Ok(())
-}
-
-fn validate_worktree_head(
-    linked_repo: &Repository,
-    selected: &WorktreeInfo,
-    actual_path: &Path,
-) -> Result<()> {
-    let (branch, detached_short_sha) = worktree_head_identity(linked_repo).with_context(|| {
-        format!(
-            "Cannot remove worktree '{}': unable to read its HEAD",
-            actual_path.display()
-        )
-    })?;
-    if branch.as_deref() != selected.branch.as_deref()
-        || detached_short_sha.as_deref() != selected.detached_short_sha.as_deref()
-    {
-        anyhow::bail!(
-            "Cannot remove worktree '{}': branch or HEAD changed; refresh worktree inventory",
-            actual_path.display()
-        );
-    }
-    Ok(())
-}
-
-fn validate_worktree_cleanliness(linked_repo: &Repository, actual_path: &Path) -> Result<()> {
-    match cleanliness(linked_repo) {
-        WorktreeCleanliness::Clean => Ok(()),
-        WorktreeCleanliness::Dirty(reasons) => {
-            let reasons = reasons
-                .iter()
-                .map(|reason| reason.label())
-                .collect::<Vec<_>>()
-                .join(", ");
-            anyhow::bail!(
-                "Cannot remove worktree '{}': it has uncommitted changes ({reasons})",
-                actual_path.display()
-            );
-        }
-        WorktreeCleanliness::Unknown(error) => {
-            anyhow::bail!(
-                "Cannot remove worktree '{}': status is unknown ({error})",
-                actual_path.display()
-            );
-        }
-    }
-}
-
-fn validate_worktree_submodules(linked_repo: &Repository, actual_path: &Path) -> Result<()> {
-    match submodules(linked_repo) {
-        WorktreeSubmodules::None => Ok(()),
-        WorktreeSubmodules::Present => {
-            anyhow::bail!(
-                "Cannot remove worktree '{}': it contains submodules",
-                actual_path.display()
-            );
-        }
-        WorktreeSubmodules::Unknown(error) => {
-            anyhow::bail!(
-                "Cannot remove worktree '{}': submodule status is unknown ({error})",
-                actual_path.display()
-            );
-        }
-    }
-}
-
-fn worktree_head_identity(repo: &Repository) -> Result<(Option<String>, Option<String>)> {
-    let head = repo.head().context("Failed to read worktree HEAD")?;
-    if head.is_branch() {
-        return Ok((
-            Some(
-                head.shorthand()
-                    .context("Failed to read worktree branch name")?
-                    .to_string(),
-            ),
-            None,
-        ));
-    }
-
-    Ok((
-        None,
-        head.target()
-            .map(|oid| short_sha(&oid.to_string()).to_string()),
-    ))
 }
 
 fn current_local_branch_name(repo: &Repository) -> Result<Option<String>> {
@@ -2167,6 +1840,211 @@ mod tests {
         assert!(path.exists());
 
         let _ = fs::remove_dir_all(&path);
+        let _ = fs::remove_dir_all(repo_path);
+    }
+
+    #[test]
+    fn test_prune_worktree_metadata_rechecks_recreated_path_after_missing_snapshot() {
+        let (repo, repo_path, oid) = init_test_repo("prune-worktree-recreated");
+        let path = repo_path.join("recreated");
+        add_worktree_at(&repo, oid, "feature/recreated", "recreated", &path);
+        fs::remove_dir_all(&path).expect("worktree should disappear");
+        let selected = linked_entry(&repo, "recreated");
+        assert!(selected.state.is_missing());
+        assert!(selected.prunable);
+        let admin_path = repo.repo.path().join("worktrees/recreated");
+        let head = fs::read(admin_path.join("HEAD")).unwrap();
+        let gitdir = fs::read(admin_path.join("gitdir")).unwrap();
+        fs::create_dir(&path).unwrap();
+        fs::write(path.join("keep.txt"), "recreated after inventory\n").unwrap();
+        let git = GitRepo {
+            backend: Box::new(repo),
+        };
+
+        let error = git.prune_worktree_metadata(&selected).unwrap_err();
+
+        assert!(error.to_string().contains("still exists"));
+        assert_eq!(
+            fs::read_to_string(path.join("keep.txt")).unwrap(),
+            "recreated after inventory\n"
+        );
+        assert_eq!(fs::read(admin_path.join("HEAD")).unwrap(), head);
+        assert_eq!(fs::read(admin_path.join("gitdir")).unwrap(), gitdir);
+        assert!(
+            Repository::open(&repo_path)
+                .unwrap()
+                .find_branch("feature/recreated", BranchType::Local)
+                .is_ok()
+        );
+        let _ = fs::remove_dir_all(repo_path);
+    }
+
+    #[test]
+    fn test_remove_worktree_rechecks_live_head_then_allows_fresh_detached_snapshot() {
+        let (repo, repo_path, oid) = init_test_repo("remove-worktree-live-head");
+        let path = repo_path.join("detached");
+        add_worktree_at(&repo, oid, "feature/detached", "detached", &path);
+        let selected = linked_entry(&repo, "detached");
+        Repository::open(&path)
+            .unwrap()
+            .set_head_detached(oid)
+            .unwrap();
+        let refreshed = linked_entry(&repo, "detached");
+        let admin_path = repo.repo.path().join("worktrees/detached");
+        let contents = fs::read(path.join("README.md")).unwrap();
+        let git = GitRepo {
+            backend: Box::new(repo),
+        };
+
+        let error = git.remove_worktree(&selected).unwrap_err();
+
+        assert!(error.to_string().contains("branch or HEAD changed"));
+        assert!(admin_path.join("HEAD").exists());
+        assert_eq!(fs::read(path.join("README.md")).unwrap(), contents);
+        assert_eq!(refreshed.branch, None);
+        assert_eq!(
+            refreshed.detached_short_sha.as_deref(),
+            Some(short_sha(&oid.to_string()))
+        );
+        git.remove_worktree(&refreshed)
+            .expect("fresh detached worktree should be removable");
+        assert!(!path.exists());
+        assert!(!admin_path.exists());
+        assert!(
+            Repository::open(&repo_path)
+                .unwrap()
+                .find_branch("feature/detached", BranchType::Local)
+                .is_ok()
+        );
+        let _ = fs::remove_dir_all(repo_path);
+    }
+
+    #[test]
+    fn test_remove_worktree_rechecks_current_path_from_another_repository_snapshot() {
+        let (repo, repo_path, oid) = init_test_repo("remove-worktree-live-current");
+        let path = repo_path.join("current");
+        add_worktree_at(&repo, oid, "feature/current", "current", &path);
+        let selected = linked_entry(&repo, "current");
+        assert!(!selected.is_current);
+        let admin_path = repo.repo.path().join("worktrees/current");
+        let contents = fs::read(path.join("README.md")).unwrap();
+        let git = GitRepo {
+            backend: Box::new(LiveGitRepo {
+                repo: Repository::open(&path).unwrap(),
+            }),
+        };
+
+        let error = git.remove_worktree(&selected).unwrap_err();
+
+        assert!(error.to_string().contains("current worktree is protected"));
+        assert!(admin_path.join("HEAD").exists());
+        assert_eq!(fs::read(path.join("README.md")).unwrap(), contents);
+        assert!(
+            repo.repo
+                .find_branch("feature/current", BranchType::Local)
+                .is_ok()
+        );
+        let _ = fs::remove_dir_all(repo_path);
+    }
+
+    #[test]
+    fn test_remove_worktree_rechecks_clean_submodule_added_after_snapshot() {
+        let (repo, repo_path, oid) = init_test_repo("remove-worktree-live-submodule");
+        let path = repo_path.join("with-submodule");
+        add_worktree_at(&repo, oid, "feature/submodule", "with-submodule", &path);
+        let selected = linked_entry(&repo, "with-submodule");
+        assert_eq!(selected.submodules, WorktreeSubmodules::None);
+        let linked = Repository::open(&path).unwrap();
+        {
+            let mut submodule = linked
+                .submodule(repo_path.to_str().unwrap(), Path::new("dependency"), true)
+                .unwrap();
+            submodule.clone(None).expect("local submodule should clone");
+            submodule.add_finalize().unwrap();
+        }
+        let tree_id = linked.index().unwrap().write_tree().unwrap();
+        let tree = linked.find_tree(tree_id).unwrap();
+        let parent = linked.find_commit(oid).unwrap();
+        let signature = git2::Signature::now("Test User", "test@example.com").unwrap();
+        linked
+            .commit(
+                Some("HEAD"),
+                &signature,
+                &signature,
+                "Add submodule",
+                &tree,
+                &[&parent],
+            )
+            .unwrap();
+        let refreshed = linked_entry(&repo, "with-submodule");
+        assert!(
+            refreshed.cleanliness.is_clean(),
+            "submodule rejection must be independent of dirtiness: {:?}",
+            refreshed.cleanliness
+        );
+        assert_eq!(refreshed.submodules, WorktreeSubmodules::Present);
+        let admin_path = repo.repo.path().join("worktrees/with-submodule");
+        let head = fs::read(admin_path.join("HEAD")).unwrap();
+        let contents = fs::read(path.join("dependency/README.md")).unwrap();
+        let git = GitRepo {
+            backend: Box::new(repo),
+        };
+
+        let error = git.remove_worktree(&selected).unwrap_err();
+
+        assert!(error.to_string().contains("contains submodules"));
+        assert_eq!(fs::read(admin_path.join("HEAD")).unwrap(), head);
+        assert_eq!(
+            fs::read(path.join("dependency/README.md")).unwrap(),
+            contents
+        );
+        assert!(
+            linked
+                .find_branch("feature/submodule", BranchType::Local)
+                .is_ok()
+        );
+        let _ = fs::remove_dir_all(repo_path);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_remove_worktree_readonly_file_fails_before_metadata_or_partial_deletion() {
+        let (repo, repo_path, oid) = init_test_repo("remove-worktree-readonly");
+        let path = repo_path.join("readonly");
+        add_worktree_at(&repo, oid, "feature/readonly", "readonly", &path);
+        let selected = linked_entry(&repo, "readonly");
+        let admin_path = repo.repo.path().join("worktrees/readonly");
+        let head = fs::read(admin_path.join("HEAD")).unwrap();
+        let gitdir = fs::read(admin_path.join("gitdir")).unwrap();
+        let file = path.join("README.md");
+        let contents = fs::read(&file).unwrap();
+        let original_permissions = fs::metadata(&file).unwrap().permissions();
+        let mut readonly = original_permissions.clone();
+        readonly.set_readonly(true);
+        fs::set_permissions(&file, readonly).unwrap();
+        let git = GitRepo {
+            backend: Box::new(repo),
+        };
+
+        let result = git.remove_worktree(&selected);
+
+        fs::set_permissions(&file, original_permissions).unwrap();
+        assert!(result.unwrap_err().to_string().contains("read-only"));
+        assert_eq!(fs::read(&file).unwrap(), contents);
+        assert!(path.join(".git").exists());
+        assert_eq!(fs::read(admin_path.join("HEAD")).unwrap(), head);
+        assert_eq!(fs::read(admin_path.join("gitdir")).unwrap(), gitdir);
+        assert_eq!(
+            fs::read_dir(&path).unwrap().count(),
+            2,
+            "no probe files should remain"
+        );
+        assert!(
+            Repository::open(&repo_path)
+                .unwrap()
+                .find_branch("feature/readonly", BranchType::Local)
+                .is_ok()
+        );
         let _ = fs::remove_dir_all(repo_path);
     }
 

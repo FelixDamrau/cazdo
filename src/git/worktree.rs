@@ -1,10 +1,16 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow};
 use git2::{Repository, StatusOptions, SubmoduleIgnore, SubmoduleStatus, WorktreeLockStatus};
 
 use super::repo::short_sha;
+
+mod mutation;
+
+pub(crate) use mutation::{
+    prune_metadata, remove, validate_worktree_prune, validate_worktree_removal,
+};
 
 /// Stable identity for a repository worktree.
 ///
@@ -161,129 +167,6 @@ impl WorktreeInfo {
     }
 }
 
-pub(crate) fn validate_worktree_prune(entry: &WorktreeInfo) -> Result<&str, String> {
-    if entry.is_main {
-        return Err("Cannot prune the main worktree".to_string());
-    }
-    let Some(name) = entry.identity.linked_name() else {
-        return Err(
-            "Cannot prune worktree: selected entry is not a valid linked worktree".to_string(),
-        );
-    };
-    if name.trim().is_empty() {
-        return Err(
-            "Cannot prune worktree: selected entry is not a valid linked worktree".to_string(),
-        );
-    }
-    if entry.is_current {
-        return Err("Cannot prune the current worktree".to_string());
-    }
-    if entry.is_locked() {
-        return Err(format!(
-            "Cannot prune locked worktree '{}': {}",
-            entry.name(),
-            entry.lock_reason.as_deref().unwrap_or("worktree is locked")
-        ));
-    }
-    if !matches!(entry.state, WorktreeState::Missing) {
-        return Err(format!(
-            "Cannot prune worktree '{}': only entries marked missing and prunable are allowed",
-            entry.name()
-        ));
-    }
-    if !entry.prunable {
-        return Err(format!(
-            "Cannot prune worktree '{}': stale metadata is not marked prunable",
-            entry.name()
-        ));
-    }
-    Ok(name)
-}
-
-/// Validate the inventory snapshot before attempting removal.
-///
-/// The live worktree metadata and repository contents must still be rechecked
-/// before pruning because this snapshot may be stale.
-pub(crate) fn validate_worktree_removal(entry: &WorktreeInfo) -> Result<&str, String> {
-    if entry.is_main {
-        return Err(format!(
-            "Cannot remove worktree '{}': the main worktree is protected",
-            entry.path.display()
-        ));
-    }
-    if entry.is_current {
-        return Err(format!(
-            "Cannot remove worktree '{}': the current worktree is protected",
-            entry.path.display()
-        ));
-    }
-    let name = entry
-        .linked_name()
-        .filter(|name| !name.trim().is_empty())
-        .ok_or_else(|| "Cannot remove malformed worktree entry: missing linked name".to_string())?;
-    if entry.path.as_os_str().is_empty() {
-        return Err(format!(
-            "Cannot remove malformed worktree '{}': path is empty",
-            name
-        ));
-    }
-    if !entry.state.is_valid() {
-        return Err(format!(
-            "Cannot remove worktree '{}': inventory state is '{}'; refresh worktree inventory first",
-            entry.path.display(),
-            entry.state.label()
-        ));
-    }
-    match &entry.cleanliness {
-        WorktreeCleanliness::Clean => {}
-        WorktreeCleanliness::Dirty(reasons) => {
-            let reasons = reasons
-                .iter()
-                .map(|reason| reason.label())
-                .collect::<Vec<_>>()
-                .join(", ");
-            return Err(format!(
-                "Cannot remove worktree '{}': it has uncommitted changes ({reasons})",
-                entry.path.display()
-            ));
-        }
-        WorktreeCleanliness::Unknown(error) => {
-            return Err(format!(
-                "Cannot remove worktree '{}': status is unknown ({error})",
-                entry.path.display()
-            ));
-        }
-    }
-    match &entry.submodules {
-        WorktreeSubmodules::None => {}
-        WorktreeSubmodules::Present => {
-            return Err(format!(
-                "Cannot remove worktree '{}': it contains submodules",
-                entry.path.display()
-            ));
-        }
-        WorktreeSubmodules::Unknown(error) => {
-            return Err(format!(
-                "Cannot remove worktree '{}': submodule status is unknown ({error})",
-                entry.path.display()
-            ));
-        }
-    }
-    if let Some(reason) = &entry.lock_reason {
-        return Err(format!(
-            "Cannot remove worktree '{}': it is locked ({reason})",
-            entry.path.display()
-        ));
-    }
-    if entry.prunable {
-        return Err(format!(
-            "Cannot remove worktree '{}': it is prunable or missing; refresh worktree inventory first",
-            entry.path.display()
-        ));
-    }
-    Ok(name)
-}
-
 /// Compare paths for current-worktree marking while preserving the original
 /// paths in the public inventory. Canonicalization handles `..`, symlinks, and
 /// relative paths; missing paths are component-normalized to remove trailing
@@ -377,135 +260,6 @@ pub(crate) fn inventory(repo: &Repository) -> Result<Vec<WorktreeInfo>> {
     Ok(entries)
 }
 
-/// Prune only the administrative directory for a missing, safely identifiable
-/// linked worktree. No force flags are used, and the working-tree path is
-/// never touched.
-pub(crate) fn prune_metadata(
-    repo: &Repository,
-    identity: &WorktreeIdentity,
-    expected_path: &Path,
-) -> Result<()> {
-    let Some(name) = identity.linked_name() else {
-        bail!("Cannot prune the main worktree; only linked worktrees are supported");
-    };
-    let worktree = repo
-        .find_worktree(name)
-        .with_context(|| format!("Cannot open linked worktree metadata '{name}'"))?;
-    let path = worktree.path().to_path_buf();
-    if !worktree_paths_equal(&path, expected_path) {
-        bail!(
-            "Cannot prune worktree '{}': selected path '{}' no longer matches metadata path '{}'",
-            name,
-            expected_path.display(),
-            path.display()
-        );
-    }
-    let main_path =
-        main_worktree_path(repo).context("Cannot determine main worktree path before pruning")?;
-    if worktree_paths_equal(&path, &main_path) {
-        bail!("Cannot prune the main worktree");
-    }
-    if let Some(current_path) = repo.workdir()
-        && worktree_paths_equal(&path, current_path)
-    {
-        bail!("Cannot prune the current worktree");
-    }
-    match worktree
-        .is_locked()
-        .with_context(|| format!("Cannot determine lock status for worktree '{name}'"))?
-    {
-        WorktreeLockStatus::Unlocked => {}
-        WorktreeLockStatus::Locked(reason) => {
-            bail!(
-                "Cannot prune locked worktree '{}': {}",
-                name,
-                reason.unwrap_or_else(|| "worktree is locked".to_string())
-            );
-        }
-    }
-
-    if path.exists() {
-        bail!(
-            "Cannot prune worktree '{}': path '{}' still exists; only missing worktrees are supported",
-            name,
-            path.display()
-        );
-    }
-
-    let admin_path = linked_worktree_admin_path(repo, name).ok_or_else(|| {
-        anyhow!("Cannot determine administrative metadata path for worktree '{name}'")
-    })?;
-    if !admin_path.is_dir() {
-        bail!(
-            "Cannot prune worktree '{}': administrative metadata '{}' is malformed",
-            name,
-            admin_path.display()
-        );
-    }
-
-    let gitdir = fs::read_to_string(admin_path.join("gitdir")).with_context(|| {
-        format!(
-            "Cannot prune worktree '{}': administrative metadata is missing gitdir",
-            name
-        )
-    })?;
-    if gitdir.trim().is_empty() || !gitdir.trim_end().ends_with(".git") {
-        bail!(
-            "Cannot prune worktree '{}': administrative gitdir metadata is malformed",
-            name
-        );
-    }
-    let linked_path = linked_worktree_path(repo, name).ok_or_else(|| {
-        anyhow!(
-            "Cannot prune worktree '{}': administrative gitdir metadata is malformed",
-            name
-        )
-    })?;
-    if !worktree_paths_equal(&linked_path, &path) {
-        bail!(
-            "Cannot prune worktree '{}': administrative path does not match recorded worktree path '{}'",
-            name,
-            path.display()
-        );
-    }
-
-    let head = fs::read_to_string(admin_path.join("HEAD")).with_context(|| {
-        format!(
-            "Cannot prune worktree '{}': administrative metadata is missing HEAD",
-            name
-        )
-    })?;
-    if !valid_head_metadata(&head) {
-        bail!(
-            "Cannot prune worktree '{}': administrative HEAD metadata is malformed",
-            name
-        );
-    }
-
-    let prunable = worktree
-        .is_prunable(None)
-        .with_context(|| format!("Cannot determine whether worktree '{name}' is prunable"))?;
-    if !prunable {
-        bail!(
-            "Cannot prune worktree '{}': metadata is not marked prunable",
-            name
-        );
-    }
-
-    worktree
-        .prune(None)
-        .with_context(|| format!("Failed to prune stale metadata for worktree '{name}'"))
-}
-
-fn valid_head_metadata(head: &str) -> bool {
-    let head = head.trim();
-    if let Some(branch) = head.strip_prefix("ref: refs/heads/") {
-        !branch.is_empty() && !branch.contains(char::is_whitespace)
-    } else {
-        git2::Oid::from_str(head).is_ok()
-    }
-}
-
 fn inspect_entry(
     inventory_repo: &Repository,
     identity: WorktreeIdentity,
@@ -589,7 +343,7 @@ fn inspect_entry_with_state(
     }
 }
 
-pub(crate) fn submodules(repo: &Repository) -> WorktreeSubmodules {
+fn submodules(repo: &Repository) -> WorktreeSubmodules {
     match repo.submodules() {
         Ok(submodules) if submodules.is_empty() => WorktreeSubmodules::None,
         Ok(_) => WorktreeSubmodules::Present,
@@ -662,22 +416,30 @@ fn linked_worktree_path(repo: &Repository, name: &str) -> Option<PathBuf> {
 }
 
 fn head_identity(repo: &Repository) -> (Option<String>, Option<String>) {
-    let Ok(head) = repo.head() else {
-        return (None, None);
-    };
-
-    if head.is_branch() {
-        (head.shorthand().map(str::to_string), None)
-    } else {
-        (
-            None,
-            head.target()
-                .map(|oid| short_sha(&oid.to_string()).to_string()),
-        )
-    }
+    read_head_identity(repo).unwrap_or((None, None))
 }
 
-pub(crate) fn cleanliness(repo: &Repository) -> WorktreeCleanliness {
+fn read_head_identity(repo: &Repository) -> Result<(Option<String>, Option<String>)> {
+    let head = repo.head().context("Failed to read worktree HEAD")?;
+    if head.is_branch() {
+        return Ok((
+            Some(
+                head.shorthand()
+                    .context("Failed to read worktree branch name")?
+                    .to_string(),
+            ),
+            None,
+        ));
+    }
+
+    Ok((
+        None,
+        head.target()
+            .map(|oid| short_sha(&oid.to_string()).to_string()),
+    ))
+}
+
+fn cleanliness(repo: &Repository) -> WorktreeCleanliness {
     let mut options = StatusOptions::new();
     options
         .include_untracked(true)
@@ -761,7 +523,7 @@ fn normalized(path: &Path) -> PathBuf {
     path.components().collect()
 }
 
-pub(crate) fn main_worktree_path(repo: &Repository) -> Result<PathBuf> {
+fn main_worktree_path(repo: &Repository) -> Result<PathBuf> {
     if !repo.is_worktree() {
         return repo
             .workdir()
